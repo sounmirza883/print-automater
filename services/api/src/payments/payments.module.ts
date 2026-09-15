@@ -1,0 +1,36 @@
+import { Module } from "@nestjs/common";
+import type { ApiEnv } from "@print-automated/config";
+import { API_ENV, apiEnv } from "../config/config.module.js";
+import { MockCheckoutController } from "./mock-checkout.controller.js";
+import { MockPaymentProvider } from "./mock-payment-provider.js";
+import { PAYMENT_PROVIDER, type PaymentProvider } from "./payment-provider.interface.js";
+
+// Adding a second real provider later is: implement the class, add one
+// entry to this array, done -- nothing that depends on PAYMENT_PROVIDER
+// (the token, from 6.2) changes at all. Only "mock" exists so far.
+const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutController] : [];
+
+@Module({
+  controllers: PROVIDER_CONTROLLERS,
+  providers: [
+    MockPaymentProvider,
+    {
+      provide: PAYMENT_PROVIDER,
+      inject: [API_ENV, MockPaymentProvider],
+      useFactory: (env: ApiEnv, mock: MockPaymentProvider): PaymentProvider => {
+        switch (env.PAYMENT_PROVIDER) {
+          case "mock":
+            return mock;
+          default:
+            // apiEnvSchema's own z.enum(["mock"]) already makes this
+            // unreachable at startup -- a genuinely new provider name
+            // fails Zod validation before this factory ever runs. This
+            // is the exhaustiveness backstop, not the primary guard.
+            throw new Error(`Unknown PAYMENT_PROVIDER: ${String(env.PAYMENT_PROVIDER)}`);
+        }
+      },
+    },
+  ],
+  exports: [PAYMENT_PROVIDER],
+})
+export class PaymentsModule {}

@@ -18,6 +18,7 @@ const VALID_API_ENV: Record<string, string> = {
   KMS_PROVIDER: "local",
   KMS_LOCAL_MASTER_KEY: "c".repeat(32),
   CORS_ALLOWED_ORIGINS: "http://localhost:3001",
+  MOCK_PAYMENT_WEBHOOK_SECRET: "d".repeat(32),
 };
 
 describe("loadEnv", () => {

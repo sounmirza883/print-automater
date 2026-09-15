@@ -17,6 +17,25 @@ export const apiEnvSchema = baseEnvSchema
     // Defaults to 0 (no fee) rather than a fabricated nonzero number
     // for deployments that haven't set a real business decision here.
     PLATFORM_FEE_MINOR: z.coerce.number().int().nonnegative().default(0),
+    // §23/6.2: which PaymentProvider is bound to the PAYMENT_PROVIDER
+    // DI token. Only "mock" exists until a real PSP adapter is added
+    // later (one new enum value + one new class, per 6.2's own
+    // Done-when) -- not a union of everything the codebase might ever
+    // support, since that would let a typo silently fall through to
+    // whatever `.default()` picks rather than failing fast at startup.
+    PAYMENT_PROVIDER: z.enum(["mock"]).default("mock"),
+    // HMAC-SHA256 key MockPaymentProvider signs its (genuinely
+    // real-HTTP-delivered) webhooks with, and the same key
+    // verifyWebhook() checks them against -- min(32) matches the JWT
+    // secrets' own bar for a symmetric key that guards financial state
+    // transitions.
+    MOCK_PAYMENT_WEBHOOK_SECRET: z.string().min(32),
+    // Where this API is reachable from a browser or from itself --
+    // MockPaymentProvider's checkout page links and its own webhook
+    // delivery both need an absolute URL, not a relative path, since
+    // the former is opened directly by a browser and the latter is a
+    // genuine outbound HTTP call.
+    API_PUBLIC_BASE_URL: z.string().url().default("http://localhost:3000"),
   })
   .superRefine(checkStorageEnv);
 
