@@ -1,5 +1,13 @@
-import { PrismaClient, UserRole, UserStatus, ShopStatus, ShopStaffStatus } from "@prisma/client";
+import {
+  Prisma,
+  PrismaClient,
+  UserRole,
+  UserStatus,
+  ShopStatus,
+  ShopStaffStatus,
+} from "@prisma/client";
 import { hash } from "argon2";
+import type { PrinterCapabilities } from "@print-automated/types";
 
 const prisma = new PrismaClient();
 
@@ -45,15 +53,49 @@ async function upsertShopByName(params: {
   address: string;
   phone: string;
   status: ShopStatus;
+  capabilities: PrinterCapabilities;
 }) {
   const existing = await prisma.shop.findFirst({ where: { name: params.name } });
+  const data = {
+    address: params.address,
+    phone: params.phone,
+    status: params.status,
+    // PrinterCapabilities (packages/types) has no index signature, so
+    // it isn't structurally an InputJsonObject even though every field
+    // on it is plain JSON -- this cast is the standard, narrow way
+    // Prisma itself documents for a typed value going into a Json column.
+    capabilities: params.capabilities as unknown as Prisma.InputJsonValue,
+  };
   if (existing) {
-    return prisma.shop.update({
-      where: { id: existing.id },
-      data: { address: params.address, phone: params.phone, status: params.status },
-    });
+    return prisma.shop.update({ where: { id: existing.id }, data });
   }
-  return prisma.shop.create({ data: params });
+  return prisma.shop.create({ data: { name: params.name, ...data } });
+}
+
+/** 4.2's "versioned, not updated in place" rule applies here too: a
+ * re-run with the same `version` for a shop is a no-op (upsert against
+ * the shopId+version unique constraint), never a silent overwrite of
+ * what an earlier version meant. */
+async function upsertPricingRule(params: {
+  shopId: string;
+  version: number;
+  currency: string;
+  pricePerPageMinor: number;
+  colorSurchargePerPageMinor: number;
+  otherCharges: Array<{ label: string; amountMinor: number }>;
+  minimumChargeMinor: number;
+}) {
+  return prisma.pricingRule.upsert({
+    where: { shopId_version: { shopId: params.shopId, version: params.version } },
+    update: {
+      currency: params.currency,
+      pricePerPageMinor: params.pricePerPageMinor,
+      colorSurchargePerPageMinor: params.colorSurchargePerPageMinor,
+      otherCharges: params.otherCharges,
+      minimumChargeMinor: params.minimumChargeMinor,
+    },
+    create: params,
+  });
 }
 
 async function upsertShopStaff(params: { shopId: string; userId: string; role: UserRole }) {
@@ -81,17 +123,17 @@ async function main(): Promise<void> {
     phone: "+923000000002",
   });
 
-  // Two shops with deliberately different operational profiles. Their
-  // print CAPABILITIES (color/duplex/paper) don't exist as a schema
-  // column yet -- that lands in 4.2, which also extends this seed with
-  // per-shop pricing and capability contrast. For now they're
-  // distinguished by name/staffing so later phases have two real,
-  // differently-staffed shops to test against.
+  // Two shops with deliberately different operational profiles (4.2):
+  // Shop A is full-service (color + duplex, pricier per page); Shop B
+  // is mono/simplex-only and cheaper -- 4.3's discovery filter and
+  // 4.4's quote endpoint both need this contrast to have anything real
+  // to prove against.
   const shopA = await upsertShopByName({
     name: "Downtown Print & Copy (full-service)",
     address: "12 Mall Road, Lahore",
     phone: "+924200000001",
     status: ShopStatus.OPEN,
+    capabilities: { color: true, duplex: true, a4: true, a3: false },
   });
 
   const shopB = await upsertShopByName({
@@ -99,6 +141,27 @@ async function main(): Promise<void> {
     address: "4 University Ave, Lahore",
     phone: "+924200000002",
     status: ShopStatus.OPEN,
+    capabilities: { color: false, duplex: false, a4: true, a3: false },
+  });
+
+  // version 1 for both -- the seed has never "repriced" either shop yet.
+  await upsertPricingRule({
+    shopId: shopA.id,
+    version: 1,
+    currency: "PKR",
+    pricePerPageMinor: 1000, // Rs 10.00/page -- full-service pricing
+    colorSurchargePerPageMinor: 500, // +Rs 5.00/page for color
+    otherCharges: [],
+    minimumChargeMinor: 5000, // Rs 50.00 minimum order
+  });
+  await upsertPricingRule({
+    shopId: shopB.id,
+    version: 1,
+    currency: "PKR",
+    pricePerPageMinor: 600, // Rs 6.00/page -- basic, mono-only pricing
+    colorSurchargePerPageMinor: 0, // shop has no color capability at all
+    otherCharges: [],
+    minimumChargeMinor: 2000, // Rs 20.00 minimum order
   });
 
   const shopAOwner = await upsertUser(passwordHash, {

@@ -27,6 +27,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@print-automated/backend-shared": "workspace:*",
     "@print-automated/config": "workspace:*",
+    "@print-automated/pricing": "workspace:*",
     "@print-automated/types": "workspace:*",
     "@print-automated/validation": "workspace:*",
     "@prisma/client": "^6.2.1",

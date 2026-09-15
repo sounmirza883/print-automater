@@ -254,6 +254,9 @@ importers:
       '@print-automated/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@print-automated/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       '@print-automated/types':
         specifier: workspace:*
         version: link:../../packages/types

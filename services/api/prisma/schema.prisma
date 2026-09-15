@@ -93,7 +93,12 @@ enum ShopStatus {
   SUSPENDED
 }
 
-// §53
+// §53. `capabilities` mirrors packages/types' `PrinterCapabilities`
+// (§18/§49 -- the same shape printers themselves will carry from Phase
+// 8.4) as JSONB: {color, duplex, a4, a3}. Null means "not yet declared" --
+// 4.3's shop discovery filter treats that as "matches nothing" rather
+// than guessing, so an unconfigured shop is never wrongly offered for a
+// configuration it might not support.
 model Shop {
   id           String     @id @default(uuid())
   name         String
@@ -103,12 +108,38 @@ model Shop {
   phone        String?
   status       ShopStatus @default(CLOSED)
   openingHours Json?      @map("opening_hours")
+  capabilities Json?
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  staff ShopStaff[]
+  staff        ShopStaff[]
+  pricingRules PricingRule[]
 
   @@map("shops")
+}
+
+// §19/§20, Migration 003 (4.2). Versioned, not updated in place: a price
+// change inserts a new row with version = previous + 1 rather than
+// mutating the old one, which is what makes §20's "existing orders must
+// not change when a shop reprices" possible once Phase 5 snapshots
+// whichever row was current at order-creation time. The current rule
+// for a shop is the row with the highest version -- no separate
+// "isActive" flag needed since version order already answers that.
+model PricingRule {
+  id                         String   @id @default(uuid())
+  shopId                     String   @map("shop_id")
+  version                    Int
+  currency                   String
+  pricePerPageMinor          Int      @map("price_per_page_minor")
+  colorSurchargePerPageMinor Int      @map("color_surcharge_per_page_minor")
+  otherCharges               Json     @map("other_charges")
+  minimumChargeMinor         Int      @map("minimum_charge_minor")
+  createdAt                  DateTime @default(now()) @map("created_at")
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, version])
+  @@map("pricing_rules")
 }
 
 enum ShopStaffStatus {
