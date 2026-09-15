@@ -217,7 +217,11 @@ importers:
 
   packages/design-tokens: {}
 
-  packages/pricing: {}
+  packages/pricing:
+    dependencies:
+      '@print-automated/types':
+        specifier: workspace:*
+        version: link:../types
 
   packages/types: {}
 
