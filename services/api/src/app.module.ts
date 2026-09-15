@@ -5,9 +5,11 @@ import { RedisModule } from "./redis/redis.module.js";
 import { StorageModule } from "./storage/storage.module.js";
 import { KmsModule } from "./kms/kms.module.js";
 import { CryptoModule } from "./crypto/crypto.module.js";
+import { QueuesModule } from "./queues/queues.module.js";
 import { AuditModule } from "./audit/audit.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { AuthModule } from "./auth/auth.module.js";
+import { DocumentsModule } from "./documents/documents.module.js";
 
 @Module({
   imports: [
@@ -17,9 +19,11 @@ import { AuthModule } from "./auth/auth.module.js";
     StorageModule,
     KmsModule,
     CryptoModule,
+    QueuesModule,
     AuditModule,
     HealthModule,
     AuthModule,
+    DocumentsModule,
   ],
 })
 export class AppModule {}
