@@ -1,11 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import type Redis from "ioredis";
-import type { ApiEnv } from "@print-automated/config";
-import { PrismaService } from "../prisma/prisma.service.js";
-import { REDIS_CLIENT } from "../redis/redis.module.js";
-import { S3_CLIENT } from "../storage/storage.tokens.js";
-import { API_ENV } from "../config/config.module.js";
+import {
+  PrismaService,
+  REDIS_CLIENT,
+  S3_CLIENT,
+  STORAGE_BUCKET,
+} from "@print-automated/backend-shared";
 
 export interface DependencyCheck {
   name: "postgres" | "redis" | "s3";
@@ -24,7 +25,7 @@ export class HealthService {
     private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(S3_CLIENT) private readonly s3: S3Client,
-    @Inject(API_ENV) private readonly env: ApiEnv,
+    @Inject(STORAGE_BUCKET) private readonly bucket: string,
   ) {}
 
   async checkReadiness(): Promise<ReadinessResult> {
@@ -52,7 +53,7 @@ export class HealthService {
 
   private async checkS3(): Promise<DependencyCheck> {
     try {
-      await this.s3.send(new HeadBucketCommand({ Bucket: this.env.S3_BUCKET }));
+      await this.s3.send(new HeadBucketCommand({ Bucket: this.bucket }));
       return { name: "s3", ok: true };
     } catch (error) {
       return { name: "s3", ok: false, error: toMessage(error) };

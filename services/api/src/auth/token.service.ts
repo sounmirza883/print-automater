@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import type { ApiEnv } from "@print-automated/config";
 import type { UserRole } from "@prisma/client";
 import { API_ENV } from "../config/config.module.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { PrismaService } from "@print-automated/backend-shared";
 import { hashToken } from "../common/crypto.util.js";
 import { InvalidRefreshTokenError, RefreshTokenReuseDetectedError } from "./token.errors.js";
 

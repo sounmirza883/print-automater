@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { apiEnvSchema, loadEnv } from "@print-automated/config";
 import { UserRole } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { PrismaService } from "@print-automated/backend-shared";
 import { TokenService } from "./token.service.js";
 import { InvalidRefreshTokenError, RefreshTokenReuseDetectedError } from "./token.errors.js";
 

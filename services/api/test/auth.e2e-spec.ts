@@ -5,10 +5,9 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import type Redis from "ioredis";
+import { PrismaService, REDIS_CLIENT } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
-import { PrismaService } from "../src/prisma/prisma.service.js";
 import { API_ENV } from "../src/config/config.module.js";
-import { REDIS_CLIENT } from "../src/redis/redis.module.js";
 import { configureApp } from "../src/bootstrap.js";
 
 describe("Auth (e2e)", () => {

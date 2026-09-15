@@ -4,7 +4,10 @@ import type Redis from "ioredis";
  * evicts entries older than the window, counts what's left, and either
  * admits the request (adding it to the set) or reports how long until
  * the oldest entry ages out. A true sliding window (§85), not a fixed
- * window that resets and allows a burst at the boundary. */
+ * window that resets and allows a burst at the boundary. Registered
+ * unconditionally on the shared client (services/api's RateLimitGuard
+ * is the only current caller; harmless and free for services/worker to
+ * also have defined but never invoke). */
 const SLIDING_WINDOW_RATE_LIMIT_LUA = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])

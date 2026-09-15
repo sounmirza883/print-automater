@@ -1,12 +1,14 @@
 import { Module } from "@nestjs/common";
-import { AppConfigModule } from "./config/config.module.js";
-import { PrismaModule } from "./prisma/prisma.module.js";
-import { RedisModule } from "./redis/redis.module.js";
-import { StorageModule } from "./storage/storage.module.js";
-import { KmsModule } from "./kms/kms.module.js";
-import { CryptoModule } from "./crypto/crypto.module.js";
+import {
+  PrismaModule,
+  RedisModule,
+  StorageModule,
+  KmsModule,
+  CryptoModule,
+  AuditModule,
+} from "@print-automated/backend-shared";
+import { AppConfigModule, apiEnv } from "./config/config.module.js";
 import { QueuesModule } from "./queues/queues.module.js";
-import { AuditModule } from "./audit/audit.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
@@ -15,9 +17,29 @@ import { DocumentsModule } from "./documents/documents.module.js";
   imports: [
     AppConfigModule,
     PrismaModule,
-    RedisModule,
-    StorageModule,
-    KmsModule,
+    RedisModule.forRoot({ url: apiEnv.REDIS_URL }),
+    StorageModule.forRoot({
+      endpoint: apiEnv.S3_ENDPOINT,
+      region: apiEnv.S3_REGION,
+      bucket: apiEnv.S3_BUCKET,
+      accessKeyId: apiEnv.S3_ACCESS_KEY_ID,
+      secretAccessKey: apiEnv.S3_SECRET_ACCESS_KEY,
+      forcePathStyle: apiEnv.S3_FORCE_PATH_STYLE,
+    }),
+    KmsModule.forRoot(
+      apiEnv.KMS_PROVIDER === "aws"
+        ? {
+            provider: "aws",
+            // apiEnvSchema's checkStorageEnv already requires this
+            // when KMS_PROVIDER=aws.
+            awsKeyId: apiEnv.KMS_AWS_KEY_ID!,
+            awsRegion: apiEnv.S3_REGION,
+          }
+        : {
+            provider: "local",
+            localMasterKey: apiEnv.KMS_LOCAL_MASTER_KEY!,
+          },
+    ),
     CryptoModule,
     QueuesModule,
     AuditModule,

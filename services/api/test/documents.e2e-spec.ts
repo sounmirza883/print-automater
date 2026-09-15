@@ -7,12 +7,14 @@ import type { Queue } from "bullmq";
 import request from "supertest";
 import { UserRole } from "@prisma/client";
 import type { ApiEnv } from "@print-automated/config";
+import {
+  PrismaService,
+  StorageService,
+  QUEUE_NAMES,
+  type DocumentProcessingJob,
+} from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
-import { PrismaService } from "../src/prisma/prisma.service.js";
 import { TokenService } from "../src/auth/token.service.js";
-import { StorageService } from "../src/storage/storage.service.js";
-import { QUEUE_NAMES } from "../src/queues/queue-names.js";
-import type { DocumentProcessingJob } from "../src/queues/document-processing.job.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 

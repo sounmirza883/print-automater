@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { ModuleRef, Reflector } from "@nestjs/core";
 import { ShopStaffStatus } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { PrismaService } from "@print-automated/backend-shared";
 import { SHOP_SCOPE_PARAM_KEY, SHOP_SCOPE_RESOLVER_KEY } from "./shop-scoped.decorator.js";
 import type { ShopResourceResolver } from "./shop-scope.interfaces.js";
 import type { RequestWithUser } from "./jwt-auth.guard.js";

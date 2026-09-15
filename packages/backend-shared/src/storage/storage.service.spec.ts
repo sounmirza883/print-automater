@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { S3Client } from "@aws-sdk/client-s3";
-import { apiEnvSchema, loadEnv } from "@print-automated/config";
+import { storageEnvSchema, loadEnv } from "@print-automated/config";
 import { StorageService } from "./storage.service.js";
 
 describe("StorageService (integration, real MinIO)", () => {
-  const env = loadEnv(apiEnvSchema, process.env);
+  const env = loadEnv(storageEnvSchema, process.env);
   const s3 = new S3Client({
     endpoint: env.S3_ENDPOINT,
     region: env.S3_REGION,
     forcePathStyle: env.S3_FORCE_PATH_STYLE,
     credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
   });
-  const service = new StorageService(s3, env);
+  const service = new StorageService(s3, env.S3_BUCKET);
 
   afterAll(() => {
     s3.destroy();

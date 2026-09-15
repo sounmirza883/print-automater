@@ -3,8 +3,7 @@ import { CanActivate, ExecutionContext, HttpStatus, Inject, Injectable } from "@
 import { Reflector } from "@nestjs/core";
 import type { Request, Response } from "express";
 import { AppException } from "../common/errors/app-exception.js";
-import { REDIS_CLIENT } from "../redis/redis.module.js";
-import type { RedisWithRateLimit } from "../redis/sliding-window-rate-limit.command.js";
+import { REDIS_CLIENT, type RedisWithRateLimit } from "@print-automated/backend-shared";
 import { RATE_LIMIT_KEY, type RateLimitOptions } from "./rate-limit.decorator.js";
 
 @Injectable()

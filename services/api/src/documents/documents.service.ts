@@ -4,10 +4,12 @@ import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
 import { DocumentStatus, type Document } from "@prisma/client";
 import type { CreateDocumentInput } from "@print-automated/validation";
-import { PrismaService } from "../prisma/prisma.service.js";
-import { StorageService } from "../storage/storage.service.js";
-import { QUEUE_NAMES } from "../queues/queue-names.js";
-import type { DocumentProcessingJob } from "../queues/document-processing.job.js";
+import {
+  PrismaService,
+  StorageService,
+  QUEUE_NAMES,
+  type DocumentProcessingJob,
+} from "@print-automated/backend-shared";
 import { sanitizeFilename } from "./sanitize-filename.js";
 
 export interface CreateDocumentResult {

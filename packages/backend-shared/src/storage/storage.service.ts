@@ -7,9 +7,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { ApiEnv } from "@print-automated/config";
-import { API_ENV } from "../config/config.module.js";
-import { S3_CLIENT } from "./storage.tokens.js";
+import { S3_CLIENT, STORAGE_BUCKET } from "./storage.tokens.js";
 
 const PRESIGNED_PUT_TTL_SECONDS = 15 * 60;
 const PRESIGNED_GET_TTL_SECONDS = 5 * 60;
@@ -23,7 +21,7 @@ const PRESIGNED_GET_TTL_SECONDS = 5 * 60;
 export class StorageService {
   constructor(
     @Inject(S3_CLIENT) private readonly s3: S3Client,
-    @Inject(API_ENV) private readonly env: ApiEnv,
+    @Inject(STORAGE_BUCKET) private readonly bucket: string,
   ) {}
 
   quarantineKey(documentId: string): string {
@@ -38,7 +36,7 @@ export class StorageService {
    * directly to S3/MinIO, the raw bytes never pass through this API. */
   createPresignedPutUrl(key: string, contentType = "application/pdf"): Promise<string> {
     const command = new PutObjectCommand({
-      Bucket: this.env.S3_BUCKET,
+      Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
     });
@@ -51,14 +49,12 @@ export class StorageService {
    * public URLs). This exists for the narrower case of handing a
    * short-lived link to a trusted internal caller. */
   createPresignedGetUrl(key: string): Promise<string> {
-    const command = new GetObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key });
+    const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.s3, command, { expiresIn: PRESIGNED_GET_TTL_SECONDS });
   }
 
   async getObjectBuffer(key: string): Promise<Buffer> {
-    const result = await this.s3.send(
-      new GetObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }),
-    );
+    const result = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     const bytes = await result.Body?.transformToByteArray();
     if (!bytes) {
       throw new Error(`Object body was empty for key "${key}"`);
@@ -72,22 +68,17 @@ export class StorageService {
     contentType = "application/octet-stream",
   ): Promise<void> {
     await this.s3.send(
-      new PutObjectCommand({
-        Bucket: this.env.S3_BUCKET,
-        Key: key,
-        Body: body,
-        ContentType: contentType,
-      }),
+      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }),
     );
   }
 
   async deleteObject(key: string): Promise<void> {
-    await this.s3.send(new DeleteObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }));
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 
   async objectExists(key: string): Promise<boolean> {
     try {
-      await this.s3.send(new HeadObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }));
+      await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
       return true;
     } catch (error) {
       if (error instanceof Error && error.name === "NotFound") {

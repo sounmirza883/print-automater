@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { UserRole, ShopStaffStatus } from "@prisma/client";
-import { PrismaService } from "./prisma.service.js";
+import { PrismaService } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "./shop-scoped-repository.js";
 
 // Exercised against the real shop_staff table -- it's a genuine

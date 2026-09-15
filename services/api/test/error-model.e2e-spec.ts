@@ -6,8 +6,8 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import type { ApiError } from "@print-automated/types";
+import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
-import { PrismaService } from "../src/prisma/prisma.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 
