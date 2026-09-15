@@ -3,6 +3,7 @@ import { AppConfigModule } from "./config/config.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 import { StorageModule } from "./storage/storage.module.js";
+import { KmsModule } from "./kms/kms.module.js";
 import { AuditModule } from "./audit/audit.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -13,6 +14,7 @@ import { AuthModule } from "./auth/auth.module.js";
     PrismaModule,
     RedisModule,
     StorageModule,
+    KmsModule,
     AuditModule,
     HealthModule,
     AuthModule,
