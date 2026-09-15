@@ -4,6 +4,8 @@ import { UserRole, UserStatus } from "@prisma/client";
 import type { RegisterInput, LoginInput } from "@print-automated/validation";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
+import { AuditService } from "../audit/audit.service.js";
+import { AuditAction } from "../audit/audit-action.js";
 import { hashToken } from "../common/crypto.util.js";
 import { PasswordService } from "./password.service.js";
 import { TokenService } from "./token.service.js";
@@ -31,6 +33,7 @@ export class AuthService {
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   /** Self-registration always creates a CUSTOMER account -- role is
@@ -54,7 +57,7 @@ export class AuthService {
       },
     });
 
-    return this.issueAuthResult(user);
+    return this.issueAuthResult(user, AuditAction.REGISTER);
   }
 
   async login(input: LoginInput): Promise<AuthResult> {
@@ -70,7 +73,7 @@ export class AuthService {
       throw new UnauthorizedException("Invalid email or password.");
     }
 
-    return this.issueAuthResult(user);
+    return this.issueAuthResult(user, AuditAction.LOGIN);
   }
 
   async refresh(rawRefreshToken: string): Promise<Omit<AuthResult, "user">> {
@@ -89,13 +92,21 @@ export class AuthService {
   }
 
   /** Idempotent: an already-invalid token means there's nothing left to
-   * revoke, so this succeeds silently rather than erroring on a retry. */
+   * revoke, so this succeeds silently rather than erroring on a retry.
+   * Only a meaningful logout (a token that actually decoded) is audited
+   * -- there's no actor to attribute a garbage-token attempt to. */
   async logout(rawRefreshToken: string): Promise<void> {
     const payload = this.tokenService.decodeRefreshToken(rawRefreshToken);
     if (!payload) {
       return;
     }
     await this.tokenService.revokeFamily(payload.familyId);
+    await this.auditService.record({
+      actorId: payload.sub,
+      action: AuditAction.LOGOUT,
+      resourceType: "user",
+      resourceId: payload.sub,
+    });
   }
 
   /** Always behaves identically whether or not the email is registered,
@@ -120,8 +131,14 @@ export class AuthService {
     this.notificationService.sendPasswordRecovery(email, rawToken);
   }
 
-  private async issueAuthResult(user: StoredUser): Promise<AuthResult> {
+  private async issueAuthResult(user: StoredUser, action: AuditAction): Promise<AuthResult> {
     const pair = await this.tokenService.issueTokenPair(user);
+    await this.auditService.record({
+      actorId: user.id,
+      action,
+      resourceType: "user",
+      resourceId: user.id,
+    });
     return {
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
       accessToken: pair.accessToken,

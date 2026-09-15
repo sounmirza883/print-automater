@@ -82,6 +82,17 @@ describe("Auth (e2e)", () => {
       .post("/v1/auth/refresh")
       .send({ refreshToken: rotatedRefreshToken });
     expect(postLogoutRefreshRes.status).toBe(401);
+
+    // login and logout each produced an audit row (1.7)
+    const userId = registerRes.body.user.id as string;
+    const auditActions = await prisma.auditLog.findMany({
+      where: { actorId: userId },
+      select: { action: true },
+    });
+    const actions = auditActions.map((row) => row.action);
+    expect(actions).toContain("REGISTER");
+    expect(actions).toContain("LOGIN");
+    expect(actions).toContain("LOGOUT");
   });
 
   it("recovery always returns 204 whether or not the email is registered (no enumeration)", async () => {
