@@ -273,6 +273,7 @@ model Order {
   customer User     @relation(fields: [customerId], references: [id])
   shop     Shop     @relation(fields: [shopId], references: [id])
   document Document @relation(fields: [documentId], references: [id])
+  payments Payment[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
@@ -341,4 +342,48 @@ model IdempotencyKey {
 
   @@unique([key, scope])
   @@map("idempotency_keys")
+}
+
+// 6.1/§57. `amountMinor` (not `amount`) matches this codebase's
+// existing integer-minor-units convention for money everywhere else
+// (pricing_rules, orders.pricing_snapshot) -- §23's "never trust the
+// client" rule extends to never risking float rounding on money either.
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String        @map("order_id")
+  provider          String
+  providerPaymentId String?       @map("provider_payment_id")
+  amountMinor       Int           @map("amount_minor")
+  currency          String
+  status            PaymentStatus @default(PENDING)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  order  Order          @relation(fields: [orderId], references: [id])
+  events PaymentEvent[]
+
+  @@index([orderId])
+  @@index([status])
+  @@map("payments")
+}
+
+// 6.1/§58/§76/§92: `providerEventId` is `@unique` -- the database
+// itself is the idempotency backstop for "the same webhook delivered 5
+// times produces exactly one financial operation" (6.5's own
+// Done-when), not application logic alone. `processedAt` stays null
+// until the event has actually been applied (its own state transition
+// run) -- a row can exist (the unique constraint claimed) before that
+// happens, same "claim, then execute" shape as 5.3's idempotency keys.
+model PaymentEvent {
+  id              String    @id @default(uuid())
+  paymentId       String    @map("payment_id")
+  providerEventId String    @unique @map("provider_event_id")
+  eventType       String    @map("event_type")
+  processedAt     DateTime? @map("processed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@map("payment_events")
 }
