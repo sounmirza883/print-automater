@@ -2,6 +2,7 @@
   "name": "print-automated",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=22.0.0"
@@ -13,11 +14,31 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "dev": "turbo run dev --parallel",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
     "db:migrate": "pnpm --filter @print-automated/api exec prisma migrate dev",
     "db:seed": "pnpm --filter @print-automated/api exec prisma db seed",
     "db:reset": "pnpm --filter @print-automated/api exec prisma migrate reset"
   },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix --max-warnings=0 --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
   "devDependencies": {
-    "turbo": "^2.3.3"
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0"
   }
 }

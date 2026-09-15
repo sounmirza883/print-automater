@@ -1,5 +1,9 @@
 {
   "name": "@print-automated/api",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  }
 }
