@@ -17,6 +17,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
+    "dev:up": "docker compose -f infrastructure/docker/docker-compose.dev.yml up -d",
+    "dev:down": "docker compose -f infrastructure/docker/docker-compose.dev.yml down",
     "db:migrate": "pnpm --filter @print-automated/api exec prisma migrate dev",
     "db:seed": "pnpm --filter @print-automated/api exec prisma db seed",
     "db:reset": "pnpm --filter @print-automated/api exec prisma migrate reset"
