@@ -10,3 +10,8 @@ export {
 } from "./auth/index.js";
 export { createDocumentSchema, type CreateDocumentInput } from "./documents/index.js";
 export { listShopsQuerySchema, type ListShopsQueryInput } from "./shops/index.js";
+export {
+  printConfigurationSchema,
+  type PrintConfigurationInput,
+} from "./print-configuration.schema.js";
+export { createQuoteSchema, type CreateQuoteInput } from "./orders/index.js";
