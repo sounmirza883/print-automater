@@ -2,7 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from
 import type { Request, Response } from "express";
 import type { Logger } from "pino";
 import type { ApiError } from "@print-automated/types";
-import { AppException } from "../errors/app-exception.js";
+import { AppException } from "@print-automated/backend-shared";
 import { deriveErrorCode } from "../errors/derive-error-code.js";
 
 interface RequestWithPinoLog extends Request {

@@ -6,6 +6,7 @@ import {
   KmsModule,
   CryptoModule,
   AuditModule,
+  OrderStateMachineModule,
 } from "@print-automated/backend-shared";
 import { AppConfigModule, apiEnv } from "./config/config.module.js";
 import { QueuesModule } from "./queues/queues.module.js";
@@ -45,6 +46,7 @@ import { OrdersModule } from "./orders/orders.module.js";
     CryptoModule,
     QueuesModule,
     AuditModule,
+    OrderStateMachineModule,
     HealthModule,
     AuthModule,
     DocumentsModule,

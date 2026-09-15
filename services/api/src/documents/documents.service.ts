@@ -11,6 +11,7 @@ import type { Queue } from "bullmq";
 import { DocumentStatus, type Document } from "@prisma/client";
 import type { CreateDocumentInput } from "@print-automated/validation";
 import {
+  AppException,
   PrismaService,
   StorageService,
   CryptoService,
@@ -21,7 +22,6 @@ import {
   type DocumentProcessingJob,
 } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
-import { AppException } from "../common/errors/app-exception.js";
 import { sanitizeFilename } from "./sanitize-filename.js";
 
 export interface CreateDocumentResult {

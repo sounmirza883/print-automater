@@ -8,10 +8,12 @@ import {
   KmsModule,
   CryptoModule,
   AuditModule,
+  OrderStateMachineModule,
   REDIS_CLIENT,
 } from "@print-automated/backend-shared";
 import { WorkerConfigModule, workerEnv } from "./config/config.module.js";
 import { DocumentProcessingModule } from "./document-processing/document-processing.module.js";
+import { OrderExpirationModule } from "./order-expiration/order-expiration.module.js";
 
 @Module({
   imports: [
@@ -42,11 +44,13 @@ import { DocumentProcessingModule } from "./document-processing/document-process
     ),
     CryptoModule,
     AuditModule,
+    OrderStateMachineModule,
     BullModule.forRootAsync({
       inject: [REDIS_CLIENT],
       useFactory: (connection: Redis) => ({ connection }),
     }),
     DocumentProcessingModule,
+    OrderExpirationModule,
   ],
 })
 export class AppModule {}

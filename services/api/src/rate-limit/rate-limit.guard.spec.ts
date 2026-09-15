@@ -1,7 +1,7 @@
 import { ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
-import { AppException } from "../common/errors/app-exception.js";
+import { AppException } from "@print-automated/backend-shared";
 import type { RateLimitOptions } from "./rate-limit.decorator.js";
 import { RateLimitGuard } from "./rate-limit.guard.js";
 

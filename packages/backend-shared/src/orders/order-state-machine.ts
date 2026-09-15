@@ -1,12 +1,17 @@
 import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import { OrderStatus, type Prisma } from "@prisma/client";
-import { PrismaService, redactMetadata } from "@print-automated/backend-shared";
-import { AppException } from "../common/errors/app-exception.js";
+import { PrismaService } from "../prisma/prisma.service.js";
+import { redactMetadata } from "../audit/redact-metadata.js";
+import { AppException } from "../errors/app-exception.js";
 
 /** Every event this machine accepts. Not shared with any client bundle
  * (packages/types' `OrderStatus` is the public-facing state; the
  * events that move between them are purely a server-side transition
- * vocabulary), so it lives here rather than in a shared package. */
+ * vocabulary), so it lives here in backend-shared rather than a
+ * client-facing package -- both services/api (order creation, cancel)
+ * and services/worker (5.6's expiration sweep) transition orders, so
+ * "shared", for this class, means shared between server processes, not
+ * shared with a browser or the Expo app. */
 export const OrderEvent = {
   CONFIRM_UPLOAD: "CONFIRM_UPLOAD",
   REQUEST_PAYMENT: "REQUEST_PAYMENT",
@@ -116,11 +121,13 @@ export interface TransitionContext {
 
 /** The one and only place `orders.order_status` is ever written after
  * creation (enforced by the `no-restricted-syntax` rule in the root
- * eslint config, scoped to `services/api/src` and excluding this
- * file). `SELECT ... FOR UPDATE` first, inside a transaction, so two
- * callers racing the same order serialize on Postgres' own row lock
- * rather than a lost-update race in application code -- the same
- * pattern 5.2's order-number counter uses for its own concurrency
+ * eslint config, scoped to every server-side package/app and excluding
+ * this file). `SELECT ... FOR UPDATE` first, inside a transaction, so
+ * two callers racing the same order -- including 5.6's worker-side
+ * expiration sweep racing a customer's own cancel request, or two
+ * overlapping sweep ticks racing each other -- serialize on Postgres'
+ * own row lock rather than a lost-update race in application code; the
+ * same pattern 5.2's order-number counter uses for its own concurrency
  * guarantee, applied here to a row that already exists instead of one
  * being upserted. */
 @Injectable()

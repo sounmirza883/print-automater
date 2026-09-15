@@ -35,3 +35,13 @@ export { redactMetadata } from "./audit/redact-metadata.js";
 export { QUEUE_NAMES } from "./queues/queue-names.js";
 export type { DocumentProcessingJob } from "./queues/document-processing.job.js";
 export { DOCUMENT_PROCESSING_JOB_OPTIONS } from "./queues/document-processing.job-options.js";
+
+export { AppException } from "./errors/app-exception.js";
+
+export {
+  OrderEvent,
+  OrderStateMachine,
+  type TransitionActor,
+  type TransitionContext,
+} from "./orders/order-state-machine.js";
+export { OrderStateMachineModule } from "./orders/order-state-machine.module.js";

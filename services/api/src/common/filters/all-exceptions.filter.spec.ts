@@ -1,5 +1,5 @@
 import { ArgumentsHost, ForbiddenException, HttpStatus } from "@nestjs/common";
-import { AppException } from "../errors/app-exception.js";
+import { AppException } from "@print-automated/backend-shared";
 import { AllExceptionsFilter } from "./all-exceptions.filter.js";
 
 function createHost() {

@@ -3,14 +3,13 @@ import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentStatus, ShopStatus, UserRole } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import { OrderEvent, OrderStateMachine, PrismaService } from "@print-automated/backend-shared";
 import request from "supertest";
 import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import type { ApiEnv } from "@print-automated/config";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
-import { OrderEvent, OrderStateMachine } from "../src/orders/order-state-machine.js";
 
 const CONFIG = {
   pages: { mode: "all" as const },

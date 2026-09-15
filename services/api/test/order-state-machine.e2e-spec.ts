@@ -2,10 +2,13 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { DocumentStatus, OrderStatus } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import {
+  AppException,
+  OrderEvent,
+  OrderStateMachine,
+  PrismaService,
+} from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
-import { AppException } from "../src/common/errors/app-exception.js";
-import { OrderEvent, OrderStateMachine } from "../src/orders/order-state-machine.js";
 
 /** 5.4's own Done-when: an exhaustive matrix over every (state, event)
  * pair. `EXPECTED` is an independently hand-written mirror of the

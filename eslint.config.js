@@ -48,12 +48,19 @@ export default tseslint.config(
     // OrderStateMachine.transition() bypasses the transition table
     // entirely -- no legality check, no row lock, no audit row. This
     // catches every `prisma.order.update`/`updateMany` call anywhere in
-    // services/api that sets `orderStatus`, except inside the state
-    // machine itself. `create()` is deliberately not covered -- setting
-    // an order's *initial* status is not a transition between existing
-    // states, and Prisma's own `@default(DRAFT)` already governs it.
-    files: ["services/api/src/**/*.ts"],
-    ignores: ["services/api/src/orders/order-state-machine.ts"],
+    // services/api, services/worker or backend-shared that sets
+    // `orderStatus`, except inside the state machine itself (5.6 moved
+    // it into packages/backend-shared, since services/worker's own
+    // expiration sweep needs it too, not just services/api). `create()`
+    // is deliberately not covered -- setting an order's *initial*
+    // status is not a transition between existing states, and Prisma's
+    // own `@default(DRAFT)` already governs it.
+    files: [
+      "services/api/src/**/*.ts",
+      "services/worker/src/**/*.ts",
+      "packages/backend-shared/src/**/*.ts",
+    ],
+    ignores: ["packages/backend-shared/src/orders/order-state-machine.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -61,7 +68,7 @@ export default tseslint.config(
           selector:
             "CallExpression[callee.property.name=/^(update|updateMany)$/] Property[key.name='orderStatus']",
           message:
-            "Order status may only be written by OrderStateMachine.transition() (services/api/src/orders/order-state-machine.ts) -- a direct write here bypasses the legality check, row lock, and audit trail.",
+            "Order status may only be written by OrderStateMachine.transition() (packages/backend-shared/src/orders/order-state-machine.ts) -- a direct write here bypasses the legality check, row lock, and audit trail.",
         },
       ],
     },

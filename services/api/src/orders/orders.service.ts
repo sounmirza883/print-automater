@@ -7,7 +7,12 @@ import {
 } from "@nestjs/common";
 import { DocumentStatus, type Order, OrderStatus, ShopStatus, type Prisma } from "@prisma/client";
 import type { ApiEnv } from "@print-automated/config";
-import { PrismaService } from "@print-automated/backend-shared";
+import {
+  AppException,
+  OrderEvent,
+  OrderStateMachine,
+  PrismaService,
+} from "@print-automated/backend-shared";
 import {
   computeQuote,
   InvalidPageSelectionError,
@@ -17,10 +22,8 @@ import {
 import { ColorMode, PaperSize, Sides, type PrinterCapabilities } from "@print-automated/types";
 import type { CreateQuoteInput } from "@print-automated/validation";
 import { API_ENV } from "../config/config.module.js";
-import { AppException } from "../common/errors/app-exception.js";
 import { DocumentsService } from "../documents/documents.service.js";
 import { OrderNumberService } from "./order-number.service.js";
-import { OrderEvent, OrderStateMachine } from "./order-state-machine.js";
 
 export interface QuoteResponse extends Quote {
   documentId: string;

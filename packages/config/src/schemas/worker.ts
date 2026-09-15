@@ -12,6 +12,12 @@ export const workerEnvSchema = baseEnvSchema
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
     SMTP_HOST: z.string().default("localhost"),
     SMTP_PORT: z.coerce.number().int().positive().default(1025),
+    // §108: how long an order may sit in PAYMENT_PENDING before 5.6's
+    // sweep expires it. 30 minutes is a placeholder default, not a
+    // researched business number -- there's nothing in the PRD pinning
+    // an exact figure, and it's easy to retune later since nothing else
+    // depends on this specific value.
+    ORDER_PAYMENT_PENDING_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   })
   .superRefine(checkStorageEnv);
 

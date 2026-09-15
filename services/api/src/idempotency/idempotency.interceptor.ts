@@ -9,8 +9,7 @@ import type { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
 import { from, of, type Observable } from "rxjs";
 import { catchError, mergeMap } from "rxjs/operators";
-import { PrismaService } from "@print-automated/backend-shared";
-import { AppException } from "../common/errors/app-exception.js";
+import { AppException, PrismaService } from "@print-automated/backend-shared";
 import { stableStringify } from "./stable-stringify.js";
 
 /** A status value no real HTTP response ever has -- marks a claimed-
