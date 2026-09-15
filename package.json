@@ -1,0 +1,23 @@
+{
+  "name": "print-automated",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "dev": "turbo run dev --parallel",
+    "db:migrate": "pnpm --filter @print-automated/api exec prisma migrate dev",
+    "db:seed": "pnpm --filter @print-automated/api exec prisma db seed",
+    "db:reset": "pnpm --filter @print-automated/api exec prisma migrate reset"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3"
+  }
+}
