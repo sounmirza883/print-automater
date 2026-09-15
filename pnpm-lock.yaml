@@ -48,13 +48,28 @@ importers:
         specifier: ^8.19.0
         version: 8.70.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
 
-  apps/customer-web: {}
+  apps/customer-web:
+    dependencies:
+      '@print-automated/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
 
   apps/printer-agent: {}
 
-  apps/shop-mobile: {}
+  apps/shop-mobile:
+    dependencies:
+      '@print-automated/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
 
-  packages/api-client: {}
+  packages/api-client:
+    dependencies:
+      '@print-automated/types':
+        specifier: workspace:*
+        version: link:../types
+      '@print-automated/validation':
+        specifier: workspace:*
+        version: link:../validation
 
   packages/backend-shared:
     dependencies:
