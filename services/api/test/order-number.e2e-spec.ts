@@ -58,7 +58,7 @@ describe("Order number generator (5.2, e2e)", () => {
     // Gapless: sorted, this is exactly 1, 2, 3, ..., 500 -- no skipped
     // or re-used values anywhere in the sequence.
     expect(counters).toEqual(Array.from({ length: 500 }, (_, index) => index + 1));
-  });
+  }, 30_000);
 
   it("resets per day -- a different date starts its own counter at 1", async () => {
     const otherDate = new Date(Date.UTC(1901, 0, 1));

@@ -3,6 +3,15 @@ name: print-automated-dev
 services:
   postgres:
     image: postgres:16-alpine
+    # Default max_connections (100) is comfortably enough for the app
+    # itself, but the e2e suite runs many Jest worker processes in
+    # parallel, each opening its own Prisma connection pool against
+    # this same instance -- empirically observed to exhaust the
+    # default under full parallelism (a real "Unable to start a
+    # transaction" failure, not a flaky assertion) once enough e2e
+    # spec files existed. Dev-only; prod's RDS instance (12.7) is sized
+    # and configured independently.
+    command: ["postgres", "-c", "max_connections=500"]
     environment:
       POSTGRES_USER: print_automated
       POSTGRES_PASSWORD: print_automated_dev

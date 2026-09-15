@@ -140,46 +140,60 @@ export class OrderStateMachine {
     actor: TransitionActor,
     ctx: TransitionContext = {},
   ): Promise<OrderStatus> {
-    return this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ order_status: OrderStatus }>>`
-        SELECT order_status FROM orders WHERE id = ${orderId} FOR UPDATE
-      `;
-      const current = rows[0]?.order_status;
-      if (current === undefined) {
-        throw new NotFoundException("Order not found.");
-      }
+    return this.prisma.$transaction(
+      async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ order_status: OrderStatus }>>`
+          SELECT order_status FROM orders WHERE id = ${orderId} FOR UPDATE
+        `;
+        const current = rows[0]?.order_status;
+        if (current === undefined) {
+          throw new NotFoundException("Order not found.");
+        }
 
-      const next = TRANSITIONS[current][event];
-      if (next === undefined) {
-        throw new AppException(
-          HttpStatus.CONFLICT,
-          "ILLEGAL_ORDER_TRANSITION",
-          `Cannot apply ${event} to an order in ${current}.`,
-          false,
-        );
-      }
+        const next = TRANSITIONS[current][event];
+        if (next === undefined) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "ILLEGAL_ORDER_TRANSITION",
+            `Cannot apply ${event} to an order in ${current}.`,
+            false,
+          );
+        }
 
-      await tx.order.update({ where: { id: orderId }, data: { orderStatus: next } });
+        await tx.order.update({ where: { id: orderId }, data: { orderStatus: next } });
 
-      await tx.auditLog.create({
-        data: {
-          actorId: actor.id,
-          action: `ORDER_${event}`,
-          resourceType: "order",
-          resourceId: orderId,
-          metadata: redactMetadata({
-            from: current,
-            to: next,
-            ...ctx.metadata,
-          }) as Prisma.InputJsonValue,
-        },
-      });
+        await tx.auditLog.create({
+          data: {
+            actorId: actor.id,
+            action: `ORDER_${event}`,
+            resourceType: "order",
+            resourceId: orderId,
+            metadata: redactMetadata({
+              from: current,
+              to: next,
+              ...ctx.metadata,
+            }) as Prisma.InputJsonValue,
+          },
+        });
 
-      if (ctx.sideEffect) {
-        await ctx.sideEffect(tx, next);
-      }
+        if (ctx.sideEffect) {
+          await ctx.sideEffect(tx, next);
+        }
 
-      return next;
-    });
+        return next;
+      },
+      // Prisma's own interactive-transaction defaults (maxWait: 2000ms
+      // to acquire a connection, timeout: 5000ms for the whole
+      // transaction) are tuned for isolated calls, not a genuine burst
+      // of legitimate concurrent transitions on the same table (many
+      // orders expiring in the same 5.6 sweep tick, a payment-webhook
+      // spike) -- each individual transition here is a handful of fast
+      // point queries, never long-running, so generously raising both
+      // just gives real bursts room to queue for a connection instead
+      // of failing with "unable to start a transaction," without
+      // masking an actual stuck transaction (10s is still well short
+      // of "hung").
+      { maxWait: 10_000, timeout: 10_000 },
+    );
   }
 }
