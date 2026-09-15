@@ -1,0 +1,23 @@
+# Explicit, not relying on git's binary-content sniffing (which
+# happened to be correct for 2.7's PDF fixtures, but "happened to be
+# correct" isn't something to keep depending on -- this repo will
+# accumulate more binary fixtures, and eventually real installers).
+# Deliberately no blanket `* text=auto eol=lf` here: this project's
+# working trees have been relying on the user's own core.autocrlf
+# (LF in the repo, CRLF checked out on Windows) all session, and
+# forcing eol=lf here would re-normalize every already-tracked text
+# file's line endings on the next checkout -- a large, disruptive
+# diff with no benefit over what already works.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.exe binary
+*.dll binary
