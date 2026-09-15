@@ -42,6 +42,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   shopStaff           ShopStaff[]
   auditLogs           AuditLog[]           @relation("AuditActor")
+  documents           Document[]
 
   @@map("users")
 }
@@ -151,4 +152,53 @@ model AuditLog {
   @@index([resourceType, resourceId])
   @@index([actorId])
   @@map("audit_logs")
+}
+
+// §14/§86 processing pipeline states. PENDING_UPLOAD: presigned PUT
+// issued (2.5), nothing arrived yet. PROCESSING: 2.7's worker is
+// validating/scanning/encrypting the quarantine object. READY: the
+// encrypted object lives at storage_key = documents/{id}; encrypted_dek/
+// iv/auth_tag/encryption_version are all set. REJECTED: failed
+// validation; rejection_reason says which check failed, quarantine
+// object was deleted either way (2.7's Done-when). DELETED: retention
+// (Phase 11) removed the object; the row is kept for order history
+// (7.5) with storage_key/encrypted_dek cleared.
+enum DocumentStatus {
+  PENDING_UPLOAD
+  PROCESSING
+  READY
+  REJECTED
+  DELETED
+}
+
+// §55, extended with the envelope-encryption fields §62 requires
+// (encrypted_dek/iv/auth_tag/encryption_version -- the wrapped DEK from
+// 2.2's KeyManagementService and the params 2.3's CryptoService needs to
+// decrypt) and storage_key (2.1's quarantine/{id} vs documents/{id}
+// layout; persisted explicitly rather than re-derived from id+status,
+// so the object's actual current location is never ambiguous).
+model Document {
+  id                String         @id @default(uuid())
+  ownerUserId       String         @map("owner_user_id")
+  storageKey        String         @map("storage_key")
+  filename          String
+  mimeType          String         @map("mime_type")
+  sizeBytes         Int            @map("size_bytes")
+  pageCount         Int?           @map("page_count")
+  checksum          String?
+  encryptedDek      Bytes?         @map("encrypted_dek")
+  iv                Bytes?
+  authTag           Bytes?         @map("auth_tag")
+  encryptionVersion Int?           @map("encryption_version")
+  status            DocumentStatus @default(PENDING_UPLOAD)
+  rejectionReason   String?        @map("rejection_reason")
+  expiresAt         DateTime?      @map("expires_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId])
+  @@index([status])
+  @@map("documents")
 }
