@@ -126,7 +126,7 @@ export class OrdersService {
   }
 
   async getOrder(requestingUserId: string, orderId: string): Promise<OrderResponse> {
-    const order = await this.findOwnedOrder(requestingUserId, orderId);
+    const order = await this.getOwnedOrder(requestingUserId, orderId);
     return this.toOrderResponse(order);
   }
 
@@ -136,16 +136,19 @@ export class OrdersService {
    * illegal-transition check in OrderStateMachine decide whether this
    * particular order's current state actually allows a cancellation. */
   async cancelOrder(requestingUserId: string, orderId: string): Promise<OrderResponse> {
-    await this.findOwnedOrder(requestingUserId, orderId);
+    await this.getOwnedOrder(requestingUserId, orderId);
     await this.orderStateMachine.transition(orderId, OrderEvent.CANCEL, { id: requestingUserId });
     // Re-read rather than trust the pre-transition row -- the
     // transition already committed, and this is the one response
     // field (orderStatus) that call just changed.
-    const order = await this.findOwnedOrder(requestingUserId, orderId);
+    const order = await this.getOwnedOrder(requestingUserId, orderId);
     return this.toOrderResponse(order);
   }
 
-  private async findOwnedOrder(requestingUserId: string, orderId: string): Promise<Order> {
+  /** Public -- 6.4's PaymentsService reuses this rather than
+   * duplicating the same 404-vs-403 ownership check against the same
+   * table for the same reason. */
+  async getOwnedOrder(requestingUserId: string, orderId: string): Promise<Order> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) {
       throw new NotFoundException("Order not found.");

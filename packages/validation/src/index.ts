@@ -15,3 +15,4 @@ export {
   type PrintConfigurationInput,
 } from "./print-configuration.schema.js";
 export { createQuoteSchema, type CreateQuoteInput } from "./orders/index.js";
+export { checkoutSchema, type CheckoutInput } from "./payments/index.js";

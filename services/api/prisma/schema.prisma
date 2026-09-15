@@ -353,6 +353,12 @@ model Payment {
   orderId           String        @map("order_id")
   provider          String
   providerPaymentId String?       @map("provider_payment_id")
+  // 6.4: not in §57's bare table sketch, but needed for real behavior
+  // -- a second `POST /payments/checkout` call for the same order
+  // reuses this stored URL instead of asking the provider to mint a
+  // new checkout session (which would produce a different
+  // providerPaymentId each time).
+  checkoutUrl       String?       @map("checkout_url")
   amountMinor       Int           @map("amount_minor")
   currency          String
   status            PaymentStatus @default(PENDING)

@@ -14,6 +14,9 @@ import { OrdersService } from "./orders.service.js";
   imports: [AuthModule, DocumentsModule, IdempotencyModule],
   controllers: [OrdersController],
   providers: [OrdersService, OrderNumberService],
-  exports: [OrderNumberService],
+  // OrdersService is exported too, alongside OrderNumberService -- 6.4's
+  // PaymentsModule reuses its getOwnedOrder() rather than duplicating
+  // the same ownership check.
+  exports: [OrderNumberService, OrdersService],
 })
 export class OrdersModule {}

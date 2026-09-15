@@ -1,9 +1,13 @@
 import { Module } from "@nestjs/common";
 import type { ApiEnv } from "@print-automated/config";
+import { AuthModule } from "../auth/auth.module.js";
 import { API_ENV, apiEnv } from "../config/config.module.js";
+import { OrdersModule } from "../orders/orders.module.js";
 import { MockCheckoutController } from "./mock-checkout.controller.js";
 import { MockPaymentProvider } from "./mock-payment-provider.js";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "./payment-provider.interface.js";
+import { PaymentsController } from "./payments.controller.js";
+import { PaymentsService } from "./payments.service.js";
 
 // Adding a second real provider later is: implement the class, add one
 // entry to this array, done -- nothing that depends on PAYMENT_PROVIDER
@@ -11,8 +15,10 @@ import { PAYMENT_PROVIDER, type PaymentProvider } from "./payment-provider.inter
 const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutController] : [];
 
 @Module({
-  controllers: PROVIDER_CONTROLLERS,
+  imports: [AuthModule, OrdersModule],
+  controllers: [PaymentsController, ...PROVIDER_CONTROLLERS],
   providers: [
+    PaymentsService,
     MockPaymentProvider,
     {
       provide: PAYMENT_PROVIDER,
