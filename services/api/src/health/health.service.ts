@@ -4,7 +4,7 @@ import type Redis from "ioredis";
 import type { ApiEnv } from "@print-automated/config";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { REDIS_CLIENT } from "../redis/redis.module.js";
-import { S3_CLIENT } from "../storage/storage.module.js";
+import { S3_CLIENT } from "../storage/storage.tokens.js";
 import { API_ENV } from "../config/config.module.js";
 
 export interface DependencyCheck {
