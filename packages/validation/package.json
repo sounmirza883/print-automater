@@ -17,6 +17,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@print-automated/types": "workspace:*",
     "zod": "^3.24.1"
   }
 }
