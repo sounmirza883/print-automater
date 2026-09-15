@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
@@ -54,9 +55,13 @@ describe("Global error model (e2e)", () => {
   });
 
   it("an induced DB failure returns a typed, retryable error carrying a request_id that appears in the log line", async () => {
+    // Randomized so repeated runs never share a rate-limit bucket (1.9:
+    // login is limited to 5/15min per IP+email) with a prior run's
+    // attempt against this same endpoint.
+    const email = `error-model-e2e-${randomUUID()}@print-automated.dev`;
     const response = await request(app.getHttpServer())
       .post("/v1/auth/login")
-      .send({ email: "whoever@print-automated.dev", password: "irrelevant-password-123" });
+      .send({ email, password: "irrelevant-password-123" });
 
     // The typed error contract (§104), exactly the shape ApiError specifies.
     const body = response.body as ApiError;

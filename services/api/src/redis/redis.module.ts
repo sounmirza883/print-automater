@@ -2,6 +2,7 @@ import { Global, Inject, Injectable, Module, OnModuleDestroy } from "@nestjs/com
 import Redis from "ioredis";
 import type { ApiEnv } from "@print-automated/config";
 import { API_ENV } from "../config/config.module.js";
+import { registerSlidingWindowRateLimitCommand } from "./sliding-window-rate-limit.command.js";
 
 export const REDIS_CLIENT = Symbol("REDIS_CLIENT");
 
@@ -28,7 +29,10 @@ class RedisLifecycle implements OnModuleDestroy {
     {
       provide: REDIS_CLIENT,
       inject: [API_ENV],
-      useFactory: (env: ApiEnv) => new Redis(env.REDIS_URL, { maxRetriesPerRequest: null }),
+      useFactory: (env: ApiEnv) =>
+        registerSlidingWindowRateLimitCommand(
+          new Redis(env.REDIS_URL, { maxRetriesPerRequest: null }),
+        ),
     },
     RedisLifecycle,
   ],
