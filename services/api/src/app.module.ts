@@ -4,6 +4,7 @@ import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 import { StorageModule } from "./storage/storage.module.js";
 import { KmsModule } from "./kms/kms.module.js";
+import { CryptoModule } from "./crypto/crypto.module.js";
 import { AuditModule } from "./audit/audit.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -15,6 +16,7 @@ import { AuthModule } from "./auth/auth.module.js";
     RedisModule,
     StorageModule,
     KmsModule,
+    CryptoModule,
     AuditModule,
     HealthModule,
     AuthModule,
