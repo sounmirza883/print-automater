@@ -183,6 +183,22 @@ describe("Order quote (4.4, e2e)", () => {
     expect(res.body.shopId).toBe(openShopId);
   });
 
+  it("§4.6: a page range exceeding the document's real page count is blocked server-side with a clean 400, not a 500", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/v1/orders/quote")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        documentId: readyDocumentId,
+        shopId: openShopId,
+        // readyDocumentId only has 10 pages (beforeAll) -- createQuoteSchema
+        // can't catch this statically, since it doesn't know any specific
+        // document's real page count.
+        printConfiguration: { ...CONFIG, pages: { mode: "range", from: 1, to: 11 } },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error_code).toBe("INVALID_PAGE_SELECTION");
+  });
+
   it("a color request against a mono-only shop is refused, not silently mispriced", async () => {
     const res = await request(app.getHttpServer())
       .post("/v1/orders/quote")

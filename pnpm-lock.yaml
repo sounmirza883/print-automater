@@ -68,6 +68,12 @@ importers:
       '@print-automated/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@print-automated/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
+      '@print-automated/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@print-automated/validation':
         specifier: workspace:*
         version: link:../../packages/validation

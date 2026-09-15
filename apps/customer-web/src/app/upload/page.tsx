@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { runUploadFlow, type UploadState } from "@/lib/upload-document";
 
@@ -75,9 +76,13 @@ export default function UploadPage(): ReactNode {
       {state.phase === "ready" && (
         <div role="status" className="rounded-md border border-gray-300 p-4">
           <p className="font-semibold">{state.filename} is ready.</p>
-          <p className="text-sm text-gray-600">
-            Configuring pages, copies, and a shop lands here in a later phase.
-          </p>
+          <Link
+            href={`/configure?documentId=${state.documentId}`}
+            className="mt-3 inline-block rounded-md px-4 py-2 font-semibold text-white"
+            style={{ backgroundColor: "var(--color-primary-action)" }}
+          >
+            Configure print job
+          </Link>
         </div>
       )}
 

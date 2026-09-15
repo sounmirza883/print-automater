@@ -17,6 +17,8 @@
     "@print-automated/api-client": "workspace:*",
     "@print-automated/config": "workspace:*",
     "@print-automated/design-tokens": "workspace:*",
+    "@print-automated/pricing": "workspace:*",
+    "@print-automated/types": "workspace:*",
     "@print-automated/validation": "workspace:*",
     "next": "15",
     "react": "19",

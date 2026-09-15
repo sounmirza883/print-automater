@@ -2,7 +2,12 @@ import { HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/commo
 import { DocumentStatus, ShopStatus } from "@prisma/client";
 import type { ApiEnv } from "@print-automated/config";
 import { PrismaService } from "@print-automated/backend-shared";
-import { computeQuote, type PricingRule, type Quote } from "@print-automated/pricing";
+import {
+  computeQuote,
+  InvalidPageSelectionError,
+  type PricingRule,
+  type Quote,
+} from "@print-automated/pricing";
 import { ColorMode, PaperSize, Sides, type PrinterCapabilities } from "@print-automated/types";
 import type { CreateQuoteInput } from "@print-automated/validation";
 import { API_ENV } from "../config/config.module.js";
@@ -83,12 +88,33 @@ export class OrdersService {
       minimumChargeMinor: pricingRuleRow.minimumChargeMinor,
     };
 
-    const quote = computeQuote(
-      input.printConfiguration,
-      document.pageCount,
-      pricingRule,
-      this.env.PLATFORM_FEE_MINOR,
-    );
+    let quote: Quote;
+    try {
+      quote = computeQuote(
+        input.printConfiguration,
+        document.pageCount,
+        pricingRule,
+        this.env.PLATFORM_FEE_MINOR,
+      );
+    } catch (error) {
+      // §4.6's own Done-when: "an out-of-range page selection is
+      // blocked client-side AND server-side" -- createQuoteSchema can't
+      // statically validate a page range against a specific document's
+      // actual page count (that's only known here, at request time), so
+      // this is where that check actually happens. Without this catch,
+      // an out-of-range range would surface as an opaque 500 via
+      // AllExceptionsFilter's fallback branch instead of a real,
+      // actionable validation error.
+      if (error instanceof InvalidPageSelectionError) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_PAGE_SELECTION",
+          error.message,
+          false,
+        );
+      }
+      throw error;
+    }
 
     return { ...quote, documentId: input.documentId, shopId: input.shopId };
   }
