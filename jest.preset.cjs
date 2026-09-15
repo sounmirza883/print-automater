@@ -18,4 +18,7 @@ module.exports = {
   },
   testMatch: ["**/src/**/*.test.ts", "**/src/**/*.spec.ts"],
   clearMocks: true,
+  // Many packages start with zero unit tests and gain them in a later
+  // sub-phase; an empty suite should not fail `pnpm -w test`.
+  passWithNoTests: true,
 };
