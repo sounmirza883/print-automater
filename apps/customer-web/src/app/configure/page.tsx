@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { PrintConfiguration } from "@print-automated/types";
+import { ShopList } from "@/components/shop-list";
 import {
   debounce,
   fetchMatchingShops,
@@ -303,21 +304,10 @@ function ConfigureDocument({ documentId }: { documentId: string }): ReactNode {
           </label>
         </fieldset>
 
-        <label className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2">
           <span className="font-semibold">Shop</span>
-          <select
-            value={selectedShopId ?? ""}
-            onChange={(event) => setSelectedShopId(event.target.value || null)}
-            className="rounded-md border border-gray-300 px-2 py-1"
-          >
-            {shops.length === 0 && <option value="">No matching shops</option>}
-            {shops.map((shop) => (
-              <option key={shop.id} value={shop.id}>
-                {shop.name}
-              </option>
-            ))}
-          </select>
-        </label>
+          <ShopList shops={shops} selectedShopId={selectedShopId} onSelect={setSelectedShopId} />
+        </div>
       </div>
 
       <aside className="flex w-full flex-col gap-3 rounded-lg border border-gray-300 p-4 md:w-80">
