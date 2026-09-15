@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
 import { DocumentStatus, type Document } from "@prisma/client";
@@ -7,9 +13,15 @@ import type { CreateDocumentInput } from "@print-automated/validation";
 import {
   PrismaService,
   StorageService,
+  CryptoService,
+  AuditService,
+  KEY_MANAGEMENT_SERVICE,
+  type KeyManagementService,
   QUEUE_NAMES,
   type DocumentProcessingJob,
 } from "@print-automated/backend-shared";
+import { AuditAction } from "../audit/audit-action.js";
+import { AppException } from "../common/errors/app-exception.js";
 import { sanitizeFilename } from "./sanitize-filename.js";
 
 export interface CreateDocumentResult {
@@ -26,11 +38,19 @@ export interface DocumentStatusView {
   createdAt: Date;
 }
 
+export interface DecryptedDocument {
+  buffer: Buffer;
+  filename: string;
+}
+
 @Injectable()
 export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly crypto: CryptoService,
+    private readonly audit: AuditService,
+    @Inject(KEY_MANAGEMENT_SERVICE) private readonly kms: KeyManagementService,
     @InjectQueue(QUEUE_NAMES.DOCUMENT_PROCESSING)
     private readonly documentProcessingQueue: Queue<DocumentProcessingJob>,
   ) {}
@@ -88,6 +108,53 @@ export class DocumentsService {
   async getStatus(documentId: string, requestingUserId: string): Promise<DocumentStatusView> {
     const document = await this.getOwned(documentId, requestingUserId);
     return toStatusView(document);
+  }
+
+  /** §64/§65: authenticated, audited, decrypt-on-the-fly -- never a
+   * presigned or otherwise permanent URL. Only the customer-owner path
+   * is implemented here; §64 also names shop (documents on that shop's
+   * active orders) and agent (documents on jobs assigned to its shop)
+   * access, but neither orders (Phase 5) nor print jobs/agents (Phase
+   * 8/9) exist yet to check against. Building a generic multi-accessor
+   * check now, with two of three branches permanently unreachable until
+   * those phases land, would just be dead code pretending to be more
+   * finished than it is -- Phase 8/9 add their own access checks (to
+   * this method or a shop/agent-specific variant) once there's a real
+   * Order/PrintJob to authorize against. */
+  async download(documentId: string, requestingUserId: string): Promise<DecryptedDocument> {
+    const document = await this.getOwned(documentId, requestingUserId);
+
+    if (
+      document.status !== DocumentStatus.READY ||
+      !document.encryptedDek ||
+      !document.iv ||
+      !document.authTag
+    ) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "DOCUMENT_NOT_READY",
+        "This document is not ready to download yet.",
+        false,
+      );
+    }
+
+    const ciphertext = await this.storage.getObjectBuffer(document.storageKey);
+    const plaintextDek = await this.kms.unwrap(Buffer.from(document.encryptedDek));
+    const buffer = await this.crypto.decryptBuffer(
+      ciphertext,
+      plaintextDek,
+      Buffer.from(document.iv),
+      Buffer.from(document.authTag),
+    );
+
+    await this.audit.record({
+      actorId: requestingUserId,
+      action: AuditAction.DOCUMENT_ACCESSED,
+      resourceType: "document",
+      resourceId: documentId,
+    });
+
+    return { buffer, filename: document.filename };
   }
 
   /** Soft delete: removes the storage object (best-effort -- a document

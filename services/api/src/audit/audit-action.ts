@@ -7,6 +7,7 @@ export const AuditAction = {
   REGISTER: "REGISTER",
   LOGIN: "LOGIN",
   LOGOUT: "LOGOUT",
+  DOCUMENT_ACCESSED: "DOCUMENT_ACCESSED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
