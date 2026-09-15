@@ -44,6 +44,29 @@ export default tseslint.config(
     },
   },
   {
+    // 5.4's own Done-when: a direct `orders.order_status` write outside
+    // OrderStateMachine.transition() bypasses the transition table
+    // entirely -- no legality check, no row lock, no audit row. This
+    // catches every `prisma.order.update`/`updateMany` call anywhere in
+    // services/api that sets `orderStatus`, except inside the state
+    // machine itself. `create()` is deliberately not covered -- setting
+    // an order's *initial* status is not a transition between existing
+    // states, and Prisma's own `@default(DRAFT)` already governs it.
+    files: ["services/api/src/**/*.ts"],
+    ignores: ["services/api/src/orders/order-state-machine.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(update|updateMany)$/] Property[key.name='orderStatus']",
+          message:
+            "Order status may only be written by OrderStateMachine.transition() (services/api/src/orders/order-state-machine.ts) -- a direct write here bypasses the legality check, row lock, and audit trail.",
+        },
+      ],
+    },
+  },
+  {
     // React 19's automatic JSX runtime needs no `import React` in scope
     // (jsx-runtime disables the two rules that would otherwise demand
     // one), so this is react.configs.flat.recommended plus that override,
