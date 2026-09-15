@@ -7,12 +7,11 @@ const nextConfig: NextConfig = {
   // webpack treats them as opaque externals and never applies its own
   // .js-specifier-to-.ts-file resolution to their internal imports,
   // which is exactly the "Module not found: Can't resolve './tokens.js'"
-  // failure this app hit before adding it.
-  transpilePackages: [
-    "@print-automated/design-tokens",
-    "@print-automated/api-client",
-    "@print-automated/types",
-  ],
+  // failure this app hit before adding it. @print-automated/types is
+  // NOT listed here -- it's build-to-dist (like packages/config/
+  // validation), so webpack sees ordinary compiled JS and needs no
+  // special handling for it.
+  transpilePackages: ["@print-automated/design-tokens", "@print-automated/api-client"],
   webpack(config) {
     // Those packages' own source uses NodeNext-style ".js" specifiers on
     // relative imports (e.g. "./tokens.js" resolving to tokens.ts) --
