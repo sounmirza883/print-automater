@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Mirrors packages/types' UserRole (§9). A user's account-level role;
+// ShopStaff.role uses the same vocabulary for their role at one specific
+// shop, since the same person can hold different roles at different shops.
+enum UserRole {
+  CUSTOMER
+  SHOP_OWNER
+  SHOP_MANAGER
+  SHOP_COUNTER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+// §52. password_hash is not listed in the PRD's table sketch, but §52
+// explicitly defers auth-secret storage to "the selected authentication
+// architecture" -- the locked decision (own JWT, argon2id) requires it.
+model User {
+  id           String     @id @default(uuid())
+  role         UserRole
+  name         String
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  phone        String?
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  refreshTokens RefreshToken[]
+  shopStaff     ShopStaff[]
+  auditLogs     AuditLog[]     @relation("AuditActor")
+
+  @@map("users")
+}
+
+// Refresh token rotation (1.4): each row is one issued token, identified
+// by its hash (never the raw token). family_id links every token in one
+// rotation chain; reuse of a revoked token revokes the whole family.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  familyId  String    @map("family_id")
+  revokedAt DateTime? @map("revoked_at")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+// §107 -- a customer may never submit an order to a shop not currently
+// accepting them.
+enum ShopStatus {
+  OPEN
+  CLOSED
+  BUSY
+  TEMPORARILY_UNAVAILABLE
+  SUSPENDED
+}
+
+// §53
+model Shop {
+  id           String     @id @default(uuid())
+  name         String
+  address      String
+  latitude     Float?
+  longitude    Float?
+  phone        String?
+  status       ShopStatus @default(CLOSED)
+  openingHours Json?      @map("opening_hours")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  staff ShopStaff[]
+
+  @@map("shops")
+}
+
+enum ShopStaffStatus {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+// §54. (shop_id, user_id) is unique -- one membership row per person per
+// shop; multi-shop staff get one row per shop, each with its own role.
+model ShopStaff {
+  id        String          @id @default(uuid())
+  shopId    String          @map("shop_id")
+  userId    String          @map("user_id")
+  role      UserRole
+  status    ShopStaffStatus @default(ACTIVE)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, userId])
+  @@map("shop_staff")
+}
+
+// §83. Append-only -- rows are never updated or deleted by application
+// code. actorId is nullable for system-initiated actions with no human
+// actor (e.g. an expiration worker).
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?  @map("actor_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
