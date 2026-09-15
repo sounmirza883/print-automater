@@ -1,18 +1,11 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
-import {
-  Controller,
-  Get,
-  Injectable,
-  Module,
-  Param,
-  UseGuards,
-  VersioningType,
-} from "@nestjs/common";
+import { Controller, Get, Injectable, Module, Param, UseGuards } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import request from "supertest";
 import { UserRole, ShopStaffStatus } from "@prisma/client";
+import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
 import { AuthModule } from "../src/auth/auth.module.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
@@ -23,6 +16,8 @@ import { ShopScopeGuard } from "../src/auth/shop-scope.guard.js";
 import { Roles } from "../src/auth/roles.decorator.js";
 import { ShopScoped } from "../src/auth/shop-scoped.decorator.js";
 import type { ShopResourceResolver } from "../src/auth/shop-scope.interfaces.js";
+import { API_ENV } from "../src/config/config.module.js";
+import { configureApp } from "../src/bootstrap.js";
 
 // The "resource" under test IS the shop itself -- no shop-owned sub-table
 // (orders, printers) exists until later phases, and a shop is a
@@ -78,7 +73,7 @@ describe("Authorization guard stack (e2e)", () => {
     }).compile();
 
     app = moduleRef.createNestApplication<NestExpressApplication>();
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
+    configureApp(app, app.get<ApiEnv>(API_ENV));
     await app.init();
 
     prisma = app.get(PrismaService);

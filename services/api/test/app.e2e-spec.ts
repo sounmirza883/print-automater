@@ -1,10 +1,13 @@
 import "reflect-metadata";
-import { Controller, Post, Req, VersioningType, type RawBodyRequest } from "@nestjs/common";
+import { Controller, Post, Req, type RawBodyRequest } from "@nestjs/common";
 import type { Request } from "express";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import request from "supertest";
+import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
+import { API_ENV } from "../src/config/config.module.js";
+import { configureApp } from "../src/bootstrap.js";
 
 // Test-only controller: exists solely to prove that main.ts's
 // `rawBody: true` NestFactory option actually exposes req.rawBody end to
@@ -31,7 +34,7 @@ describe("AppModule (e2e)", () => {
     }).compile();
 
     app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
+    configureApp(app, app.get<ApiEnv>(API_ENV));
     await app.init();
   });
 
@@ -39,10 +42,23 @@ describe("AppModule (e2e)", () => {
     await app.close();
   });
 
-  it("GET /v1/health returns 200", async () => {
+  it("GET /v1/health returns 200 (liveness, checks nothing external)", async () => {
     const response = await request(app.getHttpServer()).get("/v1/health");
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: "ok" });
+  });
+
+  it("GET /v1/health/ready returns 200 with postgres/redis/s3 all reachable", async () => {
+    // Exercises the real dev stack (docker-compose.dev.yml, 0.4) --
+    // no mocking, this is the actual readiness contract.
+    const response = await request(app.getHttpServer()).get("/v1/health/ready");
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("ready");
+    const names = (response.body.checks as { name: string; ok: boolean }[]).map((c) => c.name);
+    expect(names.sort()).toEqual(["postgres", "redis", "s3"]);
+    for (const check of response.body.checks as { ok: boolean }[]) {
+      expect(check.ok).toBe(true);
+    }
   });
 
   it("exposes the raw, unparsed request body on a POST", async () => {

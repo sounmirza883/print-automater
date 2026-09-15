@@ -1,12 +1,13 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
-import { VersioningType } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
-import { ZodValidationPipe } from "nestjs-zod";
 import request from "supertest";
+import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
+import { API_ENV } from "../src/config/config.module.js";
+import { configureApp } from "../src/bootstrap.js";
 
 describe("Auth (e2e)", () => {
   let app: NestExpressApplication;
@@ -19,8 +20,7 @@ describe("Auth (e2e)", () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
     app = moduleRef.createNestApplication<NestExpressApplication>();
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
-    app.useGlobalPipes(new ZodValidationPipe());
+    configureApp(app, app.get<ApiEnv>(API_ENV));
     await app.init();
 
     prisma = app.get(PrismaService);
