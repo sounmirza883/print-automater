@@ -13,6 +13,7 @@ export default tseslint.config(
       "**/.turbo/**",
       "**/*.config.js",
       "**/*.config.cjs",
+      "**/*.setup.cjs",
     ],
   },
   js.configs.recommended,

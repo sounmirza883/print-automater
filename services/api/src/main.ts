@@ -5,18 +5,21 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import { VersioningType } from "@nestjs/common";
 import helmet from "helmet";
 import { ZodValidationPipe } from "nestjs-zod";
-import { apiEnvSchema, loadEnvOrExit } from "@print-automated/config";
+import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "./app.module.js";
+import { API_ENV } from "./config/config.module.js";
 
 async function bootstrap(): Promise<void> {
-  const env = loadEnvOrExit(apiEnvSchema);
-
   // rawBody: true exposes req.rawBody so Phase 6's payment webhook can
   // verify the provider's HMAC signature against the exact bytes received,
   // before any body-parser JSON transformation.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
+
+  // AppConfigModule already validated the full environment once at
+  // module-init time; reuse that instead of parsing process.env again.
+  const env = app.get<ApiEnv>(API_ENV);
 
   app.enableVersioning({
     type: VersioningType.URI,
