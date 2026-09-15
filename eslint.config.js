@@ -26,5 +26,13 @@ export default tseslint.config(
       "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
+  {
+    // CLI-style scripts where console output IS the intended UX, unlike
+    // application code where structured logging (Pino, 1.8) is the norm.
+    files: ["**/prisma/seed.ts", "**/scripts/**/*.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
   eslintConfigPrettier,
 );

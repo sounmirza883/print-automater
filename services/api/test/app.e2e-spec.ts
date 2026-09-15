@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Controller, Post, Req, VersioningType } from "@nestjs/common";
+import { Controller, Post, Req, VersioningType, type RawBodyRequest } from "@nestjs/common";
 import type { Request } from "express";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
@@ -13,7 +13,7 @@ import { AppModule } from "../src/app.module.js";
 @Controller("test-raw-body")
 class RawBodyProbeController {
   @Post()
-  probe(@Req() req: Request): { rawBodyReceived: boolean; length: number } {
+  probe(@Req() req: RawBodyRequest<Request>): { rawBodyReceived: boolean; length: number } {
     return {
       rawBodyReceived: req.rawBody !== undefined,
       length: req.rawBody?.length ?? 0,

@@ -7,13 +7,17 @@
     "build": "nest build",
     "start:prod": "node dist/main.js",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "jest",
     "test:e2e": "jest --config jest.e2e.config.cjs",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:dev": "prisma migrate dev --skip-seed",
-    "prisma:migrate:reset": "prisma migrate reset --skip-seed",
-    "prisma:migrate:deploy": "prisma migrate deploy"
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:reset": "prisma migrate reset",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -21,6 +25,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@print-automated/config": "workspace:*",
     "@prisma/client": "^6.2.1",
+    "argon2": "^0.41.1",
     "dotenv": "^16.4.7",
     "helmet": "^8.0.0",
     "nestjs-zod": "^4.3.1",
@@ -34,6 +39,7 @@
     "@types/express": "^5.0.0",
     "@types/supertest": "^6.0.2",
     "prisma": "^6.2.1",
-    "supertest": "^7.0.0"
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2"
   }
 }
