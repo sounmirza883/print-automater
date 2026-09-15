@@ -1,0 +1,9 @@
+import { z } from "zod";
+
+/** §70 POST /auth/login. */
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;

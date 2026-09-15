@@ -38,9 +38,10 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens RefreshToken[]
-  shopStaff     ShopStaff[]
-  auditLogs     AuditLog[]     @relation("AuditActor")
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  shopStaff           ShopStaff[]
+  auditLogs           AuditLog[]           @relation("AuditActor")
 
   @@map("users")
 }
@@ -62,6 +63,23 @@ model RefreshToken {
   @@index([userId])
   @@index([familyId])
   @@map("refresh_tokens")
+}
+
+// §70 recovery flow (1.5): single-use, short-TTL. Identified by its hash,
+// like refresh_tokens -- the raw token is never persisted. usedAt makes
+// it single-use; a second consumption attempt is rejected.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // §107 -- a customer may never submit an order to a shop not currently

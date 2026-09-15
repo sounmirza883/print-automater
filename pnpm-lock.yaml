@@ -68,7 +68,11 @@ importers:
 
   packages/types: {}
 
-  packages/validation: {}
+  packages/validation:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   services/api:
     dependencies:
@@ -84,6 +88,9 @@ importers:
       '@print-automated/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@print-automated/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@prisma/client':
         specifier: ^6.2.1
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)

@@ -1,10 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
 import type { ApiEnv } from "@print-automated/config";
 import type { UserRole } from "@prisma/client";
 import { API_ENV } from "../config/config.module.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { hashToken } from "../common/crypto.util.js";
 import { InvalidRefreshTokenError, RefreshTokenReuseDetectedError } from "./token.errors.js";
 
 const ACCESS_TOKEN_TTL = "15m";
@@ -25,10 +26,6 @@ export interface IssuedTokenPair {
   accessToken: string;
   refreshToken: string;
   familyId: string;
-}
-
-function hashToken(rawToken: string): string {
-  return createHash("sha256").update(rawToken).digest("hex");
 }
 
 @Injectable()
@@ -95,6 +92,18 @@ export class TokenService {
       refreshToken: newRefreshToken,
       familyId: payload.familyId,
     };
+  }
+
+  /** Decodes and verifies a refresh token's signature/expiry without
+   * touching the database. Returns null for anything invalid rather than
+   * throwing -- callers like logout should treat an already-invalid
+   * token as "nothing to do," not an error. */
+  decodeRefreshToken(rawRefreshToken: string): RefreshTokenPayload | null {
+    try {
+      return jwt.verify(rawRefreshToken, this.env.JWT_REFRESH_SECRET) as RefreshTokenPayload;
+    } catch {
+      return null;
+    }
   }
 
   async revokeFamily(familyId: string): Promise<void> {
