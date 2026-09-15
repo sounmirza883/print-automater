@@ -43,6 +43,7 @@ model User {
   shopStaff           ShopStaff[]
   auditLogs           AuditLog[]           @relation("AuditActor")
   documents           Document[]
+  orders              Order[]
 
   @@map("users")
 }
@@ -114,6 +115,7 @@ model Shop {
 
   staff        ShopStaff[]
   pricingRules PricingRule[]
+  orders       Order[]
 
   @@map("shops")
 }
@@ -228,8 +230,115 @@ model Document {
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
   owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  orders Order[]
 
   @@index([ownerUserId])
   @@index([status])
   @@map("documents")
+}
+
+// S25/S26, Migration 004 (5.1). payment_status and order_status are
+// deliberately separate columns -- S26's own example (payment_status =
+// PAID, order_status = PRINT_FAILED) is exactly why: they track two
+// genuinely independent lifecycles, and conflating them into one
+// column would make that state unrepresentable. Each is independently
+// indexed (5.1's own Done-when) since shop/admin views will filter by
+// one without caring about the other.
+//
+// print_configuration and pricing_snapshot are both JSONB, not a set
+// of scalar columns mirroring S56's sketch (subtotal/platform_fee/
+// total_amount/currency as their own columns) -- pricing_snapshot
+// stores the *entire* computed Quote (packages/pricing, 4.1: every
+// line item, not just the three totals), which is what S20's "the
+// exact price configuration used must be stored with the order" and
+// "existing orders must not change" actually need once a shop
+// reprices (4.2's versioned pricing_rules) after the order exists.
+// Nothing yet needs those totals as independently queryable/sortable
+// columns; that can be added later against a real need rather than
+// guessed at now.
+model Order {
+  id                 String        @id @default(uuid())
+  publicOrderNumber  String        @unique @map("public_order_number")
+  customerId         String        @map("customer_id")
+  shopId             String        @map("shop_id")
+  documentId         String        @map("document_id")
+  printConfiguration Json          @map("print_configuration")
+  pricingSnapshot    Json          @map("pricing_snapshot")
+  paymentStatus      PaymentStatus @default(PENDING) @map("payment_status")
+  orderStatus        OrderStatus   @default(DRAFT) @map("order_status")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  completedAt        DateTime?     @map("completed_at")
+
+  customer User     @relation(fields: [customerId], references: [id])
+  shop     Shop     @relation(fields: [shopId], references: [id])
+  document Document @relation(fields: [documentId], references: [id])
+
+  @@index([paymentStatus])
+  @@index([orderStatus])
+  @@index([customerId])
+  @@map("orders")
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+  REFUND_FAILED
+}
+
+enum OrderStatus {
+  DRAFT
+  UPLOADED
+  PAYMENT_PENDING
+  PAID
+  WAITING_FOR_SHOP
+  SHOP_ACCEPTED
+  QUEUED_FOR_PRINT
+  PRINTING
+  PRINTED
+  READY_FOR_COLLECTION
+  COMPLETED
+  PAYMENT_FAILED
+  SHOP_REJECTED
+  PRINT_FAILED
+  PRINT_STATUS_UNKNOWN
+  CANCELLED
+  EXPIRED
+}
+
+// 5.2: PA-YYYYMMDD-NNNNNN order numbers, generated via
+// INSERT ... ON CONFLICT (date_key) DO UPDATE ... RETURNING counter --
+// atomic under concurrency (no read-then-write race), one row per
+// calendar day so the sequence naturally resets daily without a
+// separate reset job.
+model OrderNumberCounter {
+  dateKey String @id @map("date_key")
+  counter Int    @default(0)
+
+  @@map("order_number_counters")
+}
+
+// 5.3: `Idempotency-Key` header support. Scoped by (key, scope) rather
+// than key alone -- a client-generated UUID is only meant to dedupe
+// retries of the *same* logical operation; scoping by e.g.
+// "POST /v1/orders" keeps two different endpoints from ever colliding
+// on a coincidentally-reused key. request_hash is what lets a replay
+// with an unexpectedly *different* body be detected and refused (422)
+// instead of silently returning a stored response for a different request.
+model IdempotencyKey {
+  id             String   @id @default(uuid())
+  key            String
+  scope          String
+  requestHash    String   @map("request_hash")
+  responseStatus Int      @map("response_status")
+  responseBody   Json     @map("response_body")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([key, scope])
+  @@map("idempotency_keys")
 }
