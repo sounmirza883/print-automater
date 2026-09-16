@@ -36,4 +36,10 @@ export class ShopOrdersResource {
       method: "POST",
     });
   }
+
+  retryPrint(orderId: string): Promise<ShopOrderResponse> {
+    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/retry-print`, {
+      method: "POST",
+    });
+  }
 }

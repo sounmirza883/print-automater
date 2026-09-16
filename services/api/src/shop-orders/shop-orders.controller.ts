@@ -86,4 +86,13 @@ export class ShopOrdersController {
   complete(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
     return this.shopOrdersService.completeOrder(id, req.user!.id);
   }
+
+  /** §48/10.1: staff's "Retry" choice on a PRINT_FAILED order. */
+  @Post(":id/retry-print")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  retryPrint(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.retryPrint(id, req.user!.id);
+  }
 }

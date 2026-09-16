@@ -390,4 +390,49 @@ describe("Shop order actions API (8.3, e2e)", () => {
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(order.completedAt).not.toBeNull();
   });
+
+  it("§48/10.1: retry-print moves PRINT_FAILED -> QUEUED_FOR_PRINT and creates a NEW print job alongside the failed one, even double-tapped", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_FAILED);
+    const failedJob = await prisma.printJob.create({
+      data: {
+        orderId,
+        printerId: printerA.id,
+        shopId: shopA.id,
+        idempotencyToken: randomUUID(),
+        status: "FAILED",
+      },
+    });
+
+    const first = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/retry-print`)
+      .set("Authorization", `Bearer ${counterAToken}`);
+    expect(first.status).toBe(200);
+    expect(first.body.orderStatus).toBe("QUEUED_FOR_PRINT");
+
+    const second = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/retry-print`)
+      .set("Authorization", `Bearer ${counterAToken}`);
+    expect(second.status).toBe(200);
+    expect(second.body.orderStatus).toBe("QUEUED_FOR_PRINT");
+
+    const jobs = await prisma.printJob.findMany({ where: { orderId } });
+    expect(jobs).toHaveLength(2);
+    expect(jobs.find((j) => j.id === failedJob.id)?.status).toBe("FAILED");
+    const newJob = jobs.find((j) => j.id !== failedJob.id);
+    expect(newJob?.status).toBe("QUEUED");
+    expect(newJob?.printerId).toBe(printerA.id);
+  });
+
+  it("retry-print refuses with 409 when the shop now has no available printer, leaving the order at PRINT_FAILED", async () => {
+    const orderId = await seedOrder(shopB.id, OrderStatus.PRINT_FAILED);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/retry-print`)
+      .set("Authorization", `Bearer ${counterBToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.orderStatus).toBe(OrderStatus.PRINT_FAILED);
+  });
 });

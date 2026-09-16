@@ -238,6 +238,26 @@ export default function OrderDetailScreen(): ReactNode {
         </View>
       )}
 
+      {order.orderStatus === "PRINT_FAILED" && (
+        <View style={styles.actions}>
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            Printing failed. Choose how to proceed.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={actionInFlight}
+            onPress={() => void runAction(() => apiClient.shopOrders.retryPrint(order.id))}
+            style={[styles.primaryButton, actionInFlight && styles.buttonDisabled]}
+          >
+            {actionInFlight ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.primaryButtonText}>Retry Print</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
+
       {order.orderStatus === "PRINTED" && (
         <View style={styles.actions}>
           <Pressable

@@ -212,58 +212,7 @@ export class ShopOrdersService {
         { id: actorId },
         {
           sideEffect: async (tx) => {
-            const freshOrder = await tx.order.findUniqueOrThrow({
-              where: { id: orderId },
-              select: { shopId: true, paymentStatus: true, documentId: true },
-            });
-
-            if (freshOrder.paymentStatus !== PaymentStatus.PAID) {
-              throw new AppException(
-                HttpStatus.CONFLICT,
-                "PAYMENT_NOT_CONFIRMED",
-                "This order's payment has not been confirmed.",
-                true,
-              );
-            }
-
-            const document = await tx.document.findUniqueOrThrow({
-              where: { id: freshOrder.documentId },
-              select: { status: true },
-            });
-            if (document.status !== DocumentStatus.READY) {
-              throw new AppException(
-                HttpStatus.CONFLICT,
-                "DOCUMENT_NOT_READY",
-                "This order's document is not ready to print.",
-                true,
-              );
-            }
-
-            const printer = await tx.printer.findFirst({
-              where: { shopId: freshOrder.shopId, status: { not: PrinterStatus.DISABLED } },
-              include: { agent: { select: { deviceId: true } } },
-            });
-            if (!printer) {
-              throw new AppException(
-                HttpStatus.CONFLICT,
-                "NO_PRINTER_AVAILABLE",
-                "No printer is available to accept this order.",
-                true,
-              );
-            }
-            await tx.printJob.create({
-              data: {
-                orderId,
-                printerId: printer.id,
-                shopId: freshOrder.shopId,
-                idempotencyToken: randomUUID(),
-              },
-            });
-            // A printer staff registered by hand (8.4) before any
-            // agent ever heartbeated it has no agent yet -- nothing to
-            // wake. The job still sits QUEUED for whenever an agent
-            // does start reporting it.
-            notifyDeviceId = printer.agent?.deviceId ?? null;
+            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
           },
         },
       );
@@ -278,6 +227,112 @@ export class ShopOrdersService {
     }
 
     await this.queuePrintIfStillAccepted(orderId, actorId);
+    return this.getOrder(orderId);
+  }
+
+  /** §44's own gate, re-checked fresh through `tx` rather than trusted
+   * from however the caller got here -- shared by acceptOrder() and
+   * 10.1's retryPrint(), since a retry is itself a fresh dispatch
+   * attempt, not a resume of the one that failed, and deserves the
+   * exact same four-condition check. Always creates a NEW print_job
+   * row rather than reusing/flipping an old FAILED one: each row is
+   * one attempt, preserving "attempt 1 failed, attempt 2 succeeded"
+   * as real history instead of overwriting it -- the same shape
+   * 10.4's own eventual change-printer reassignment needs anyway. */
+  private async dispatchToPrinter(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<{ notifyDeviceId: string | null }> {
+    const freshOrder = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { shopId: true, paymentStatus: true, documentId: true },
+    });
+
+    if (freshOrder.paymentStatus !== PaymentStatus.PAID) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PAYMENT_NOT_CONFIRMED",
+        "This order's payment has not been confirmed.",
+        true,
+      );
+    }
+
+    const document = await tx.document.findUniqueOrThrow({
+      where: { id: freshOrder.documentId },
+      select: { status: true },
+    });
+    if (document.status !== DocumentStatus.READY) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "DOCUMENT_NOT_READY",
+        "This order's document is not ready to print.",
+        true,
+      );
+    }
+
+    const printer = await tx.printer.findFirst({
+      where: { shopId: freshOrder.shopId, status: { not: PrinterStatus.DISABLED } },
+      include: { agent: { select: { deviceId: true } } },
+    });
+    if (!printer) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "NO_PRINTER_AVAILABLE",
+        "No printer is available to accept this order.",
+        true,
+      );
+    }
+    await tx.printJob.create({
+      data: {
+        orderId,
+        printerId: printer.id,
+        shopId: freshOrder.shopId,
+        idempotencyToken: randomUUID(),
+      },
+    });
+    // A printer staff registered by hand (8.4) before any agent ever
+    // heartbeated it has no agent yet -- nothing to wake. The job
+    // still sits QUEUED for whenever an agent does start reporting it.
+    return { notifyDeviceId: printer.agent?.deviceId ?? null };
+  }
+
+  /** §48/10.1: staff's own "Retry" choice on a PRINT_FAILED order --
+   * RETRY_PRINT lands the order straight back in QUEUED_FOR_PRINT (no
+   * SHOP_ACCEPT/QUEUE_PRINT chain needed, unlike acceptOrder(), since
+   * the order never left the "shop already accepted this" side of the
+   * machine). Idempotent the same way acceptOrder() is: a genuine
+   * double-tap finds the order already past PRINT_FAILED on its second
+   * attempt, and ILLEGAL_ORDER_TRANSITION is swallowed rather than
+   * surfaced as an error. */
+  async retryPrint(orderId: string, actorId: string): Promise<ShopOrderResponse> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException("Order not found.");
+    }
+
+    let notifyDeviceId: string | null = null;
+
+    try {
+      await this.orderStateMachine.transition(
+        orderId,
+        OrderEvent.RETRY_PRINT,
+        { id: actorId },
+        {
+          sideEffect: async (tx) => {
+            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+          },
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
+        throw error;
+      }
+    }
+
+    if (notifyDeviceId) {
+      await this.agentJobsService.notify(notifyDeviceId);
+    }
+
     return this.getOrder(orderId);
   }
 
