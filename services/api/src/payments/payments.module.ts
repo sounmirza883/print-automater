@@ -9,6 +9,7 @@ import { OrderLockService } from "./order-lock.service.js";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "./payment-provider.interface.js";
 import { PaymentsController } from "./payments.controller.js";
 import { PaymentsService } from "./payments.service.js";
+import { RefundService } from "./refund.service.js";
 import { WebhooksController } from "./webhooks.controller.js";
 import { WebhooksService } from "./webhooks.service.js";
 
@@ -23,6 +24,7 @@ const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutC
   providers: [
     PaymentsService,
     WebhooksService,
+    RefundService,
     OrderLockService,
     MockPaymentProvider,
     {
@@ -42,6 +44,6 @@ const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutC
       },
     },
   ],
-  exports: [PAYMENT_PROVIDER],
+  exports: [PAYMENT_PROVIDER, RefundService],
 })
 export class PaymentsModule {}

@@ -472,9 +472,17 @@ model PaymentEvent {
 // nullable for the same reason OrderStateMachine's TransitionActor.id
 // already is -- a system-driven refund (11.3's own automatic triggers)
 // has no human actor.
+// 11.2/§80: `paymentId` is `@unique` -- MVP disallows partial refunds
+// (per the plan's own §120-P2 scope note), so a payment can have at
+// most one refund ever. That single row is retried in place (a fresh
+// REFUND_PENDING or a retry after REFUND_FAILED reuses it), never
+// re-created -- the same "the database is the idempotency backstop,
+// not application logic alone" reasoning 6.1's own payment_events
+// unique constraint already established, applied here via
+// RefundService's `upsert` instead of an explicit `ON CONFLICT`.
 model Refund {
   id               String        @id @default(uuid())
-  paymentId        String        @map("payment_id")
+  paymentId        String        @unique @map("payment_id")
   orderId          String        @map("order_id")
   providerRefundId String?       @unique @map("provider_refund_id")
   amountMinor      Int           @map("amount_minor")
@@ -489,7 +497,6 @@ model Refund {
   order   Order   @relation(fields: [orderId], references: [id])
   actor   User?   @relation("RefundActor", fields: [actorId], references: [id], onDelete: SetNull)
 
-  @@index([paymentId])
   @@index([orderId])
   @@index([status])
   @@map("refunds")
