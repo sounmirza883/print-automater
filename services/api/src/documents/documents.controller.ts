@@ -12,7 +12,10 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { Response } from "express";
+import type { Request } from "express";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
+import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
+import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import {
   DocumentsService,
   type CreateDocumentResult,
@@ -20,12 +23,26 @@ import {
 } from "./documents.service.js";
 import { CreateDocumentDto } from "./dto/create-document.dto.js";
 
+const HOUR_MS = 60 * 60_000;
+
+// §85's own key: "per user," not per IP -- JwtAuthGuard (class-level,
+// so it always runs first) has already populated request.user by the
+// time RateLimitGuard's keyGenerator reads it.
+function userId(req: Request): string {
+  return (req as RequestWithUser).user?.id ?? "unknown";
+}
+
 @Controller("documents")
 @UseGuards(JwtAuthGuard)
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
+  /** §85: "upload 20/hr per user." Rate-limited here, on the endpoint
+   * that actually starts an upload (issues the presigned URL) -- the
+   * raw PUT to storage isn't a route this API guards at all. */
   @Post()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ limit: 20, windowMs: HOUR_MS, keyGenerator: userId })
   create(
     @Req() req: RequestWithUser,
     @Body() dto: CreateDocumentDto,

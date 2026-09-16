@@ -27,13 +27,13 @@
     "@prisma/client": "^6.2.1",
     "bullmq": "^5.34.5",
     "ioredis": "^5.4.2",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^10.0.10",
     "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.1",
     "@print-automated/config": "workspace:*",
-    "@types/nodemailer": "^6.4.17",
+    "@types/nodemailer": "^8.0.2",
     "aws-sdk-client-mock": "^4.1.0",
     "dotenv": "^16.4.7"
   }

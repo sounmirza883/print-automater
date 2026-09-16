@@ -6,6 +6,16 @@ const SENSITIVE_KEYS = new Set([
   "refreshtoken",
   "secret",
   "authorization",
+  // 12.3: no current call site passes either of these into metadata
+  // (checked directly, not assumed) -- widened defensively for this
+  // system's own specific threat model: signature is the agent's own
+  // Ed25519 proof-of-possession (§41/9.3), and privatekey guards
+  // against a future caller accidentally logging local key material
+  // (identity-store.ts's own private key never leaves the agent
+  // process today, but nothing stops a future audit call from
+  // including one by mistake).
+  "signature",
+  "privatekey",
 ]);
 
 const REDACTED = "[REDACTED]";

@@ -23,6 +23,13 @@
     "db:seed": "pnpm --filter @print-automated/api exec prisma db seed",
     "db:reset": "pnpm --filter @print-automated/api exec prisma migrate reset"
   },
+  "pnpm": {
+    "overrides": {
+      "multer": "^2.3.0",
+      "postcss": "^8.5.28",
+      "deepmerge-ts": "^8.0.0"
+    }
+  },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
       "eslint --fix --max-warnings=0 --no-warn-ignored",
