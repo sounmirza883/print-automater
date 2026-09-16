@@ -12,6 +12,11 @@ export const workerEnvSchema = baseEnvSchema
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
     SMTP_HOST: z.string().default("localhost"),
     SMTP_PORT: z.coerce.number().int().positive().default(1025),
+    // §78/7.2: which EmailTransport is bound to EMAIL_TRANSPORT --
+    // "mailhog" (dev, real SMTP to the local container) or "ses"
+    // (prod, real AWS SES via S3_REGION's same AWS account/region).
+    EMAIL_TRANSPORT: z.enum(["mailhog", "ses"]).default("mailhog"),
+    EMAIL_FROM_ADDRESS: z.string().email().default("no-reply@print-automated.dev"),
     // §108: how long an order may sit in PAYMENT_PENDING before 5.6's
     // sweep expires it. 30 minutes is a placeholder default, not a
     // researched business number -- there's nothing in the PRD pinning

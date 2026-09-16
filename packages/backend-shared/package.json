@@ -19,6 +19,7 @@
   "dependencies": {
     "@aws-sdk/client-kms": "^3.716.0",
     "@aws-sdk/client-s3": "^3.716.0",
+    "@aws-sdk/client-sesv2": "^3.716.0",
     "@aws-sdk/s3-request-presigner": "^3.716.0",
     "@nestjs/bullmq": "^11.0.5",
     "@nestjs/common": "^11.0.1",
@@ -26,11 +27,13 @@
     "@prisma/client": "^6.2.1",
     "bullmq": "^5.34.5",
     "ioredis": "^5.4.2",
+    "nodemailer": "^6.9.16",
     "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.1",
     "@print-automated/config": "workspace:*",
+    "@types/nodemailer": "^6.4.17",
     "aws-sdk-client-mock": "^4.1.0",
     "dotenv": "^16.4.7"
   }

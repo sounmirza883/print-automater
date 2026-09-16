@@ -10,4 +10,5 @@
 export const QUEUE_NAMES = {
   DOCUMENT_PROCESSING: "document-processing",
   ORDER_EXPIRATION: "order-expiration",
+  NOTIFICATIONS: "notifications",
 } as const;

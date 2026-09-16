@@ -2,10 +2,17 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
+import { getQueueToken } from "@nestjs/bullmq";
+import type { Queue } from "bullmq";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import type Redis from "ioredis";
-import { PrismaService, REDIS_CLIENT } from "@print-automated/backend-shared";
+import {
+  PrismaService,
+  QUEUE_NAMES,
+  REDIS_CLIENT,
+  type SendEmailJob,
+} from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
@@ -13,6 +20,7 @@ import { configureApp } from "../src/bootstrap.js";
 describe("Auth (e2e)", () => {
   let app: NestExpressApplication;
   let prisma: PrismaService;
+  let notificationsQueue: Queue<SendEmailJob>;
 
   const email = `auth-e2e-${randomUUID()}@print-automated.dev`;
   const password = "CorrectHorseBatteryStaple9";
@@ -25,6 +33,7 @@ describe("Auth (e2e)", () => {
     await app.init();
 
     prisma = app.get(PrismaService);
+    notificationsQueue = app.get(getQueueToken(QUEUE_NAMES.NOTIFICATIONS));
 
     // This file makes 3 register calls, right at 1.9's 3/hr-per-IP
     // limit -- flush so repeated local runs against the same dev Redis
@@ -106,7 +115,9 @@ describe("Auth (e2e)", () => {
     expect(actions).toContain("LOGOUT");
   });
 
-  it("recovery always returns 204 whether or not the email is registered (no enumeration)", async () => {
+  it("recovery always returns 204 whether or not the email is registered (no enumeration), and only the registered case enqueues a real recovery email", async () => {
+    const jobCountBefore = await notificationsQueue.getJobCountByTypes("waiting", "completed");
+
     const known = await request(app.getHttpServer()).post("/v1/auth/recovery").send({ email });
     const unknown = await request(app.getHttpServer())
       .post("/v1/auth/recovery")
@@ -114,6 +125,15 @@ describe("Auth (e2e)", () => {
 
     expect(known.status).toBe(204);
     expect(unknown.status).toBe(204);
+
+    // 7.2 replaced the Phase-1 stub (log instead of email) with a real
+    // enqueue -- exactly one job for the known email, none for the
+    // unknown one. Actual delivery (via services/worker's own
+    // processor consuming this same queue) is services/worker's own
+    // e2e test's job, not this one's -- nothing here consumes the
+    // queue, so this only asserts the enqueue itself happened.
+    const jobCountAfter = await notificationsQueue.getJobCountByTypes("waiting", "completed");
+    expect(jobCountAfter).toBe(jobCountBefore + 1);
   });
 
   it("rejects a malformed register payload before it reaches the service layer", async () => {

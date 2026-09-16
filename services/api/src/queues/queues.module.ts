@@ -5,6 +5,7 @@ import {
   REDIS_CLIENT,
   QUEUE_NAMES,
   DOCUMENT_PROCESSING_JOB_OPTIONS,
+  SEND_EMAIL_JOB_OPTIONS,
 } from "@print-automated/backend-shared";
 
 /** Global: reuses 1.8's shared Redis connection rather than opening a
@@ -25,6 +26,10 @@ import {
     BullModule.registerQueue({
       name: QUEUE_NAMES.DOCUMENT_PROCESSING,
       defaultJobOptions: DOCUMENT_PROCESSING_JOB_OPTIONS,
+    }),
+    BullModule.registerQueue({
+      name: QUEUE_NAMES.NOTIFICATIONS,
+      defaultJobOptions: SEND_EMAIL_JOB_OPTIONS,
     }),
   ],
   exports: [BullModule],

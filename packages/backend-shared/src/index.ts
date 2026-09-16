@@ -35,6 +35,8 @@ export { redactMetadata } from "./audit/redact-metadata.js";
 export { QUEUE_NAMES } from "./queues/queue-names.js";
 export type { DocumentProcessingJob } from "./queues/document-processing.job.js";
 export { DOCUMENT_PROCESSING_JOB_OPTIONS } from "./queues/document-processing.job-options.js";
+export type { SendEmailJob } from "./queues/send-email.job.js";
+export { SEND_EMAIL_JOB_OPTIONS } from "./queues/send-email.job-options.js";
 
 export { AppException } from "./errors/app-exception.js";
 
@@ -45,3 +47,12 @@ export {
   type TransitionContext,
 } from "./orders/order-state-machine.js";
 export { OrderStateMachineModule } from "./orders/order-state-machine.module.js";
+
+export {
+  EMAIL_TRANSPORT,
+  type EmailMessage,
+  type EmailTransport,
+} from "./notifications/email-transport.interface.js";
+export { EmailModule, type EmailModuleOptions } from "./notifications/email.module.js";
+export { MailhogEmailTransport } from "./notifications/mailhog-email-transport.js";
+export { SesEmailTransport } from "./notifications/ses-email-transport.js";

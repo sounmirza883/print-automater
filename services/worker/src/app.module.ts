@@ -9,11 +9,13 @@ import {
   CryptoModule,
   AuditModule,
   OrderStateMachineModule,
+  EmailModule,
   REDIS_CLIENT,
 } from "@print-automated/backend-shared";
 import { WorkerConfigModule, workerEnv } from "./config/config.module.js";
 import { DocumentProcessingModule } from "./document-processing/document-processing.module.js";
 import { OrderExpirationModule } from "./order-expiration/order-expiration.module.js";
+import { NotificationsModule } from "./notifications/notifications.module.js";
 
 @Module({
   imports: [
@@ -45,12 +47,27 @@ import { OrderExpirationModule } from "./order-expiration/order-expiration.modul
     CryptoModule,
     AuditModule,
     OrderStateMachineModule,
+    EmailModule.forRoot(
+      workerEnv.EMAIL_TRANSPORT === "ses"
+        ? {
+            provider: "ses",
+            awsRegion: workerEnv.S3_REGION,
+            fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
+          }
+        : {
+            provider: "mailhog",
+            host: workerEnv.SMTP_HOST,
+            port: workerEnv.SMTP_PORT,
+            fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
+          },
+    ),
     BullModule.forRootAsync({
       inject: [REDIS_CLIENT],
       useFactory: (connection: Redis) => ({ connection }),
     }),
     DocumentProcessingModule,
     OrderExpirationModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

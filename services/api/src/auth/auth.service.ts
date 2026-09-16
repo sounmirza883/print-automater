@@ -127,7 +127,7 @@ export class AuthService {
       },
     });
 
-    this.notificationService.sendPasswordRecovery(email, rawToken);
+    await this.notificationService.sendPasswordRecovery(email, rawToken);
   }
 
   private async issueAuthResult(user: StoredUser, action: AuditAction): Promise<AuthResult> {
