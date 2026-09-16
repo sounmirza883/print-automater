@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { DocumentStatus, OrderStatus, PaymentStatus, Prisma, PrinterStatus } from "@prisma/client";
+import {
+  DocumentStatus,
+  OrderStatus,
+  PaymentStatus,
+  Prisma,
+  PrintJobStatus,
+  PrinterStatus,
+} from "@prisma/client";
 import type { ShopRejectionReason } from "@print-automated/types";
+import type { ResolveUnknownPrintInput } from "@print-automated/validation";
 import {
   AppException,
   OrderEvent,
@@ -333,6 +341,79 @@ export class ShopOrdersService {
       await this.agentJobsService.notify(notifyDeviceId);
     }
 
+    return this.getOrder(orderId);
+  }
+
+  /** §47/10.3: PRINT_STATUS_UNKNOWN is a first-class UI flow, not an
+   * error toast -- a human staff member looks at the physical printer
+   * and tells the system what actually happened. All three
+   * resolutions were already legal transitions in order-state-
+   * machine.ts's own table (RESOLVE_UNKNOWN_PRINTED/RETRY/FAILED) --
+   * this is the endpoint that finally lets staff reach them. "Every
+   * resolution is audited with the acting staff member" needs no
+   * extra code here: `transition()` already writes `actor.id` into
+   * every audit row it creates, and this call always passes the real
+   * staff id, never null. RETRY re-dispatches through the same
+   * dispatchToPrinter() gate as 10.1's own retryPrint(); the other two
+   * resolutions only need the print_job row's own status brought in
+   * line with what staff just confirmed, since nothing else about
+   * dispatch applies to a terminal outcome. */
+  async resolveUnknownPrint(
+    orderId: string,
+    actorId: string,
+    resolution: ResolveUnknownPrintInput["resolution"],
+  ): Promise<ShopOrderResponse> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException("Order not found.");
+    }
+
+    if (resolution === "RETRY") {
+      let notifyDeviceId: string | null = null;
+      await this.orderStateMachine.transition(
+        orderId,
+        OrderEvent.RESOLVE_UNKNOWN_RETRY,
+        { id: actorId },
+        {
+          metadata: { resolution },
+          sideEffect: async (tx) => {
+            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+          },
+        },
+      );
+      if (notifyDeviceId) {
+        await this.agentJobsService.notify(notifyDeviceId);
+      }
+      return this.getOrder(orderId);
+    }
+
+    const event =
+      resolution === "CONFIRMED_PRINTED"
+        ? OrderEvent.RESOLVE_UNKNOWN_PRINTED
+        : OrderEvent.RESOLVE_UNKNOWN_FAILED;
+    const printJobStatus =
+      resolution === "CONFIRMED_PRINTED" ? PrintJobStatus.PRINTED : PrintJobStatus.FAILED;
+
+    await this.orderStateMachine.transition(
+      orderId,
+      event,
+      { id: actorId },
+      {
+        metadata: { resolution },
+        sideEffect: async (tx) => {
+          const latestJob = await tx.printJob.findFirst({
+            where: { orderId },
+            orderBy: { createdAt: "desc" },
+          });
+          if (latestJob) {
+            await tx.printJob.update({
+              where: { id: latestJob.id },
+              data: { status: printJobStatus },
+            });
+          }
+        },
+      },
+    );
     return this.getOrder(orderId);
   }
 

@@ -18,6 +18,7 @@ import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped } from "../auth/shop-scoped.decorator.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
+import { ResolveUnknownPrintDto } from "./dto/resolve-unknown-print.dto.js";
 import { OrderShopResolver } from "./order-shop.resolver.js";
 import {
   ShopOrdersService,
@@ -94,5 +95,18 @@ export class ShopOrdersController {
   @ShopScoped("id", OrderShopResolver)
   retryPrint(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
     return this.shopOrdersService.retryPrint(id, req.user!.id);
+  }
+
+  /** §47/10.3: staff's own resolution of a PRINT_STATUS_UNKNOWN order. */
+  @Post(":id/resolve-unknown")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  resolveUnknown(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: ResolveUnknownPrintDto,
+  ): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.resolveUnknownPrint(id, req.user!.id, dto.resolution);
   }
 }

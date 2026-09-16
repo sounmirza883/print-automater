@@ -42,4 +42,14 @@ export class ShopOrdersResource {
       method: "POST",
     });
   }
+
+  resolveUnknown(
+    orderId: string,
+    resolution: "CONFIRMED_PRINTED" | "RETRY" | "MARK_FAILED",
+  ): Promise<ShopOrderResponse> {
+    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/resolve-unknown`, {
+      method: "POST",
+      body: { resolution },
+    });
+  }
 }

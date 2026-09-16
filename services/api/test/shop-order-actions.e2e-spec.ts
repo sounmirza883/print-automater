@@ -435,4 +435,85 @@ describe("Shop order actions API (8.3, e2e)", () => {
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(order.orderStatus).toBe(OrderStatus.PRINT_FAILED);
   });
+
+  it("§47/10.3: resolve-unknown CONFIRMED_PRINTED moves PRINT_STATUS_UNKNOWN -> PRINTED, updates the print job, and is audited with the real staff member", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_STATUS_UNKNOWN);
+    const job = await prisma.printJob.create({
+      data: {
+        orderId,
+        printerId: printerA.id,
+        shopId: shopA.id,
+        idempotencyToken: randomUUID(),
+        status: "UNKNOWN",
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/resolve-unknown`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ resolution: "CONFIRMED_PRINTED" });
+    expect(res.status).toBe(200);
+    expect(res.body.orderStatus).toBe("PRINTED");
+
+    const updatedJob = await prisma.printJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(updatedJob.status).toBe("PRINTED");
+
+    const audit = await prisma.auditLog.findFirst({
+      where: {
+        resourceType: "order",
+        resourceId: orderId,
+        action: "ORDER_RESOLVE_UNKNOWN_PRINTED",
+      },
+    });
+    expect(audit?.actorId).toBe(counterAtShopA.id);
+  });
+
+  it("resolve-unknown RETRY moves PRINT_STATUS_UNKNOWN -> QUEUED_FOR_PRINT and creates a new print job", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_STATUS_UNKNOWN);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/resolve-unknown`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ resolution: "RETRY" });
+    expect(res.status).toBe(200);
+    expect(res.body.orderStatus).toBe("QUEUED_FOR_PRINT");
+
+    const jobs = await prisma.printJob.findMany({ where: { orderId } });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe("QUEUED");
+  });
+
+  it("resolve-unknown MARK_FAILED moves PRINT_STATUS_UNKNOWN -> PRINT_FAILED and updates the print job", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_STATUS_UNKNOWN);
+    const job = await prisma.printJob.create({
+      data: {
+        orderId,
+        printerId: printerA.id,
+        shopId: shopA.id,
+        idempotencyToken: randomUUID(),
+        status: "UNKNOWN",
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/resolve-unknown`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ resolution: "MARK_FAILED" });
+    expect(res.status).toBe(200);
+    expect(res.body.orderStatus).toBe("PRINT_FAILED");
+
+    const updatedJob = await prisma.printJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(updatedJob.status).toBe("FAILED");
+  });
+
+  it("resolve-unknown is refused from any status other than PRINT_STATUS_UNKNOWN", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.WAITING_FOR_SHOP);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/resolve-unknown`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ resolution: "CONFIRMED_PRINTED" });
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("ILLEGAL_ORDER_TRANSITION");
+  });
 });

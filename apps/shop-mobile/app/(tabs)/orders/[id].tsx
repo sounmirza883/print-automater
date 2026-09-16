@@ -258,6 +258,55 @@ export default function OrderDetailScreen(): ReactNode {
         </View>
       )}
 
+      {/* §47/10.3: PRINT_STATUS_UNKNOWN is its own resolution card, not
+          an error toast -- staff physically checks the printer, then
+          tells the system what actually happened. "Change Printer"
+          isn't offered yet (10.4's own separate job-reassignment
+          mechanism); staff can fall back to "It Failed" then Retry. */}
+      {order.orderStatus === "PRINT_STATUS_UNKNOWN" && (
+        <View style={styles.actions}>
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            We lost contact with the printer mid-job. Check the printer, then confirm what happened.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={actionInFlight}
+            onPress={() =>
+              void runAction(() =>
+                apiClient.shopOrders.resolveUnknown(order.id, "CONFIRMED_PRINTED"),
+              )
+            }
+            style={[styles.primaryButton, actionInFlight && styles.buttonDisabled]}
+          >
+            {actionInFlight ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.primaryButtonText}>It Printed Successfully</Text>
+            )}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={actionInFlight}
+            onPress={() =>
+              void runAction(() => apiClient.shopOrders.resolveUnknown(order.id, "RETRY"))
+            }
+            style={styles.secondaryButton}
+          >
+            <Text style={styles.secondaryButtonText}>Retry Printing</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={actionInFlight}
+            onPress={() =>
+              void runAction(() => apiClient.shopOrders.resolveUnknown(order.id, "MARK_FAILED"))
+            }
+            style={styles.secondaryButton}
+          >
+            <Text style={styles.secondaryButtonText}>It Failed</Text>
+          </Pressable>
+        </View>
+      )}
+
       {order.orderStatus === "PRINTED" && (
         <View style={styles.actions}>
           <Pressable

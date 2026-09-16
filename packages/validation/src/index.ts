@@ -21,6 +21,8 @@ export {
   type ListShopOrdersQueryInput,
   rejectOrderSchema,
   type RejectOrderInput,
+  resolveUnknownPrintSchema,
+  type ResolveUnknownPrintInput,
 } from "./shop-orders/index.js";
 export {
   printerCapabilitiesSchema,
