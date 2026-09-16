@@ -33,3 +33,11 @@ export {
   type ListPrintersQueryInput,
 } from "./printers/index.js";
 export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";
+export {
+  registerAgentSchema,
+  type RegisterAgentInput,
+  authenticateChallengeSchema,
+  type AuthenticateChallengeInput,
+  authenticateSchema,
+  type AuthenticateInput,
+} from "./agents/index.js";

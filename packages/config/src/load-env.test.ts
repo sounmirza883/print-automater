@@ -10,6 +10,7 @@ const VALID_API_ENV: Record<string, string> = {
   REDIS_URL: "redis://localhost:6380",
   JWT_ACCESS_SECRET: "a".repeat(32),
   JWT_REFRESH_SECRET: "b".repeat(32),
+  JWT_AGENT_SECRET: "e".repeat(32),
   S3_ENDPOINT: "http://localhost:9010",
   S3_REGION: "us-east-1",
   S3_BUCKET: "print-automated-documents",
