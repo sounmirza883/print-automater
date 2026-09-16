@@ -5,6 +5,7 @@ import { tokens } from "@print-automated/design-tokens";
 import type { ShopOrderResponse, ShopRejectionReason } from "@print-automated/api-client";
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
+import { usePrinters } from "@/lib/use-printers";
 
 type LoadState =
   | { phase: "loading" }
@@ -46,11 +47,13 @@ const IN_FLIGHT_LABELS: Record<string, string> = {
 export default function OrderDetailScreen(): ReactNode {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { apiClient } = useShopAuth();
+  const { apiClient, shopId } = useShopAuth();
   const [state, setState] = useState<LoadState>({ phase: "loading" });
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInFlight, setActionInFlight] = useState(false);
   const [showRejectPicker, setShowRejectPicker] = useState(false);
+  const [showPrinterPicker, setShowPrinterPicker] = useState(false);
+  const printers = usePrinters(apiClient, shopId);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +105,7 @@ export default function OrderDetailScreen(): ReactNode {
       const order = await action();
       setState({ phase: "ready", order });
       setShowRejectPicker(false);
+      setShowPrinterPicker(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "That action failed.");
     } finally {
@@ -129,6 +133,47 @@ export default function OrderDetailScreen(): ReactNode {
 
   const { order } = state;
   const paid = order.paymentStatus === "PAID";
+
+  // §49/10.4: only PRINT_FAILED offers "Change Printer" -- it fires
+  // RETRY_PRINT, which the state machine only accepts from PRINT_FAILED
+  // (see order-state-machine.ts). PRINT_STATUS_UNKNOWN has no legal
+  // RETRY_PRINT transition, so staff there use "It Failed" first
+  // (RESOLVE_UNKNOWN_FAILED -> PRINT_FAILED), then Change Printer.
+  function renderPrinterPicker(): ReactNode {
+    if (!showPrinterPicker) {
+      return null;
+    }
+    return (
+      <View style={styles.printerPicker}>
+        <Text style={styles.detailLabel}>Choose a printer</Text>
+        {printers.phase === "loading" && <ActivityIndicator />}
+        {printers.phase === "ready" && printers.printers.length === 0 && (
+          <Text style={styles.printingPrinterText}>No printers registered at this shop.</Text>
+        )}
+        {printers.phase === "ready" &&
+          printers.printers.map((printer) => (
+            <Pressable
+              key={printer.id}
+              accessibilityRole="button"
+              disabled={actionInFlight}
+              onPress={() =>
+                void runAction(() => apiClient.shopOrders.changePrinter(order.id, printer.id))
+              }
+              style={[styles.secondaryButton, actionInFlight && styles.buttonDisabled]}
+            >
+              <Text style={styles.secondaryButtonText}>{printer.name}</Text>
+            </Pressable>
+          ))}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setShowPrinterPicker(false)}
+          style={styles.cancelButton}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
@@ -255,14 +300,23 @@ export default function OrderDetailScreen(): ReactNode {
               <Text style={styles.primaryButtonText}>Retry Print</Text>
             )}
           </Pressable>
+          {!showPrinterPicker && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={actionInFlight}
+              onPress={() => setShowPrinterPicker(true)}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Change Printer</Text>
+            </Pressable>
+          )}
+          {renderPrinterPicker()}
         </View>
       )}
 
       {/* §47/10.3: PRINT_STATUS_UNKNOWN is its own resolution card, not
           an error toast -- staff physically checks the printer, then
-          tells the system what actually happened. "Change Printer"
-          isn't offered yet (10.4's own separate job-reassignment
-          mechanism); staff can fall back to "It Failed" then Retry. */}
+          tells the system what actually happened. */}
       {order.orderStatus === "PRINT_STATUS_UNKNOWN" && (
         <View style={styles.actions}>
           <Text accessibilityRole="alert" style={styles.errorText}>
@@ -388,6 +442,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   secondaryButtonText: { fontWeight: "600" },
+  printerPicker: {
+    borderWidth: 1,
+    borderColor: tokens.borders.color,
+    borderRadius: tokens.radius.md,
+    padding: 12,
+    gap: 8,
+  },
   cancelButton: { paddingVertical: 10, alignItems: "center" },
   cancelButtonText: { color: "#6B7280" },
   backLink: { marginTop: 16, alignItems: "center" },

@@ -8,7 +8,11 @@ import {
   PrintJobStatus,
   PrinterStatus,
 } from "@prisma/client";
-import type { ShopRejectionReason } from "@print-automated/types";
+import type {
+  PrintConfiguration,
+  PrinterCapabilities,
+  ShopRejectionReason,
+} from "@print-automated/types";
 import type { ResolveUnknownPrintInput } from "@print-automated/validation";
 import {
   AppException,
@@ -250,10 +254,11 @@ export class ShopOrdersService {
   private async dispatchToPrinter(
     tx: Prisma.TransactionClient,
     orderId: string,
+    requestedPrinterId?: string,
   ): Promise<{ notifyDeviceId: string | null }> {
     const freshOrder = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
-      select: { shopId: true, paymentStatus: true, documentId: true },
+      select: { shopId: true, paymentStatus: true, documentId: true, printConfiguration: true },
     });
 
     if (freshOrder.paymentStatus !== PaymentStatus.PAID) {
@@ -278,10 +283,21 @@ export class ShopOrdersService {
       );
     }
 
-    const printer = await tx.printer.findFirst({
-      where: { shopId: freshOrder.shopId, status: { not: PrinterStatus.DISABLED } },
-      include: { agent: { select: { deviceId: true } } },
-    });
+    // §49/10.4: a staff-requested printer is an explicit, deliberate
+    // choice (not auto-selected "any available printer"), so it gets
+    // its own lookup and its own capability check against exactly what
+    // this order needs.
+    const printer = requestedPrinterId
+      ? await this.findRequestedPrinter(
+          tx,
+          requestedPrinterId,
+          freshOrder.shopId,
+          freshOrder.printConfiguration as unknown as PrintConfiguration,
+        )
+      : await tx.printer.findFirst({
+          where: { shopId: freshOrder.shopId, status: { not: PrinterStatus.DISABLED } },
+          include: { agent: { select: { deviceId: true } } },
+        });
     if (!printer) {
       throw new AppException(
         HttpStatus.CONFLICT,
@@ -302,6 +318,84 @@ export class ShopOrdersService {
     // heartbeated it has no agent yet -- nothing to wake. The job
     // still sits QUEUED for whenever an agent does start reporting it.
     return { notifyDeviceId: printer.agent?.deviceId ?? null };
+  }
+
+  /** §49/10.4. Distinguishes "doesn't exist / wrong shop / disabled"
+   * (PRINTER_NOT_AVAILABLE) from "exists, but can't do this job"
+   * (PRINTER_CAPABILITY_MISMATCH) -- a readable, specific reason
+   * either way, never a generic refusal. */
+  private async findRequestedPrinter(
+    tx: Prisma.TransactionClient,
+    printerId: string,
+    shopId: string,
+    printConfiguration: PrintConfiguration,
+  ) {
+    const printer = await tx.printer.findFirst({
+      where: { id: printerId, shopId, status: { not: PrinterStatus.DISABLED } },
+      include: { agent: { select: { deviceId: true } } },
+    });
+    if (!printer) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PRINTER_NOT_AVAILABLE",
+        "That printer is not available for this shop.",
+        true,
+      );
+    }
+    if (
+      !printerSupportsConfiguration(
+        printer.capabilities as unknown as PrinterCapabilities | null,
+        printConfiguration,
+      )
+    ) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PRINTER_CAPABILITY_MISMATCH",
+        "That printer cannot fulfil this order's configuration.",
+        false,
+      );
+    }
+    return printer;
+  }
+
+  /** §49/10.4: staff's own "Change Printer" choice, resolving a
+   * PRINT_FAILED order by naming a *specific* replacement rather than
+   * letting dispatchToPrinter() auto-select "any available printer" --
+   * RETRY_PRINT is the same event 10.1's own plain retry uses (its own
+   * comment already noted it covers both cases), just with a
+   * requestedPrinterId this time. */
+  async changePrinter(
+    orderId: string,
+    actorId: string,
+    printerId: string,
+  ): Promise<ShopOrderResponse> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException("Order not found.");
+    }
+
+    let notifyDeviceId: string | null = null;
+    try {
+      await this.orderStateMachine.transition(
+        orderId,
+        OrderEvent.RETRY_PRINT,
+        { id: actorId },
+        {
+          metadata: { changedToPrinterId: printerId },
+          sideEffect: async (tx) => {
+            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceId;
+          },
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
+        throw error;
+      }
+    }
+    if (notifyDeviceId) {
+      await this.agentJobsService.notify(notifyDeviceId);
+    }
+    return this.getOrder(orderId);
   }
 
   /** §48/10.1: staff's own "Retry" choice on a PRINT_FAILED order --
@@ -471,4 +565,32 @@ export class ShopOrdersService {
       printerName: order.printJobs[0]?.printer.name ?? null,
     };
   }
+}
+
+/** §49/10.4. Deliberately the *opposite* null-handling from orders.
+ * service.ts's own shopCanFulfil(): a shop's own capabilities being
+ * null there means "never configured, refuse by default" (a system-
+ * wide filter applied with no human involved). Here, a printer's
+ * capabilities being null means "not yet probed by an agent heartbeat"
+ * (9.4's own established meaning) -- and staff naming THIS printer by
+ * id is itself a deliberate, informed choice, not a blind filter, so
+ * unknown capabilities don't block it. A capability the system
+ * actually knows is missing still refuses, unconditionally. */
+function printerSupportsConfiguration(
+  capabilities: PrinterCapabilities | null,
+  config: PrintConfiguration,
+): boolean {
+  if (capabilities === null) {
+    return true;
+  }
+  if (config.color === "COLOR" && !capabilities.color) {
+    return false;
+  }
+  if (config.sides === "DOUBLE" && !capabilities.duplex) {
+    return false;
+  }
+  if (config.paperSize === "A4" && !capabilities.a4) {
+    return false;
+  }
+  return true;
 }

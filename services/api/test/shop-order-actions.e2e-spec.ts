@@ -516,4 +516,59 @@ describe("Shop order actions API (8.3, e2e)", () => {
     expect(res.status).toBe(409);
     expect(res.body.error_code).toBe("ILLEGAL_ORDER_TRANSITION");
   });
+
+  it("§49/10.4: change-printer reassigns a PRINT_FAILED order to a staff-named printer, moving it to QUEUED_FOR_PRINT", async () => {
+    const targetPrinter = await prisma.printer.create({
+      data: { shopId: shopA.id, name: "Shop A Printer 2 (unprobed)", status: PrinterStatus.ONLINE },
+    });
+    printerIds.push(targetPrinter.id);
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_FAILED);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/change-printer`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ printerId: targetPrinter.id });
+    expect(res.status).toBe(200);
+    expect(res.body.orderStatus).toBe("QUEUED_FOR_PRINT");
+
+    const jobs = await prisma.printJob.findMany({ where: { orderId } });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.printerId).toBe(targetPrinter.id);
+    expect(jobs[0]?.status).toBe("QUEUED");
+  });
+
+  it("§49/10.4's own Done-when: reassignment to a printer that's known incapable of this order's configuration is refused with a readable reason, leaving the order at PRINT_FAILED", async () => {
+    const incapablePrinter = await prisma.printer.create({
+      data: {
+        shopId: shopA.id,
+        name: "Shop A Printer (no A4)",
+        status: PrinterStatus.ONLINE,
+        capabilities: { color: true, duplex: true, a4: false, a3: false },
+      },
+    });
+    printerIds.push(incapablePrinter.id);
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_FAILED); // seeded config is paperSize: A4
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/change-printer`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ printerId: incapablePrinter.id });
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("PRINTER_CAPABILITY_MISMATCH");
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.orderStatus).toBe(OrderStatus.PRINT_FAILED);
+    expect(await prisma.printJob.count({ where: { orderId } })).toBe(0);
+  });
+
+  it("change-printer refuses a printer belonging to a different shop", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_FAILED);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/change-printer`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ printerId: randomUUID() }); // no such printer at all, let alone at shop A
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("PRINTER_NOT_AVAILABLE");
+  });
 });

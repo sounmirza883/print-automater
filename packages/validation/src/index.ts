@@ -23,6 +23,8 @@ export {
   type RejectOrderInput,
   resolveUnknownPrintSchema,
   type ResolveUnknownPrintInput,
+  changePrinterSchema,
+  type ChangePrinterInput,
 } from "./shop-orders/index.js";
 export {
   printerCapabilitiesSchema,

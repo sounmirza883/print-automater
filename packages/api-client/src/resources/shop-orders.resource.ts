@@ -52,4 +52,11 @@ export class ShopOrdersResource {
       body: { resolution },
     });
   }
+
+  changePrinter(orderId: string, printerId: string): Promise<ShopOrderResponse> {
+    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/change-printer`, {
+      method: "POST",
+      body: { printerId },
+    });
+  }
 }

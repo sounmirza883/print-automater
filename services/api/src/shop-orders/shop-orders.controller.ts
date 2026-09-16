@@ -16,6 +16,7 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped } from "../auth/shop-scoped.decorator.js";
+import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
 import { ResolveUnknownPrintDto } from "./dto/resolve-unknown-print.dto.js";
@@ -108,5 +109,18 @@ export class ShopOrdersController {
     @Body() dto: ResolveUnknownPrintDto,
   ): Promise<ShopOrderResponse> {
     return this.shopOrdersService.resolveUnknownPrint(id, req.user!.id, dto.resolution);
+  }
+
+  /** §49/10.4: staff's own "Change Printer" choice. */
+  @Post(":id/change-printer")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  changePrinter(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: ChangePrinterDto,
+  ): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.changePrinter(id, req.user!.id, dto.printerId);
   }
 }
