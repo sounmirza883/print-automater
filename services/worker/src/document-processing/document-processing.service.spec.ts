@@ -181,4 +181,68 @@ describe("DocumentProcessingService (integration, real MinIO/Postgres/ClamAV)", 
     expect(doc.rejectionReason).toBe(RejectionReason.PASSWORD_PROTECTED);
     await expect(storage.objectExists(storage.quarantineKey(id))).resolves.toBe(false);
   }, 15_000);
+
+  // §86/12.2's own remaining adversarial fixtures -- EICAR and
+  // password-protected are already covered above (2.7 built them
+  // ahead of 12.2's own sub-phase); these three are the genuinely new
+  // ones that land in THIS pipeline specifically (the size-vs-declared
+  // mismatch and path-traversal-filename fixtures instead live at the
+  // upload layer, services/api/test/documents.e2e-spec.ts, since
+  // that's the layer that actually owns those two checks).
+
+  it("§86/12.2: a renamed executable (real PE/MZ header, no PDF magic bytes) is rejected on magic bytes -- same check as the renamed-.jpg case above, exercised against a different, more consequential payload shape", async () => {
+    // "MZ" (0x4D 0x5A) is the real DOS/PE executable magic-byte header
+    // every Windows .exe starts with, followed by a plausible-looking
+    // MS-DOS stub message -- not a full executable (nothing here is
+    // ever run), just the header bytes the magic-bytes check itself
+    // inspects.
+    const fakeExe = Buffer.concat([
+      Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]),
+      Buffer.from("This program cannot be run in DOS mode."),
+    ]);
+    const id = await seedPendingDocument(fakeExe);
+
+    await service.process(id);
+
+    const doc = await prisma.document.findUniqueOrThrow({ where: { id } });
+    expect(doc.status).toBe(DocumentStatus.REJECTED);
+    expect(doc.rejectionReason).toBe(RejectionReason.INVALID_FILE_TYPE);
+    await expect(storage.objectExists(storage.quarantineKey(id))).resolves.toBe(false);
+  }, 15_000);
+
+  it("§86/12.2: a PDF bomb (501 legitimately-structured pages, past the 500-page cap) is rejected rather than accepted or hung on", async () => {
+    // The safe, deterministic way to prove the page-count ceiling holds
+    // against a resource-exhaustion-shaped PDF: build one honestly, via
+    // pdf-lib itself (bounded, fast, no parser exploit involved), and
+    // confirm the *server's own* limit -- not a parser crash or a hang
+    // -- is what stops it. A hand-crafted malformed/recursive object
+    // graph designed to exploit a hypothetical pdf-lib parsing bug is
+    // deliberately out of scope here: it would risk hanging this very
+    // test process without proving anything this codebase's own §86
+    // limit doesn't already cover.
+    const pdfDoc = await PDFDocument.create();
+    for (let i = 0; i < 501; i += 1) {
+      pdfDoc.addPage();
+    }
+    const bombBuffer = Buffer.from(await pdfDoc.save());
+    const id = await seedPendingDocument(bombBuffer);
+
+    await service.process(id);
+
+    const doc = await prisma.document.findUniqueOrThrow({ where: { id } });
+    expect(doc.status).toBe(DocumentStatus.REJECTED);
+    expect(doc.rejectionReason).toBe(RejectionReason.PAGE_LIMIT_EXCEEDED);
+    await expect(storage.objectExists(storage.quarantineKey(id))).resolves.toBe(false);
+  }, 30_000);
+
+  it("§86/12.2: a zero-byte file is rejected on magic bytes, not a crash", async () => {
+    const id = await seedPendingDocument(Buffer.alloc(0));
+
+    await service.process(id);
+
+    const doc = await prisma.document.findUniqueOrThrow({ where: { id } });
+    expect(doc.status).toBe(DocumentStatus.REJECTED);
+    expect(doc.rejectionReason).toBe(RejectionReason.INVALID_FILE_TYPE);
+    await expect(storage.objectExists(storage.quarantineKey(id))).resolves.toBe(false);
+  }, 15_000);
 });

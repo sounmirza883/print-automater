@@ -33,12 +33,33 @@ export class StorageService {
   }
 
   /** Short-lived, single-object upload URL (§65) -- the client PUTs
-   * directly to S3/MinIO, the raw bytes never pass through this API. */
-  createPresignedPutUrl(key: string, contentType = "application/pdf"): Promise<string> {
+   * directly to S3/MinIO, the raw bytes never pass through this API.
+   *
+   * §86/12.2: `contentLength`, when given, is signed into the URL as an
+   * exact required Content-Length -- S3/MinIO reject the PUT outright
+   * (a signature/precondition failure, before a single byte lands in
+   * the bucket) if the real upload doesn't match it exactly. Without
+   * this, 2.7's own worker pipeline was the *only* size check, and it
+   * runs `getObjectBuffer()` (a full download into process memory)
+   * before ever looking at the byte count -- a client that lies at
+   * POST /documents time (a small declared `sizeBytes`, then an
+   * arbitrarily large real upload) could force an unbounded-memory
+   * read with no size boundary at all. The caller passes the client's
+   * own already-validated `sizeBytes` (capped at 25MB by
+   * createDocumentSchema) -- a real client's actual upload always
+   * matches its own declared file size exactly (confirmed: customer-web
+   * uploads the identical `File` object it just read `.size` from), so
+   * this only ever blocks a client that's lying. */
+  createPresignedPutUrl(
+    key: string,
+    contentType = "application/pdf",
+    contentLength?: number,
+  ): Promise<string> {
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
+      ...(contentLength !== undefined ? { ContentLength: contentLength } : {}),
     });
     return getSignedUrl(this.s3, command, { expiresIn: PRESIGNED_PUT_TTL_SECONDS });
   }

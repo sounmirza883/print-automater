@@ -76,7 +76,11 @@ export class DocumentsService {
       },
     });
 
-    const uploadUrl = await this.storage.createPresignedPutUrl(storageKey, input.mimeType);
+    const uploadUrl = await this.storage.createPresignedPutUrl(
+      storageKey,
+      input.mimeType,
+      input.sizeBytes,
+    );
     return { documentId, uploadUrl };
   }
 

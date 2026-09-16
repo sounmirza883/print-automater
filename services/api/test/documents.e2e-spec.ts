@@ -79,11 +79,23 @@ describe("Documents (e2e)", () => {
   });
 
   it("presigned PUT succeeds, confirming upload moves the document to PROCESSING, and another user's GET returns 403", async () => {
+    // §86/12.2: sizeBytes declared at creation is signed into the
+    // presigned URL as the exact required Content-Length (see
+    // storage.service.ts's own comment) -- a real upload always
+    // matches its own declared size, so this fixture's own PUT body
+    // must too, or the PUT itself would be refused by MinIO before
+    // ever reaching this test's actual assertions.
+    const fakePdfBytes = Buffer.from("%PDF-1.7\nfake pdf content for documents.e2e-spec.ts\n%%EOF");
+
     // POST /documents
     const createRes = await request(app.getHttpServer())
       .post("/v1/documents")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .send({ filename: "assignment.pdf", mimeType: "application/pdf", sizeBytes: 1024 });
+      .send({
+        filename: "assignment.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: fakePdfBytes.length,
+      });
     expect(createRes.status).toBe(201);
     const { documentId: newDocumentId, uploadUrl } = createRes.body as {
       documentId: string;
@@ -98,7 +110,6 @@ describe("Documents (e2e)", () => {
 
     // The presigned PUT succeeds -- a real, unauthenticated fetch()
     // against MinIO, not the AWS SDK.
-    const fakePdfBytes = Buffer.from("%PDF-1.7\nfake pdf content for documents.e2e-spec.ts\n%%EOF");
     const putResponse = await fetch(uploadUrl, {
       method: "PUT",
       body: fakePdfBytes,
@@ -163,6 +174,54 @@ describe("Documents (e2e)", () => {
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ filename: "photo.jpg", mimeType: "image/jpeg", sizeBytes: 1024 });
     expect(res.status).toBe(400);
+  });
+
+  it("§86/12.2: a filename with path-traversal segments is sanitized down to a bare, safe filename", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/v1/documents")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        filename: "../../../../etc/passwd.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+      });
+    expect(res.status).toBe(201);
+
+    const doc = await prisma.document.findUniqueOrThrow({
+      where: { id: res.body.documentId as string },
+    });
+    expect(doc.filename).toBe("passwd.pdf");
+    expect(doc.filename).not.toContain("..");
+    expect(doc.filename).not.toContain("/");
+  });
+
+  it("§86/12.2: an upload whose real byte count doesn't match the size declared at creation is refused by storage itself, before a single byte lands in the bucket -- this is what actually stops a class of attack like 'declare a small file, upload an arbitrarily large one' (the concrete '500MB upload' fixture is the same mechanism at a bigger scale)", async () => {
+    const createRes = await request(app.getHttpServer())
+      .post("/v1/documents")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ filename: "small-declared.pdf", mimeType: "application/pdf", sizeBytes: 10 });
+    expect(createRes.status).toBe(201);
+    const { documentId: mismatchDocumentId, uploadUrl } = createRes.body as {
+      documentId: string;
+      uploadUrl: string;
+    };
+
+    // Genuinely larger than the 10 bytes declared at creation time --
+    // MinIO/S3 refuse a presigned PUT whose real Content-Length doesn't
+    // match what was signed, before a single byte is durably stored.
+    const oversizedBody = Buffer.from("%PDF-1.7\n" + "A".repeat(200));
+    const putResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      body: oversizedBody,
+      headers: { "Content-Type": "application/pdf" },
+    });
+    expect(putResponse.ok).toBe(false);
+
+    // No residue: the refused PUT never created an object at the
+    // would-be quarantine key at all.
+    await expect(storage.objectExists(storage.quarantineKey(mismatchDocumentId))).resolves.toBe(
+      false,
+    );
   });
 });
 
