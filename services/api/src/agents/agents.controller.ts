@@ -10,12 +10,14 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { AgentAuthGuard, type RequestWithAgent } from "./agent-auth.guard.js";
 import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
 import { AgentJobsService, type PrintJobSummary } from "./agent-jobs.service.js";
 import { DocumentsService } from "../documents/documents.service.js";
+import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.js";
 import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
 import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import { AuthenticateChallengeDto } from "./dto/authenticate-challenge.dto.js";
@@ -23,6 +25,7 @@ import { AuthenticateDto } from "./dto/authenticate.dto.js";
 import { HeartbeatDto } from "./dto/heartbeat.dto.js";
 import { PollJobsQueryDto } from "./dto/poll-jobs-query.dto.js";
 import { RegisterAgentDto } from "./dto/register-agent.dto.js";
+import { ReportJobStatusDto } from "./dto/report-job-status.dto.js";
 import { AgentsService, type RegisteredAgent } from "./agents.service.js";
 
 const MINUTE_MS = 60_000;
@@ -125,5 +128,24 @@ export class AgentsController {
         "Content-Length": String(buffer.length),
       })
       .send(buffer);
+  }
+
+  /** §9.12/§92. Guarded by the same `Idempotency-Key` interceptor 5.3
+   * already built for order creation/acceptance/refunds -- an agent
+   * retrying a report after a dropped connection (§90/§91) replays the
+   * cached response instead of re-running the transition a second
+   * time. A request with no `Idempotency-Key` header still works (the
+   * interceptor is a no-op then), but the agent's own status-reporter
+   * (9.12) always sends one. */
+  @Post("jobs/:id/status")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AgentAuthGuard)
+  @UseInterceptors(IdempotencyInterceptor)
+  async reportStatus(
+    @Req() req: RequestWithAgent,
+    @Param("id") id: string,
+    @Body() dto: ReportJobStatusDto,
+  ): Promise<void> {
+    await this.agentJobsService.reportStatus(id, req.agent!.deviceId, dto);
   }
 }

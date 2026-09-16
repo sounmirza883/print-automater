@@ -6,3 +6,4 @@ export {
 export { authenticateSchema, type AuthenticateInput } from "./authenticate.schema.js";
 export { heartbeatSchema, type HeartbeatInput } from "./heartbeat.schema.js";
 export { pollJobsQuerySchema, type PollJobsQueryInput } from "./poll-jobs-query.schema.js";
+export { reportJobStatusSchema, type ReportJobStatusInput } from "./report-job-status.schema.js";

@@ -2,7 +2,14 @@ import { HttpStatus, Inject, Injectable, type OnModuleDestroy } from "@nestjs/co
 import type Redis from "ioredis";
 import { PrintJobStatus } from "@prisma/client";
 import type { PrintConfiguration } from "@print-automated/types";
-import { AppException, PrismaService, REDIS_CLIENT } from "@print-automated/backend-shared";
+import type { ReportJobStatusInput } from "@print-automated/validation";
+import {
+  AppException,
+  OrderEvent,
+  OrderStateMachine,
+  PrismaService,
+  REDIS_CLIENT,
+} from "@print-automated/backend-shared";
 
 export interface PrintJobSummary {
   id: string;
@@ -22,6 +29,14 @@ export interface PrintJobSummary {
 function signalKey(deviceId: string): string {
   return `agent-job-signal:${deviceId}`;
 }
+
+const REPORTED_STATUS_TO_PRINT_JOB_STATUS: Record<ReportJobStatusInput["status"], PrintJobStatus> =
+  {
+    PRINTING: PrintJobStatus.PRINTING,
+    PRINTED: PrintJobStatus.PRINTED,
+    FAILED: PrintJobStatus.FAILED,
+    UNKNOWN: PrintJobStatus.UNKNOWN,
+  };
 
 /** §9.7. `GET /agents/jobs?wait=N` is a long-poll: check the database
  * for an already-QUEUED job first (covers a job that was queued while
@@ -44,6 +59,7 @@ export class AgentJobsService implements OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly orderStateMachine: OrderStateMachine,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.blockingRedis = redis.duplicate();
@@ -118,6 +134,65 @@ export class AgentJobsService implements OnModuleDestroy {
       include: { printer: true, order: { select: { printConfiguration: true } } },
     });
     return this.toSummary(job);
+  }
+
+  /** §9.12. Maps the agent's own narrower report onto both the print
+   * job row and the order's own state machine -- `PrintJobStatus` is
+   * the record of what the agent said happened; `OrderStatus` is what
+   * that means for the order the customer and shop actually see.
+   *
+   * Always attempts `START_PRINT` first, even when reporting a
+   * terminal outcome: an agent's own "PRINTING" report can be lost or
+   * arrive out of order behind a "PRINTED"/"FAILED"/"UNKNOWN" report
+   * that made it through first (9.12's own "retried with backoff
+   * while offline" means delivery order across two separate calls is
+   * never guaranteed), and `QUEUED_FOR_PRINT` has no direct transition
+   * to any terminal print state -- only `PRINTING` does. Both
+   * transitions ignore ILLEGAL_ORDER_TRANSITION (the same self-healing
+   * "already done" pattern 6.6/8.3 use): a legitimate retry of the
+   * same idempotency key never even reaches here (the interceptor
+   * replays), so an illegal transition here means the order simply
+   * already reflects this report from an earlier, successful attempt. */
+  async reportStatus(jobId: string, deviceId: string, input: ReportJobStatusInput): Promise<void> {
+    const job = await this.prisma.printJob.findFirst({
+      where: { id: jobId, printer: { agent: { deviceId } } },
+    });
+    if (!job) {
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        "JOB_NOT_FOUND",
+        "No such print job for this agent.",
+        false,
+      );
+    }
+
+    await this.prisma.printJob.update({
+      where: { id: job.id },
+      data: {
+        status: REPORTED_STATUS_TO_PRINT_JOB_STATUS[input.status],
+        ...(input.osJobId ? { osJobId: input.osJobId } : {}),
+      },
+    });
+
+    await this.transitionIgnoringIllegal(job.orderId, OrderEvent.START_PRINT);
+
+    if (input.status === "PRINTED") {
+      await this.transitionIgnoringIllegal(job.orderId, OrderEvent.FINISH_PRINT);
+    } else if (input.status === "FAILED") {
+      await this.transitionIgnoringIllegal(job.orderId, OrderEvent.FAIL_PRINT);
+    } else if (input.status === "UNKNOWN") {
+      await this.transitionIgnoringIllegal(job.orderId, OrderEvent.LOSE_PRINT_STATUS);
+    }
+  }
+
+  private async transitionIgnoringIllegal(orderId: string, event: OrderEvent): Promise<void> {
+    try {
+      await this.orderStateMachine.transition(orderId, event, { id: null });
+    } catch (err) {
+      if (!(err instanceof AppException && err.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
+        throw err;
+      }
+    }
   }
 
   private async findQueuedJob(deviceId: string): Promise<PrintJobSummary | null> {

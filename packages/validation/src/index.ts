@@ -44,4 +44,6 @@ export {
   type HeartbeatInput,
   pollJobsQuerySchema,
   type PollJobsQueryInput,
+  reportJobStatusSchema,
+  type ReportJobStatusInput,
 } from "./agents/index.js";

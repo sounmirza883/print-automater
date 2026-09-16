@@ -1,5 +1,6 @@
 import type pino from "pino";
 import { BackendClient, BackendError, type PrintJobSummary } from "../backend/backend-client.js";
+import { reportJobStatusWithRetry, type ReportStatusOptions } from "../backend/status-reporter.js";
 import { withJobDocument } from "../documents/document-fetch.js";
 import type { JobLedger } from "../ledger/ledger.js";
 import { monitorPrintJob, type MonitorOptions } from "./monitor/monitor-print-job.js";
@@ -19,6 +20,7 @@ export interface JobProcessorOptions {
   logger: pino.Logger;
   waitSeconds?: number;
   monitorOptions?: MonitorOptions;
+  reportOptions?: ReportStatusOptions;
 }
 
 /** §9.9/9.10's own connective tissue: poll (9.7) -> claim (9.7) ->
@@ -96,6 +98,21 @@ export async function processNextJob(
     throw err;
   }
 
+  // §9.12: tells the backend the job actually started printing --
+  // moves the order QUEUED_FOR_PRINT -> PRINTING server-side. Retried
+  // with its own backoff (status-reporter.ts) rather than failing this
+  // whole call: the print itself already happened (or is happening)
+  // regardless of whether this report gets through right away.
+  await reportJobStatusWithRetry(
+    client,
+    accessToken,
+    claimed.id,
+    "PRINTING",
+    submission.osJobId,
+    options.logger,
+    options.reportOptions,
+  );
+
   const printOutcome = await monitorPrintJob(
     claimed.printerName,
     baselineJobIds,
@@ -103,6 +120,16 @@ export async function processNextJob(
     options.monitorOptions,
   );
   options.ledger.recordResult(claimed.id, printOutcome);
+
+  await reportJobStatusWithRetry(
+    client,
+    accessToken,
+    claimed.id,
+    printOutcome,
+    submission.osJobId,
+    options.logger,
+    options.reportOptions,
+  );
 
   return {
     outcome: "printed",

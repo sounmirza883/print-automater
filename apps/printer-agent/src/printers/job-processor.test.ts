@@ -70,6 +70,7 @@ describe("processNextJob (9.9/9.10/9.11)", () => {
   let claimStatus = 200;
   let jobAvailable = true;
   const ledgerPaths: string[] = [];
+  const statusReports: Array<{ status: string; idempotencyKey: string | undefined }> = [];
 
   beforeAll(async () => {
     ensureConfigDirs();
@@ -109,6 +110,21 @@ describe("processNextJob (9.9/9.10/9.11)", () => {
         return;
       }
 
+      if (req.method === "POST" && url.pathname === `/v1/agents/jobs/${JOB.id}/status`) {
+        let body = "";
+        req.on("data", (chunk: Buffer) => (body += chunk.toString()));
+        req.on("end", () => {
+          const parsed = JSON.parse(body) as { status: string };
+          statusReports.push({
+            status: parsed.status,
+            idempotencyKey: req.headers["idempotency-key"] as string | undefined,
+          });
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end("");
+        });
+        return;
+      }
+
       res.writeHead(404).end();
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -133,6 +149,7 @@ describe("processNextJob (9.9/9.10/9.11)", () => {
   beforeEach(() => {
     claimStatus = 200;
     jobAvailable = true;
+    statusReports.length = 0;
     // 9.11's own monitor: a real Win32_PrintJob poll is I/O this suite
     // doesn't own (print-job-tracker.test.ts and monitor-print-job.
     // test.ts already cover it in isolation) -- default to "job seen,
@@ -202,6 +219,14 @@ describe("processNextJob (9.9/9.10/9.11)", () => {
     const row = ledger.getByJobId(JOB.id);
     expect(row?.result).toBe("PRINTED");
     ledger.close();
+
+    // §9.12: both the interim "started printing" report and the final
+    // verdict actually reached the backend, each under its own
+    // deterministic idempotency key.
+    expect(statusReports).toEqual([
+      { status: "PRINTING", idempotencyKey: `${JOB.id}:PRINTING` },
+      { status: "PRINTED", idempotencyKey: `${JOB.id}:PRINTED` },
+    ]);
   });
 
   it("backs off cleanly on a lost claim race, without ever fetching the document, calling the driver, or writing a ledger row", async () => {
