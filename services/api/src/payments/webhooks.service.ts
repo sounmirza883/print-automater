@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, UnprocessableEntityException } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger, UnprocessableEntityException } from "@nestjs/common";
 import { PaymentStatus } from "@prisma/client";
 import {
   AppException,
@@ -43,6 +43,8 @@ function toPaymentStatus(outcome: ProviderPaymentOutcome): PaymentStatus {
 
 @Injectable()
 export class WebhooksService {
+  private readonly logger = new Logger(WebhooksService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly orderStateMachine: OrderStateMachine,
@@ -134,6 +136,16 @@ export class WebhooksService {
       // step (though necessarily a second Postgres transaction, since
       // OrderStateMachine.transition() owns its own).
       if (event.outcome === "PAID") {
+        // §103/12.5: this branch only runs on the genuinely first
+        // successful processing of this event (both `alreadyProcessed`
+        // checks above already returned before reaching here on any
+        // replay) -- logging here, not in either replay branch, means
+        // this metric counts real payments once each, matching what
+        // §92's own idempotency guarantee already promises financially.
+        this.logger.log(
+          { metric: "payment.succeeded", orderId: payment.orderId, paymentId: payment.id },
+          "Payment succeeded.",
+        );
         await this.routeToShopIfStillPaid(payment.orderId);
       }
     });

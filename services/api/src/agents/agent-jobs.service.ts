@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import type Redis from "ioredis";
 import { PrintJobStatus } from "@prisma/client";
 import type { PrintConfiguration } from "@print-automated/types";
@@ -56,6 +56,7 @@ export class AgentJobsService implements OnModuleDestroy {
   // `duplicate()` clones the same connection options without
   // re-reading REDIS_URL, giving blocking calls their own connection.
   private readonly blockingRedis: Redis;
+  private readonly logger = new Logger(AgentJobsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -178,10 +179,22 @@ export class AgentJobsService implements OnModuleDestroy {
 
     if (input.status === "PRINTED") {
       await this.transitionIgnoringIllegal(job.orderId, OrderEvent.FINISH_PRINT);
+      this.logger.log(
+        { metric: "print.succeeded", jobId: job.id, orderId: job.orderId },
+        "Print job succeeded.",
+      );
     } else if (input.status === "FAILED") {
       await this.transitionIgnoringIllegal(job.orderId, OrderEvent.FAIL_PRINT);
+      this.logger.warn(
+        { metric: "print.failed", jobId: job.id, orderId: job.orderId },
+        "Print job failed.",
+      );
     } else if (input.status === "UNKNOWN") {
       await this.transitionIgnoringIllegal(job.orderId, OrderEvent.LOSE_PRINT_STATUS);
+      this.logger.warn(
+        { metric: "print.status_unknown", jobId: job.id, orderId: job.orderId },
+        "Print job status unknown.",
+      );
     }
   }
 

@@ -20,6 +20,7 @@ import { NotificationsModule } from "./notifications/notifications.module.js";
 import { PrinterOfflineSweepModule } from "./printer-offline-sweep/printer-offline-sweep.module.js";
 import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
 import { DocumentRetentionModule } from "./document-retention/document-retention.module.js";
+import { QueueMetricsModule } from "./queue-metrics/queue-metrics.module.js";
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { DocumentRetentionModule } from "./document-retention/document-retention
     PrinterOfflineSweepModule,
     PrintTimeoutModule,
     DocumentRetentionModule,
+    QueueMetricsModule,
   ],
 })
 export class AppModule {}

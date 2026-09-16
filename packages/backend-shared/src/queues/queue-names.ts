@@ -26,4 +26,8 @@ export const QUEUE_NAMES = {
   // §66/§67/11.5's own repeatable sweep -- erases a completed order's
   // document once it's past the configurable retention window.
   DOCUMENT_RETENTION: "document-retention",
+  // §103/12.5's own repeatable sweep -- the "queue depth" metric named
+  // there has no other source; nothing else in this codebase ever calls
+  // BullMQ's own getJobCounts().
+  QUEUE_METRICS: "queue-metrics",
 } as const;

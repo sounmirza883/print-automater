@@ -1,10 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Prisma, PrinterStatus } from "@prisma/client";
 import type { HeartbeatInput } from "@print-automated/validation";
 import { PrismaService } from "@print-automated/backend-shared";
 
 @Injectable()
 export class AgentHeartbeatService {
+  private readonly logger = new Logger(AgentHeartbeatService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /** §41/9.4. Printers are matched to this shop's existing rows by
@@ -52,6 +54,23 @@ export class AgentHeartbeatService {
           data: { agentId: agent.id },
         });
         continue;
+      }
+
+      if (existing.status === PrinterStatus.OFFLINE) {
+        // §103/12.5: "agent connectivity" metric, the reconnect half of
+        // printer-offline-sweep.processor.ts's own "marked N printer(s)
+        // OFFLINE" -- only fires on the OFFLINE -> heartbeat-received
+        // state change, not every 30s heartbeat, for the same low-noise
+        // reason authenticate()'s own "agent.connected" log fires on
+        // session start rather than every request. A heartbeat's
+        // reported status can only ever be ONLINE or ERROR (an agent
+        // that's actually offline sends nothing) -- receiving one at
+        // all while the printer was OFFLINE is what "reconnected"
+        // means here.
+        this.logger.log(
+          { metric: "agent.reconnected", deviceId, printerId: existing.id },
+          "Printer reconnected.",
+        );
       }
 
       await this.prisma.printer.update({

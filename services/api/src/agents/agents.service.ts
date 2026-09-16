@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrinterAgentStatus } from "@prisma/client";
 import type { RegisterAgentInput } from "@print-automated/validation";
 import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
@@ -14,6 +14,8 @@ export interface RegisteredAgent {
 
 @Injectable()
 export class AgentsService {
+  private readonly logger = new Logger(AgentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pairingCodeService: AgentPairingCodeService,
@@ -77,6 +79,15 @@ export class AgentsService {
       );
     }
 
+    // §103/12.5: "agent connectivity" metric -- authenticate() is what
+    // an agent calls to (re-)establish a session (§75's short-lived
+    // agent JWT means this recurs, not just at first startup), making
+    // it the natural low-noise "agent connected" signal -- unlike the
+    // 30s heartbeat, this only fires when a session actually starts.
+    this.logger.log(
+      { metric: "agent.connected", deviceId: agent.deviceId, shopId: agent.shopId },
+      "Agent authenticated.",
+    );
     return { accessToken: this.tokenService.issue(agent.deviceId, agent.shopId) };
   }
 

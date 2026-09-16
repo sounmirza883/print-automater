@@ -42,7 +42,13 @@ export class PrinterOfflineSweepProcessor extends WorkerHost {
     });
 
     if (result.count > 0) {
-      this.logger.log(`Printer offline sweep: marked ${result.count} printer(s) OFFLINE.`);
+      // §103/12.5: "agent connectivity"/"agent disconnection" metric --
+      // pairs with agent-heartbeat.service.ts's own "agent.reconnected"
+      // log for the other direction of the same signal.
+      this.logger.log(
+        { metric: "agent.disconnected", count: result.count },
+        `Printer offline sweep: marked ${result.count} printer(s) OFFLINE.`,
+      );
     }
     return { markedOfflineCount: result.count };
   }

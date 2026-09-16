@@ -15,6 +15,8 @@ export { StorageService } from "./storage/storage.service.js";
 export { DocumentDeletionService } from "./documents/document-deletion.service.js";
 export { DocumentDeletionModule } from "./documents/document-deletion.module.js";
 
+export { PinoLoggerService } from "./logging/pino-logger.service.js";
+
 export {
   KEY_MANAGEMENT_SERVICE,
   type KeyManagementService,

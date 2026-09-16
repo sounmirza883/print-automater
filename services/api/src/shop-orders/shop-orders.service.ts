@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import {
   DocumentStatus,
   OrderStatus,
@@ -92,6 +98,7 @@ const SHOP_VISIBLE_STATUSES = Object.keys(GROUP_BY_STATUS) as OrderStatus[];
 
 @Injectable()
 export class ShopOrdersService {
+  private readonly logger = new Logger(ShopOrdersService.name);
   private readonly repository: ReturnType<typeof ShopOrdersService.buildRepository>;
 
   constructor(
@@ -563,6 +570,7 @@ export class ShopOrdersService {
 
   async completeOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
     await this.orderStateMachine.transition(orderId, OrderEvent.COMPLETE, { id: actorId });
+    this.logger.log({ metric: "order.completed", orderId }, "Order completed.");
     return this.getOrder(orderId);
   }
 
