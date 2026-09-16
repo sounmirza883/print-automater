@@ -1,6 +1,7 @@
 import { HttpStatus, Inject, Injectable, type OnModuleDestroy } from "@nestjs/common";
 import type Redis from "ioredis";
 import { PrintJobStatus } from "@prisma/client";
+import type { PrintConfiguration } from "@print-automated/types";
 import { AppException, PrismaService, REDIS_CLIENT } from "@print-automated/backend-shared";
 
 export interface PrintJobSummary {
@@ -11,6 +12,11 @@ export interface PrintJobSummary {
   status: PrintJobStatus;
   claimedAt: string | null;
   createdAt: string;
+  // §9.9: the agent needs the order's own print configuration to build
+  // SumatraPDF's settings string -- there is nowhere else for it to
+  // get this from, since a job carries no configuration of its own
+  // (print_configuration lives on the order, snapshotted at 5.5).
+  printConfiguration: PrintConfiguration;
 }
 
 function signalKey(deviceId: string): string {
@@ -109,7 +115,7 @@ export class AgentJobsService implements OnModuleDestroy {
 
     const job = await this.prisma.printJob.findUniqueOrThrow({
       where: { id: jobId },
-      include: { printer: true },
+      include: { printer: true, order: { select: { printConfiguration: true } } },
     });
     return this.toSummary(job);
   }
@@ -118,7 +124,7 @@ export class AgentJobsService implements OnModuleDestroy {
     const job = await this.prisma.printJob.findFirst({
       where: { status: PrintJobStatus.QUEUED, printer: { agent: { deviceId } } },
       orderBy: { createdAt: "asc" },
-      include: { printer: true },
+      include: { printer: true, order: { select: { printConfiguration: true } } },
     });
     return job ? this.toSummary(job) : null;
   }
@@ -131,6 +137,7 @@ export class AgentJobsService implements OnModuleDestroy {
     claimedAt: Date | null;
     createdAt: Date;
     printer: { name: string };
+    order: { printConfiguration: unknown };
   }): PrintJobSummary {
     return {
       id: job.id,
@@ -140,6 +147,7 @@ export class AgentJobsService implements OnModuleDestroy {
       status: job.status,
       claimedAt: job.claimedAt?.toISOString() ?? null,
       createdAt: job.createdAt.toISOString(),
+      printConfiguration: job.order.printConfiguration as PrintConfiguration,
     };
   }
 }
