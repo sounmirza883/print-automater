@@ -28,7 +28,10 @@ export default function TabsLayout(): ReactNode {
   return (
     <Tabs screenOptions={{ headerShown: true }}>
       <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="orders" options={{ title: "Orders" }} />
+      {/* headerShown: false -- orders/_layout.tsx's own Stack renders
+       * the header for its two screens (list and detail); showing
+       * this tab-level one too would double it up. */}
+      <Tabs.Screen name="orders" options={{ title: "Orders", headerShown: false }} />
       <Tabs.Screen name="printers" options={{ title: "Printers" }} />
       <Tabs.Screen name="more" options={{ title: "More" }} />
     </Tabs>

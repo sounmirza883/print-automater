@@ -11,6 +11,13 @@ export {
 } from "./auth/bearer-token-auth-strategy.js";
 export { AuthResource } from "./resources/auth.resource.js";
 export { DocumentsResource } from "./resources/documents.resource.js";
+export { ShopOrdersResource } from "./resources/shop-orders.resource.js";
+export {
+  PrintersResource,
+  type RegisterPrinterInput,
+  type UpdatePrinterInput,
+} from "./resources/printers.resource.js";
+export { ShopStaffResource } from "./resources/shop-staff.resource.js";
 export type {
   AuthTokens,
   AuthUser,
@@ -18,4 +25,13 @@ export type {
   DocumentStatus,
   CreateDocumentResult,
   DocumentStatusView,
+  OrderStatus,
+  PaymentStatus,
+  ShopRejectionReason,
+  ShopOrderResponse,
+  ShopOrdersGrouped,
+  PrinterCapabilities,
+  PrinterStatus,
+  PrinterResponse,
+  MyShopMembership,
 } from "./types.js";

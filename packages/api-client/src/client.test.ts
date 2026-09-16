@@ -169,4 +169,71 @@ describe("ApiClient resource routing", () => {
     expect(requests.every((r) => r.authorization === "Bearer access-token")).toBe(true);
     expect(Buffer.from(await blob.arrayBuffer()).toString()).toBe("pdf-bytes");
   });
+
+  it("routes every shopOrders/printers/shopStaff resource method to its real services/api endpoint", async () => {
+    const requests: SeenRequest[] = [];
+    const server = await startServer((req, res) => {
+      void readBody(req).then((body) => {
+        requests.push({
+          method: req.method,
+          url: req.url,
+          authorization: req.headers.authorization,
+          body,
+        });
+        if (req.method === "DELETE") {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        sendJson(res, req.method === "POST" ? 201 : 200, {});
+      });
+    });
+    close = server.close;
+
+    const storage = new InMemoryTokenStorage();
+    await storage.setTokens({ accessToken: "access-token", refreshToken: "refresh-token" });
+    const client = new ApiClient({
+      baseUrl: server.baseUrl,
+      authStrategy: new BearerTokenAuthStrategy({ baseUrl: server.baseUrl, storage }),
+    });
+
+    await client.shopOrders.list("shop-1");
+    await client.shopOrders.get("order-1");
+    await client.shopOrders.accept("order-1");
+    await client.shopOrders.reject("order-1", "PRINTER_UNAVAILABLE");
+    await client.shopOrders.markReady("order-1");
+    await client.shopOrders.complete("order-1");
+    await client.printers.list("shop-1");
+    await client.printers.register({ shopId: "shop-1", name: "Printer 1" });
+    await client.printers.update("printer-1", { enabled: false });
+    await client.printers.remove("printer-1");
+    await client.shopStaff.myShops();
+
+    expect(requests).toEqual([
+      expect.objectContaining({ method: "GET", url: "/v1/shop/orders?shopId=shop-1" }),
+      expect.objectContaining({ method: "GET", url: "/v1/shop/orders/order-1" }),
+      expect.objectContaining({ method: "POST", url: "/v1/shop/orders/order-1/accept" }),
+      expect.objectContaining({
+        method: "POST",
+        url: "/v1/shop/orders/order-1/reject",
+        body: { reason: "PRINTER_UNAVAILABLE" },
+      }),
+      expect.objectContaining({ method: "POST", url: "/v1/shop/orders/order-1/ready" }),
+      expect.objectContaining({ method: "POST", url: "/v1/shop/orders/order-1/complete" }),
+      expect.objectContaining({ method: "GET", url: "/v1/shop/printers?shopId=shop-1" }),
+      expect.objectContaining({
+        method: "POST",
+        url: "/v1/shop/printers",
+        body: { shopId: "shop-1", name: "Printer 1" },
+      }),
+      expect.objectContaining({
+        method: "PATCH",
+        url: "/v1/shop/printers/printer-1",
+        body: { enabled: false },
+      }),
+      expect.objectContaining({ method: "DELETE", url: "/v1/shop/printers/printer-1" }),
+      expect.objectContaining({ method: "GET", url: "/v1/shop/staff/me" }),
+    ]);
+    expect(requests.every((r) => r.authorization === "Bearer access-token")).toBe(true);
+  });
 });

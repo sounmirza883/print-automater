@@ -41,3 +41,96 @@ export interface DocumentStatusView {
   rejectionReason: string | null;
   createdAt: string;
 }
+
+/** Mirrors services/api's `OrderStatus`/`PaymentStatus` Prisma enums --
+ * same "not imported from @prisma/client" reasoning as DocumentStatus
+ * above. */
+export type OrderStatus =
+  | "DRAFT"
+  | "UPLOADED"
+  | "PAYMENT_PENDING"
+  | "PAID"
+  | "WAITING_FOR_SHOP"
+  | "SHOP_ACCEPTED"
+  | "QUEUED_FOR_PRINT"
+  | "PRINTING"
+  | "PRINTED"
+  | "READY_FOR_COLLECTION"
+  | "COMPLETED"
+  | "PAYMENT_FAILED"
+  | "SHOP_REJECTED"
+  | "PRINT_FAILED"
+  | "PRINT_STATUS_UNKNOWN"
+  | "CANCELLED"
+  | "EXPIRED";
+
+export type PaymentStatus =
+  | "PENDING"
+  | "AUTHORIZED"
+  | "PAID"
+  | "FAILED"
+  | "CANCELLED"
+  | "REFUND_PENDING"
+  | "REFUNDED"
+  | "REFUND_FAILED";
+
+export type ShopRejectionReason =
+  "PRINTER_UNAVAILABLE" | "CAPABILITY_UNAVAILABLE" | "SHOP_UNAVAILABLE" | "DOCUMENT_ISSUE";
+
+/** Mirrors services/api's `ShopOrdersService.ShopOrderResponse`
+ * (8.2/8.3). `pricingSnapshot` is optional for the same reason
+ * customer-web's own `OrderListItem` (lib/orders.ts) treats it as
+ * optional -- a real order's quote always exists, but this shared dev
+ * database has accumulated test-fixture rows that bypass it. */
+export interface ShopOrderResponse {
+  id: string;
+  publicOrderNumber: string;
+  customerName: string;
+  documentFilename: string;
+  printConfiguration: {
+    pages: { mode: "all" } | { mode: "range"; from: number; to: number };
+    copies: number;
+    paperSize: string;
+    color: string;
+    sides: string;
+    orientation: string;
+  };
+  pricingSnapshot?: { quote?: { totalMinor: number; currency: string } };
+  paymentStatus: PaymentStatus;
+  orderStatus: OrderStatus;
+  createdAt: string;
+}
+
+export interface ShopOrdersGrouped {
+  needsAttention: ShopOrderResponse[];
+  printing: ShopOrderResponse[];
+  ready: ShopOrderResponse[];
+  completed: ShopOrderResponse[];
+  failed: ShopOrderResponse[];
+}
+
+/** Mirrors packages/types' `PrinterCapabilities` / services/api's
+ * `PrinterStatus` Prisma enum. */
+export interface PrinterCapabilities {
+  color: boolean;
+  duplex: boolean;
+  a4: boolean;
+  a3: boolean;
+}
+
+export type PrinterStatus = "ONLINE" | "OFFLINE" | "ERROR" | "DISABLED";
+
+export interface PrinterResponse {
+  id: string;
+  shopId: string;
+  name: string;
+  capabilities: PrinterCapabilities | null;
+  status: PrinterStatus;
+  createdAt: string;
+}
+
+/** Mirrors services/api's `ShopStaffService.MyShopMembership`. */
+export interface MyShopMembership {
+  id: string;
+  name: string;
+}
