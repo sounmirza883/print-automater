@@ -14,7 +14,7 @@ import { ACCESS_TOKEN_COOKIE } from "@/lib/cookie-names";
  * just be a second, easier-to-desync copy of the same behavior. */
 export async function proxyAuthenticatedRequest(
   backendPath: string,
-  init: { method: string; body?: unknown },
+  init: { method: string; body?: unknown; headers?: Record<string, string> },
 ): Promise<NextResponse> {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
@@ -35,6 +35,7 @@ export async function proxyAuthenticatedRequest(
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      ...init.headers,
     },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });

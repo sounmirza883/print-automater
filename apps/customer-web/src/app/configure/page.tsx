@@ -1,6 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { PrintConfiguration } from "@print-automated/types";
 import { ShopList } from "@/components/shop-list";
@@ -53,6 +53,7 @@ function ConfigureForm(): ReactNode {
 }
 
 function ConfigureDocument({ documentId }: { documentId: string }): ReactNode {
+  const router = useRouter();
   const [document, setDocument] = useState<DocumentInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -153,30 +154,17 @@ function ConfigureDocument({ documentId }: { documentId: string }): ReactNode {
   // no synchronous setQuote(null) needed here to enforce that.
   const canQuote = document !== null && selectedShopId !== null && pageError === null;
 
+  const printConfiguration = useMemo<PrintConfiguration>(
+    () => ({ pages, copies, paperSize: "A4", color, sides, orientation }),
+    [pages, copies, color, sides, orientation],
+  );
+
   useEffect(() => {
     if (!canQuote || document === null || selectedShopId === null) {
       return;
     }
-    const config: PrintConfiguration = {
-      pages,
-      copies,
-      paperSize: "A4",
-      color,
-      sides,
-      orientation,
-    };
-    debouncedFetchQuote(config, document.id, selectedShopId);
-  }, [
-    canQuote,
-    document,
-    selectedShopId,
-    pages,
-    copies,
-    color,
-    sides,
-    orientation,
-    debouncedFetchQuote,
-  ]);
+    debouncedFetchQuote(printConfiguration, document.id, selectedShopId);
+  }, [canQuote, document, selectedShopId, printConfiguration, debouncedFetchQuote]);
 
   if (loadError !== null) {
     return (
@@ -341,6 +329,25 @@ function ConfigureDocument({ documentId }: { documentId: string }): ReactNode {
             </div>
           </div>
         )}
+        <button
+          type="button"
+          disabled={!canQuote || quote === null || selectedShopId === null}
+          onClick={() => {
+            if (selectedShopId === null) return;
+            const shop = shops.find((candidate) => candidate.id === selectedShopId);
+            const params = new URLSearchParams({
+              documentId: document.id,
+              documentFilename: document.filename,
+              shopId: selectedShopId,
+              shopName: shop?.name ?? "",
+              config: JSON.stringify(printConfiguration),
+            });
+            router.push(`/review?${params.toString()}`);
+          }}
+          className="rounded-md bg-black px-4 py-2 font-semibold text-white disabled:opacity-50"
+        >
+          Review order
+        </button>
       </aside>
     </main>
   );
