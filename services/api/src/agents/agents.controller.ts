@@ -1,9 +1,12 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
+import { AgentAuthGuard, type RequestWithAgent } from "./agent-auth.guard.js";
+import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
 import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
 import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import { AuthenticateChallengeDto } from "./dto/authenticate-challenge.dto.js";
 import { AuthenticateDto } from "./dto/authenticate.dto.js";
+import { HeartbeatDto } from "./dto/heartbeat.dto.js";
 import { RegisterAgentDto } from "./dto/register-agent.dto.js";
 import { AgentsService, type RegisteredAgent } from "./agents.service.js";
 
@@ -21,7 +24,10 @@ function bodyDeviceId(request: Request): string {
  * an open endpoint and a signature-guessing loop. */
 @Controller("agents")
 export class AgentsController {
-  constructor(private readonly agentsService: AgentsService) {}
+  constructor(
+    private readonly agentsService: AgentsService,
+    private readonly heartbeatService: AgentHeartbeatService,
+  ) {}
 
   @Post("register")
   @UseGuards(RateLimitGuard)
@@ -44,5 +50,12 @@ export class AgentsController {
   @RateLimit({ limit: 10, windowMs: MINUTE_MS, keyGenerator: bodyDeviceId })
   authenticate(@Body() dto: AuthenticateDto): Promise<{ accessToken: string }> {
     return this.agentsService.authenticate(dto.deviceId, dto.signature);
+  }
+
+  @Post("heartbeat")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AgentAuthGuard)
+  async heartbeat(@Req() req: RequestWithAgent, @Body() dto: HeartbeatDto): Promise<void> {
+    await this.heartbeatService.processHeartbeat(req.agent!.deviceId, req.agent!.shopId, dto);
   }
 }

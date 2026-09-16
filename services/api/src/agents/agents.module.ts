@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { ShopAgentsModule } from "../shop-agents/shop-agents.module.js";
+import { AgentAuthGuard } from "./agent-auth.guard.js";
 import { AgentChallengeService } from "./agent-challenge.service.js";
+import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
 import { AgentTokenService } from "./agent-token.service.js";
 import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
@@ -8,7 +10,13 @@ import { AgentsService } from "./agents.service.js";
 @Module({
   imports: [ShopAgentsModule],
   controllers: [AgentsController],
-  providers: [AgentsService, AgentChallengeService, AgentTokenService],
+  providers: [
+    AgentsService,
+    AgentChallengeService,
+    AgentTokenService,
+    AgentHeartbeatService,
+    AgentAuthGuard,
+  ],
   exports: [AgentTokenService],
 })
 export class AgentsModule {}

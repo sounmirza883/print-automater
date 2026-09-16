@@ -40,4 +40,6 @@ export {
   type AuthenticateChallengeInput,
   authenticateSchema,
   type AuthenticateInput,
+  heartbeatSchema,
+  type HeartbeatInput,
 } from "./agents/index.js";

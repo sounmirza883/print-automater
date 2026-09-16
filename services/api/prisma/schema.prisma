@@ -465,16 +465,25 @@ enum PrinterStatus {
 model Printer {
   id           String        @id @default(uuid())
   shopId       String        @map("shop_id")
+  // §41/9.4. Nullable -- a printer registered by staff (8.4) before
+  // any agent is ever installed has no agent yet. Set the first time
+  // a heartbeat reports a printer this shop's agent knows about
+  // (matched by name, then created if no existing row matches);
+  // that's also what makes "this agent's printers" a well-defined set
+  // for the missed-heartbeat sweep to mark OFFLINE.
+  agentId      String?       @map("agent_id")
   name         String
   capabilities Json?
   status       PrinterStatus @default(OFFLINE)
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  shop      Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop      Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  agent     PrinterAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   printJobs PrintJob[]
 
   @@index([shopId])
+  @@index([agentId])
   @@map("printers")
 }
 
@@ -544,7 +553,8 @@ model PrinterAgent {
   lastSeenAt  DateTime?          @map("last_seen_at")
   createdAt   DateTime           @default(now()) @map("created_at")
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  printers Printer[]
 
   @@index([shopId])
   @@map("printer_agents")

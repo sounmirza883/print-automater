@@ -11,4 +11,8 @@ export const QUEUE_NAMES = {
   DOCUMENT_PROCESSING: "document-processing",
   ORDER_EXPIRATION: "order-expiration",
   NOTIFICATIONS: "notifications",
+  // 9.4's own repeatable sweep -- the other half of "killing the agent
+  // flips its printers to Offline within the threshold": nothing
+  // proactively notices a missing heartbeat except this tick.
+  PRINTER_OFFLINE_SWEEP: "printer-offline-sweep",
 } as const;
