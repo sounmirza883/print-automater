@@ -1,10 +1,16 @@
 import { createServer, type Server } from "node:http";
 import { stat } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type pino from "pino";
 import { ColorMode, Orientation, PaperSize, Sides } from "@print-automated/types";
 import { BackendClient } from "../backend/backend-client.js";
-import { ensureConfigDirs } from "../config/paths.js";
+import { ensureConfigDirs, TMP_DIR } from "../config/paths.js";
+import { JobLedger } from "../ledger/ledger.js";
+import { markUnresolvedAsUnknown } from "../ledger/startup-sweep.js";
 import { FakePrinterDriver } from "./driver/fake-driver.js";
+import type { PrintOptions, PrinterDriver, PrintSubmission } from "./driver/printer-driver.js";
 import { processNextJob } from "./job-processor.js";
 
 const PDF_BYTES = Buffer.from("%PDF-1.7\njob processor fixture\n%%EOF");
@@ -28,7 +34,17 @@ const JOB = {
 };
 
 function silentLogger(): pino.Logger {
-  return { info: jest.fn(), warn: jest.fn() } as unknown as pino.Logger;
+  return { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as unknown as pino.Logger;
+}
+
+/** Simulates the print command failing before it ever reached the
+ * spooler (e.g. the binary wasn't found) -- the one case job-
+ * processor.ts can confidently mark FAILED on its own, per its own
+ * comment. */
+class ThrowingPrinterDriver implements PrinterDriver {
+  print(_options: PrintOptions): Promise<PrintSubmission> {
+    return Promise.reject(new Error("SumatraPDF.exe not found"));
+  }
 }
 
 /** §9.9/§15's own "full job lifecycle runs green in CI against
@@ -36,12 +52,17 @@ function silentLogger(): pino.Logger {
  * for the backend (real bytes over a real socket, matching 9.8's
  * document-fetch.test.ts precedent), not a mocked fetch, so this
  * proves the poll -> claim -> fetch -> print calling sequence and its
- * error handling, hermetically, with no live API or hardware needed. */
-describe("processNextJob (9.9)", () => {
+ * error handling, hermetically, with no live API or hardware needed.
+ * Each test opens its own JobLedger against a fresh temp sqlite file
+ * -- 9.10's own crash-restart scenario is tested by closing one
+ * instance and opening a second against the SAME file, which a
+ * shared/in-memory ledger couldn't demonstrate at all. */
+describe("processNextJob (9.9/9.10)", () => {
   let server: Server;
   let baseUrl: string;
   let claimStatus = 200;
   let jobAvailable = true;
+  const ledgerPaths: string[] = [];
 
   beforeAll(async () => {
     ensureConfigDirs();
@@ -95,6 +116,11 @@ describe("processNextJob (9.9)", () => {
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
+    for (const path of ledgerPaths) {
+      rmSync(path, { force: true });
+      rmSync(`${path}-wal`, { force: true });
+      rmSync(`${path}-shm`, { force: true });
+    }
   });
 
   beforeEach(() => {
@@ -102,28 +128,39 @@ describe("processNextJob (9.9)", () => {
     jobAvailable = true;
   });
 
+  function newLedger(): JobLedger {
+    const path = join(TMP_DIR, `job-processor-test-${randomUUID()}.sqlite`);
+    ledgerPaths.push(path);
+    return new JobLedger(path);
+  }
+
   it("returns no-job and never touches the driver when nothing is queued", async () => {
     jobAvailable = false;
     const client = new BackendClient(baseUrl, silentLogger());
     const driver = new FakePrinterDriver();
+    const ledger = newLedger();
 
     const result = await processNextJob(client, "token", {
       baseUrl,
       driver,
+      ledger,
       logger: silentLogger(),
     });
 
     expect(result).toEqual({ outcome: "no-job" });
     expect(driver.submissions).toHaveLength(0);
+    ledger.close();
   });
 
-  it("polls, claims, fetches the document, and submits it to the driver -- with the temp file gone afterward", async () => {
+  it("polls, claims, fetches the document, and submits it to the driver -- with the temp file gone afterward, and the ledger row left unresolved", async () => {
     const client = new BackendClient(baseUrl, silentLogger());
     const driver = new FakePrinterDriver();
+    const ledger = newLedger();
 
     const result = await processNextJob(client, "token", {
       baseUrl,
       driver,
+      ledger,
       logger: silentLogger(),
     });
 
@@ -135,20 +172,75 @@ describe("processNextJob (9.9)", () => {
     const filePath = driver.submissions[0]?.filePath;
     expect(filePath).toBeDefined();
     await expect(stat(filePath as unknown as string)).rejects.toThrow();
+
+    // §9.9's own driver.print() contract: "submitted to the spooler"
+    // is not "printed" -- only 9.11's monitor has grounds to resolve
+    // this, so the ledger row stays unresolved on a clean submission.
+    const row = ledger.getByJobId(JOB.id);
+    expect(row).not.toBeNull();
+    expect(row?.result).toBeNull();
+    ledger.close();
   });
 
-  it("backs off cleanly on a lost claim race, without ever fetching the document or calling the driver", async () => {
+  it("backs off cleanly on a lost claim race, without ever fetching the document, calling the driver, or writing a ledger row", async () => {
     claimStatus = 409;
     const client = new BackendClient(baseUrl, silentLogger());
     const driver = new FakePrinterDriver();
+    const ledger = newLedger();
 
     const result = await processNextJob(client, "token", {
       baseUrl,
       driver,
+      ledger,
       logger: silentLogger(),
     });
 
     expect(result).toEqual({ outcome: "lost-race" });
     expect(driver.submissions).toHaveLength(0);
+    expect(ledger.getByJobId(JOB.id)).toBeNull();
+    ledger.close();
+  });
+
+  it("§9.10: a driver failure before reaching the spooler is recorded FAILED in the ledger, not left unresolved", async () => {
+    const client = new BackendClient(baseUrl, silentLogger());
+    const driver = new ThrowingPrinterDriver();
+    const ledger = newLedger();
+
+    await expect(
+      processNextJob(client, "token", { baseUrl, driver, ledger, logger: silentLogger() }),
+    ).rejects.toThrow("SumatraPDF.exe not found");
+
+    const row = ledger.getByJobId(JOB.id);
+    expect(row?.result).toBe("FAILED");
+    ledger.close();
+  });
+
+  it("§9.10's own Done-when: a job claimed but never resolved before this process ends is marked PRINT_STATUS_UNKNOWN on the next restart, not silently resubmitted", () => {
+    const path = join(TMP_DIR, `job-processor-restart-test-${randomUUID()}.sqlite`);
+    ledgerPaths.push(path);
+
+    // Simulates the exact crash window §9.10 describes: the ledger
+    // row is written (and, given ledger.ts's own synchronous=FULL
+    // pragma, durably fsync'd) but the process is killed before ever
+    // calling recordResult() -- represented here by simply never
+    // calling it, then closing this "run" of the ledger.
+    const firstRun = new JobLedger(path);
+    firstRun.claim("crashed-job", "order-9", "Fixture Printer");
+    firstRun.close();
+
+    // A fresh process, pointed at the same on-disk file -- runs the
+    // exact same sweep index.ts's own startup runs.
+    const secondRun = new JobLedger(path);
+    const unresolvedBeforeSweep = secondRun.getUnresolved();
+    expect(unresolvedBeforeSweep).toHaveLength(1);
+    expect(unresolvedBeforeSweep[0]?.jobId).toBe("crashed-job");
+
+    const sweptCount = markUnresolvedAsUnknown(secondRun, silentLogger());
+    expect(sweptCount).toBe(1);
+
+    const resolved = secondRun.getByJobId("crashed-job");
+    expect(resolved?.result).toBe("UNKNOWN");
+    expect(secondRun.getUnresolved()).toHaveLength(0);
+    secondRun.close();
   });
 });

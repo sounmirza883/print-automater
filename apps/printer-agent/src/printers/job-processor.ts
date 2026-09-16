@@ -1,6 +1,7 @@
 import type pino from "pino";
 import { BackendClient, BackendError, type PrintJobSummary } from "../backend/backend-client.js";
 import { withJobDocument } from "../documents/document-fetch.js";
+import type { JobLedger } from "../ledger/ledger.js";
 import type { PrinterDriver } from "./driver/printer-driver.js";
 
 export type ProcessResult =
@@ -11,17 +12,32 @@ export type ProcessResult =
 export interface JobProcessorOptions {
   baseUrl: string;
   driver: PrinterDriver;
+  ledger: JobLedger;
   logger: pino.Logger;
   waitSeconds?: number;
 }
 
 /** §9.9/9.10's own connective tissue: poll (9.7) -> claim (9.7) ->
- * fetch the document (9.8) -> submit to the driver (9.9). One call
- * processes at most one job, so the caller decides its own loop/retry
- * shape. Deliberately does NOT yet touch the job ledger -- that fsync-
- * before-print sequencing is 9.10's own scope, layered on top of this
- * function rather than folded in here, so this piece stays provable on
- * its own first. */
+ * fetch the document (9.8) -> ledger.claim() (9.10) -> submit to the
+ * driver (9.9). One call processes at most one job, so the caller
+ * decides its own loop/retry shape.
+ *
+ * §9.10's own Done-when hinges on exactly where the ledger write sits:
+ * `ledger.claim()` runs (and, given ledger.ts's own `PRAGMA
+ * synchronous = FULL`, is durably fsync'd) *before* `driver.print()`
+ * is ever called -- if this process is killed anywhere from that
+ * point through the print call returning, the row survives with no
+ * `result`, and startup-sweep.ts's own sweep is what turns that into
+ * `PRINT_STATUS_UNKNOWN` on the next run rather than a silent
+ * resubmit. A `driver.print()` that *throws* (the command never
+ * reached the spooler, or definitely errored before it could) is the
+ * one case this function can safely resolve on its own -- no paper
+ * could plausibly have come out, so it records FAILED immediately
+ * instead of leaving an unresolved row for the next restart to treat
+ * as merely unknown. A `driver.print()` that *succeeds* leaves the row
+ * unresolved on purpose: "submitted to the spooler" is not "printed,"
+ * and only 9.11's own monitor -- watching the real OS print queue --
+ * has grounds to call this one PRINTED. */
 export async function processNextJob(
   client: BackendClient,
   accessToken: string,
@@ -47,18 +63,26 @@ export async function processNextJob(
     throw err;
   }
 
-  const submission = await withJobDocument(
-    options.baseUrl,
-    claimed.id,
-    accessToken,
-    options.logger,
-    (filePath) =>
-      options.driver.print({
-        printerName: claimed.printerName,
-        filePath,
-        configuration: claimed.printConfiguration,
-      }),
-  );
+  options.ledger.claim(claimed.id, claimed.orderId, claimed.printerName);
+
+  let submission;
+  try {
+    submission = await withJobDocument(
+      options.baseUrl,
+      claimed.id,
+      accessToken,
+      options.logger,
+      (filePath) =>
+        options.driver.print({
+          printerName: claimed.printerName,
+          filePath,
+          configuration: claimed.printConfiguration,
+        }),
+    );
+  } catch (err) {
+    options.ledger.recordResult(claimed.id, "FAILED");
+    throw err;
+  }
 
   return { outcome: "printed", jobId: claimed.id, osJobId: submission.osJobId };
 }
