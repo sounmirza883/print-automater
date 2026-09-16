@@ -19,4 +19,8 @@ export const QUEUE_NAMES = {
   // in QUEUED forever": nothing proactively notices a job an agent
   // never claimed (or claimed and then went silent on) except this tick.
   PRINT_TIMEOUT: "print-timeout",
+  // 11.4's own repeatable sweep -- compares local payment state against
+  // the provider's own, flagging divergence rather than auto-correcting
+  // money.
+  PAYMENT_RECONCILIATION: "payment-reconciliation",
 } as const;

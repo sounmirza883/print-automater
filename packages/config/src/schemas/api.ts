@@ -42,6 +42,12 @@ export const apiEnvSchema = baseEnvSchema
     // the former is opened directly by a browser and the latter is a
     // genuine outbound HTTP call.
     API_PUBLIC_BASE_URL: z.string().url().default("http://localhost:3000"),
+    // 11.4: how long a payment may sit unreconciled (its own updated_at)
+    // before the sweep will compare it against the provider's state --
+    // a grace window so a payment mid-flight between "provider recorded
+    // it" and "our own webhook processed it" (routine, near-instant in
+    // production too) is never flagged as a false-positive divergence.
+    PAYMENT_RECONCILIATION_GRACE_MINUTES: z.coerce.number().int().positive().default(5),
   })
   .superRefine(checkStorageEnv);
 
