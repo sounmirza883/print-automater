@@ -8,3 +8,4 @@ export { PaperSize } from "./paper-size.js";
 export { ColorMode } from "./color-mode.js";
 export { Sides } from "./sides.js";
 export { Orientation } from "./orientation.js";
+export { ShopRejectionReason } from "./shop-rejection-reason.js";

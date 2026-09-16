@@ -164,6 +164,22 @@ describe("OrderStateMachine (5.4, e2e)", () => {
     expect(results).toHaveLength(states.length * events.length);
   }, 60_000);
 
+  it("§56: reaching COMPLETED sets completed_at exactly once; no other transition ever touches it", async () => {
+    const orderId = await createOrderIn(OrderStatus.READY_FOR_COLLECTION);
+    const before = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(before.completedAt).toBeNull();
+
+    await stateMachine.transition(orderId, OrderEvent.COMPLETE, { id: null });
+
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(after.completedAt).not.toBeNull();
+
+    const printingOrderId = await createOrderIn(OrderStatus.PRINTING);
+    await stateMachine.transition(printingOrderId, OrderEvent.FINISH_PRINT, { id: null });
+    const printed = await prisma.order.findUniqueOrThrow({ where: { id: printingOrderId } });
+    expect(printed.completedAt).toBeNull();
+  });
+
   it("§79: cancellation is legal only from PAYMENT_PENDING and WAITING_FOR_SHOP, never from PRINTING onward", async () => {
     const cancellable: OrderStatus[] = [OrderStatus.PAYMENT_PENDING, OrderStatus.WAITING_FOR_SHOP];
     const notCancellable = Object.values(OrderStatus).filter(

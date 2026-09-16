@@ -9,6 +9,7 @@ export {
   ColorMode,
   Sides,
   Orientation,
+  ShopRejectionReason,
 } from "./enums/index.js";
 export type { PageSelection, PrintConfiguration } from "./print-configuration.js";
 export type { ApiError } from "./api-error.js";

@@ -1,4 +1,15 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
@@ -6,6 +17,7 @@ import { Roles } from "../auth/roles.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped } from "../auth/shop-scoped.decorator.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
+import { RejectOrderDto } from "./dto/reject-order.dto.js";
 import { OrderShopResolver } from "./order-shop.resolver.js";
 import {
   ShopOrdersService,
@@ -37,5 +49,41 @@ export class ShopOrdersController {
   @ShopScoped("id", OrderShopResolver)
   getOrder(@Param("id") id: string): Promise<ShopOrderResponse> {
     return this.shopOrdersService.getOrder(id);
+  }
+
+  @Post(":id/accept")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  accept(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.acceptOrder(id, req.user!.id);
+  }
+
+  @Post(":id/reject")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  reject(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: RejectOrderDto,
+  ): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.rejectOrder(id, req.user!.id, dto.reason);
+  }
+
+  @Post(":id/ready")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  markReady(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.markReady(id, req.user!.id);
+  }
+
+  @Post(":id/complete")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  complete(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.completeOrder(id, req.user!.id);
   }
 }

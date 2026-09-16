@@ -202,7 +202,16 @@ export class OrderStateMachine {
 
         const updatedOrder = await tx.order.update({
           where: { id: orderId },
-          data: { orderStatus: nextStatus },
+          data: {
+            orderStatus: nextStatus,
+            // §56's own completed_at column, set exactly once here --
+            // the same "centralize it in the one place order_status is
+            // ever written" reasoning as the audit row and the
+            // notification below: any future path that ever reaches
+            // COMPLETED gets this for free, rather than depending on
+            // whichever call site happens to remember it.
+            ...(nextStatus === OrderStatus.COMPLETED ? { completedAt: new Date() } : {}),
+          },
         });
 
         await tx.auditLog.create({

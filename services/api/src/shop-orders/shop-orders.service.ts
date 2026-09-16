@@ -1,6 +1,13 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, Prisma } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import { randomUUID } from "node:crypto";
+import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import { OrderStatus, Prisma, PrinterStatus } from "@prisma/client";
+import type { ShopRejectionReason } from "@print-automated/types";
+import {
+  AppException,
+  OrderEvent,
+  OrderStateMachine,
+  PrismaService,
+} from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 
@@ -63,6 +70,7 @@ export class ShopOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
+    private readonly orderStateMachine: OrderStateMachine,
   ) {
     this.repository = ShopOrdersService.buildRepository(prisma);
   }
@@ -139,6 +147,106 @@ export class ShopOrdersService {
       throw new NotFoundException("Order not found.");
     }
     return this.toResponse(order);
+  }
+
+  /** §36/8.3: one user-facing action, two internal transitions --
+   * SHOP_ACCEPT (WAITING_FOR_SHOP -> SHOP_ACCEPTED, with the print_job
+   * row created in the *same* transaction) then QUEUE_PRINT
+   * (SHOP_ACCEPTED -> QUEUED_FOR_PRINT), the same "chain them in one
+   * call" shape 6.6 already established for a confirmed payment
+   * routing straight on to WAITING_FOR_SHOP. A genuine double-tap finds
+   * the order already past WAITING_FOR_SHOP on its second attempt --
+   * ILLEGAL_ORDER_TRANSITION is caught and treated as "already
+   * accepted," not an error, mirroring 6.4's own checkout-race
+   * handling -- so "exactly one print job" falls out of the order's
+   * own row lock, the same guarantee that already protects the audit
+   * row and notification, not a client-supplied idempotency key. */
+  async acceptOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { shopId: true },
+    });
+    if (!order) {
+      throw new NotFoundException("Order not found.");
+    }
+
+    try {
+      await this.orderStateMachine.transition(
+        orderId,
+        OrderEvent.SHOP_ACCEPT,
+        { id: actorId },
+        {
+          sideEffect: async (tx) => {
+            const printer = await tx.printer.findFirst({
+              where: { shopId: order.shopId, status: { not: PrinterStatus.DISABLED } },
+            });
+            if (!printer) {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "NO_PRINTER_AVAILABLE",
+                "No printer is available to accept this order.",
+                true,
+              );
+            }
+            await tx.printJob.create({
+              data: {
+                orderId,
+                printerId: printer.id,
+                shopId: order.shopId,
+                idempotencyToken: randomUUID(),
+              },
+            });
+          },
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
+        throw error;
+      }
+    }
+
+    await this.queuePrintIfStillAccepted(orderId, actorId);
+    return this.getOrder(orderId);
+  }
+
+  private async queuePrintIfStillAccepted(orderId: string, actorId: string): Promise<void> {
+    try {
+      await this.orderStateMachine.transition(orderId, OrderEvent.QUEUE_PRINT, { id: actorId });
+    } catch (error) {
+      if (error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION") {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  /** §36: rejection requires a reason (the picker's four fixed options,
+   * validated by the Zod schema before this ever runs) -- kept only in
+   * the transition's own audit metadata, not a dedicated order column,
+   * since nothing yet needs it queryable and SHOP_REJECTED isn't one
+   * of 7.3's seven customer-notification events. */
+  async rejectOrder(
+    orderId: string,
+    actorId: string,
+    reason: ShopRejectionReason,
+  ): Promise<ShopOrderResponse> {
+    await this.orderStateMachine.transition(
+      orderId,
+      OrderEvent.SHOP_REJECT,
+      { id: actorId },
+      { metadata: { reason } },
+    );
+    return this.getOrder(orderId);
+  }
+
+  async markReady(orderId: string, actorId: string): Promise<ShopOrderResponse> {
+    await this.orderStateMachine.transition(orderId, OrderEvent.MARK_READY, { id: actorId });
+    return this.getOrder(orderId);
+  }
+
+  async completeOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
+    await this.orderStateMachine.transition(orderId, OrderEvent.COMPLETE, { id: actorId });
+    return this.getOrder(orderId);
   }
 
   private toResponse(order: ShopOrderWithRelations): ShopOrderResponse {
