@@ -12,6 +12,13 @@ import { markUnresolvedAsUnknown } from "../ledger/startup-sweep.js";
 import { FakePrinterDriver } from "./driver/fake-driver.js";
 import type { PrintOptions, PrinterDriver, PrintSubmission } from "./driver/printer-driver.js";
 import { processNextJob } from "./job-processor.js";
+import { queryPrintJobs } from "./monitor/print-queue.js";
+
+jest.mock("./monitor/print-queue.js", () => ({
+  queryPrintJobs: jest.fn(),
+}));
+
+const mockedQueryPrintJobs = queryPrintJobs as jest.MockedFunction<typeof queryPrintJobs>;
 
 const PDF_BYTES = Buffer.from("%PDF-1.7\njob processor fixture\n%%EOF");
 
@@ -57,7 +64,7 @@ class ThrowingPrinterDriver implements PrinterDriver {
  * -- 9.10's own crash-restart scenario is tested by closing one
  * instance and opening a second against the SAME file, which a
  * shared/in-memory ledger couldn't demonstrate at all. */
-describe("processNextJob (9.9/9.10)", () => {
+describe("processNextJob (9.9/9.10/9.11)", () => {
   let server: Server;
   let baseUrl: string;
   let claimStatus = 200;
@@ -126,7 +133,21 @@ describe("processNextJob (9.9/9.10)", () => {
   beforeEach(() => {
     claimStatus = 200;
     jobAvailable = true;
+    // 9.11's own monitor: a real Win32_PrintJob poll is I/O this suite
+    // doesn't own (print-job-tracker.test.ts and monitor-print-job.
+    // test.ts already cover it in isolation) -- default to "job seen,
+    // then gone" so processNextJob's own tests get a fast, deterministic
+    // PRINTED without waiting on real polling intervals.
+    mockedQueryPrintJobs
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { jobId: 1, status: "Printing", jobStatus: "Printing", pagesPrinted: 0, totalPages: 1 },
+      ])
+      .mockResolvedValue([]);
   });
+
+  const FAST_MONITOR_OPTIONS = { pollIntervalMs: 10, timeoutMs: 500 };
 
   function newLedger(): JobLedger {
     const path = join(TMP_DIR, `job-processor-test-${randomUUID()}.sqlite`);
@@ -145,6 +166,7 @@ describe("processNextJob (9.9/9.10)", () => {
       driver,
       ledger,
       logger: silentLogger(),
+      monitorOptions: FAST_MONITOR_OPTIONS,
     });
 
     expect(result).toEqual({ outcome: "no-job" });
@@ -152,7 +174,7 @@ describe("processNextJob (9.9/9.10)", () => {
     ledger.close();
   });
 
-  it("polls, claims, fetches the document, and submits it to the driver -- with the temp file gone afterward, and the ledger row left unresolved", async () => {
+  it("polls, claims, fetches the document, submits it to the driver, and monitors it to a PRINTED verdict -- with the temp file gone afterward", async () => {
     const client = new BackendClient(baseUrl, silentLogger());
     const driver = new FakePrinterDriver();
     const ledger = newLedger();
@@ -162,9 +184,10 @@ describe("processNextJob (9.9/9.10)", () => {
       driver,
       ledger,
       logger: silentLogger(),
+      monitorOptions: FAST_MONITOR_OPTIONS,
     });
 
-    expect(result.outcome).toBe("printed");
+    expect(result).toMatchObject({ outcome: "printed", jobId: JOB.id, printOutcome: "PRINTED" });
     expect(driver.submissions).toHaveLength(1);
     expect(driver.submissions[0]?.printerName).toBe("Fixture Printer");
     expect(driver.submissions[0]?.configuration).toEqual(JOB.printConfiguration);
@@ -173,12 +196,11 @@ describe("processNextJob (9.9/9.10)", () => {
     expect(filePath).toBeDefined();
     await expect(stat(filePath as unknown as string)).rejects.toThrow();
 
-    // §9.9's own driver.print() contract: "submitted to the spooler"
-    // is not "printed" -- only 9.11's monitor has grounds to resolve
-    // this, so the ledger row stays unresolved on a clean submission.
+    // §9.9/9.11's own driver.print() contract: "submitted to the
+    // spooler" is not "printed" -- the monitor is what finally
+    // resolves the ledger row 9.10's claim() left open.
     const row = ledger.getByJobId(JOB.id);
-    expect(row).not.toBeNull();
-    expect(row?.result).toBeNull();
+    expect(row?.result).toBe("PRINTED");
     ledger.close();
   });
 
@@ -193,6 +215,7 @@ describe("processNextJob (9.9/9.10)", () => {
       driver,
       ledger,
       logger: silentLogger(),
+      monitorOptions: FAST_MONITOR_OPTIONS,
     });
 
     expect(result).toEqual({ outcome: "lost-race" });
@@ -207,7 +230,13 @@ describe("processNextJob (9.9/9.10)", () => {
     const ledger = newLedger();
 
     await expect(
-      processNextJob(client, "token", { baseUrl, driver, ledger, logger: silentLogger() }),
+      processNextJob(client, "token", {
+        baseUrl,
+        driver,
+        ledger,
+        logger: silentLogger(),
+        monitorOptions: FAST_MONITOR_OPTIONS,
+      }),
     ).rejects.toThrow("SumatraPDF.exe not found");
 
     const row = ledger.getByJobId(JOB.id);

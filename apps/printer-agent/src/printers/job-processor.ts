@@ -2,12 +2,15 @@ import type pino from "pino";
 import { BackendClient, BackendError, type PrintJobSummary } from "../backend/backend-client.js";
 import { withJobDocument } from "../documents/document-fetch.js";
 import type { JobLedger } from "../ledger/ledger.js";
+import { monitorPrintJob, type MonitorOptions } from "./monitor/monitor-print-job.js";
+import { queryPrintJobs } from "./monitor/print-queue.js";
+import type { MonitorOutcome } from "./monitor/print-job-tracker.js";
 import type { PrinterDriver } from "./driver/printer-driver.js";
 
 export type ProcessResult =
   | { outcome: "no-job" }
   | { outcome: "lost-race" }
-  | { outcome: "printed"; jobId: string; osJobId?: string };
+  | { outcome: "printed"; jobId: string; osJobId?: string; printOutcome: MonitorOutcome };
 
 export interface JobProcessorOptions {
   baseUrl: string;
@@ -15,6 +18,7 @@ export interface JobProcessorOptions {
   ledger: JobLedger;
   logger: pino.Logger;
   waitSeconds?: number;
+  monitorOptions?: MonitorOptions;
 }
 
 /** §9.9/9.10's own connective tissue: poll (9.7) -> claim (9.7) ->
@@ -34,10 +38,11 @@ export interface JobProcessorOptions {
  * one case this function can safely resolve on its own -- no paper
  * could plausibly have come out, so it records FAILED immediately
  * instead of leaving an unresolved row for the next restart to treat
- * as merely unknown. A `driver.print()` that *succeeds* leaves the row
- * unresolved on purpose: "submitted to the spooler" is not "printed,"
- * and only 9.11's own monitor -- watching the real OS print queue --
- * has grounds to call this one PRINTED. */
+ * as merely unknown. A `driver.print()` that *succeeds* is followed
+ * immediately by 9.11's own monitor -- the only thing with grounds to
+ * call a submission PRINTED is watching it actually leave the real OS
+ * print queue, which is what finally resolves the ledger row this
+ * function's own claim() left open. */
 export async function processNextJob(
   client: BackendClient,
   accessToken: string,
@@ -65,6 +70,13 @@ export async function processNextJob(
 
   options.ledger.claim(claimed.id, claimed.orderId, claimed.printerName);
 
+  // Captured just before submission, not after -- a fast or virtual
+  // printer's job can appear and vanish from the OS queue faster than
+  // this call's own round-trip, so the baseline must already be in
+  // hand the moment driver.print() is called, not queried afterward.
+  const baselineSnapshot = await queryPrintJobs(claimed.printerName, options.logger);
+  const baselineJobIds = new Set((baselineSnapshot ?? []).map((job) => job.jobId));
+
   let submission;
   try {
     submission = await withJobDocument(
@@ -84,5 +96,18 @@ export async function processNextJob(
     throw err;
   }
 
-  return { outcome: "printed", jobId: claimed.id, osJobId: submission.osJobId };
+  const printOutcome = await monitorPrintJob(
+    claimed.printerName,
+    baselineJobIds,
+    options.logger,
+    options.monitorOptions,
+  );
+  options.ledger.recordResult(claimed.id, printOutcome);
+
+  return {
+    outcome: "printed",
+    jobId: claimed.id,
+    osJobId: submission.osJobId,
+    printOutcome,
+  };
 }
