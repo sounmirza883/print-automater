@@ -44,13 +44,19 @@ function silentLogger(): pino.Logger {
   return { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as unknown as pino.Logger;
 }
 
-/** Simulates the print command failing before it ever reached the
- * spooler (e.g. the binary wasn't found) -- the one case job-
- * processor.ts can confidently mark FAILED on its own, per its own
- * comment. */
-class ThrowingPrinterDriver implements PrinterDriver {
+/** §10.2: a driver that always fails with a scripted, shaped error --
+ * lets tests exercise both failure-classifier.ts branches (a spawn-
+ * level `{code: "ENOENT"}` is safe; `{killed: true, signal:
+ * "SIGTERM"}` is unsafe) and count exactly how many times
+ * job-processor.ts actually called print(). */
+class ScriptedFailingDriver implements PrinterDriver {
+  public callCount = 0;
+
+  constructor(private readonly error: unknown) {}
+
   print(_options: PrintOptions): Promise<PrintSubmission> {
-    return Promise.reject(new Error("SumatraPDF.exe not found"));
+    this.callCount += 1;
+    return Promise.reject(this.error);
   }
 }
 
@@ -249,9 +255,10 @@ describe("processNextJob (9.9/9.10/9.11)", () => {
     ledger.close();
   });
 
-  it("§9.10: a driver failure before reaching the spooler is recorded FAILED in the ledger, not left unresolved", async () => {
+  it("§10.2: a safe failure (spawn-level, e.g. ENOENT) auto-retries up to the configured max, then is recorded FAILED", async () => {
     const client = new BackendClient(baseUrl, silentLogger());
-    const driver = new ThrowingPrinterDriver();
+    const scriptedError = { code: "ENOENT" };
+    const driver = new ScriptedFailingDriver(scriptedError);
     const ledger = newLedger();
 
     await expect(
@@ -261,11 +268,35 @@ describe("processNextJob (9.9/9.10/9.11)", () => {
         ledger,
         logger: silentLogger(),
         monitorOptions: FAST_MONITOR_OPTIONS,
+        submitRetryOptions: { maxAttempts: 3, baseDelayMs: 5 },
       }),
-    ).rejects.toThrow("SumatraPDF.exe not found");
+    ).rejects.toBe(scriptedError);
 
+    expect(driver.callCount).toBe(3);
     const row = ledger.getByJobId(JOB.id);
     expect(row?.result).toBe("FAILED");
+    ledger.close();
+  });
+
+  it("§10.2's own Done-when: an unsafe failure (may have reached the printer) is NEVER auto-retried, and is recorded UNKNOWN, not FAILED", async () => {
+    const client = new BackendClient(baseUrl, silentLogger());
+    const driver = new ScriptedFailingDriver({ killed: true, signal: "SIGTERM", code: null });
+    const ledger = newLedger();
+
+    await expect(
+      processNextJob(client, "token", {
+        baseUrl,
+        driver,
+        ledger,
+        logger: silentLogger(),
+        monitorOptions: FAST_MONITOR_OPTIONS,
+        submitRetryOptions: { maxAttempts: 3, baseDelayMs: 5 },
+      }),
+    ).rejects.toBeDefined();
+
+    expect(driver.callCount).toBe(1);
+    const row = ledger.getByJobId(JOB.id);
+    expect(row?.result).toBe("UNKNOWN");
     ledger.close();
   });
 
