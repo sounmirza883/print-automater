@@ -23,6 +23,7 @@ import { ColorMode, PaperSize, Sides, type PrinterCapabilities } from "@print-au
 import type { CreateQuoteInput } from "@print-automated/validation";
 import { API_ENV } from "../config/config.module.js";
 import { DocumentsService } from "../documents/documents.service.js";
+import { RefundService } from "../payments/refund.service.js";
 import { OrderNumberService } from "./order-number.service.js";
 
 export interface QuoteResponse extends Quote {
@@ -75,6 +76,7 @@ export class OrdersService {
     private readonly documentsService: DocumentsService,
     private readonly orderNumberService: OrderNumberService,
     private readonly orderStateMachine: OrderStateMachine,
+    private readonly refundService: RefundService,
     @Inject(API_ENV) private readonly env: ApiEnv,
   ) {}
 
@@ -152,10 +154,20 @@ export class OrdersService {
    * this codebase's architecture: the state machine itself is generic
    * and has no notion of "customer" at all) -- only then does the
    * illegal-transition check in OrderStateMachine decide whether this
-   * particular order's current state actually allows a cancellation. */
+   * particular order's current state actually allows a cancellation.
+   *
+   * §80/11.3: "permitted cancellation... trigger[s] refunds where
+   * payment already succeeded." CANCEL is legal from two states
+   * (order-state-machine.ts): PAYMENT_PENDING, where nothing has been
+   * paid yet, and WAITING_FOR_SHOP, which is only reachable once
+   * payment genuinely succeeded -- unlike rejectOrder's own trigger,
+   * this one is NOT unconditional, which is exactly why
+   * refundOrderIfPaid() checks `paymentStatus` itself rather than the
+   * caller assuming. */
   async cancelOrder(requestingUserId: string, orderId: string): Promise<OrderResponse> {
     await this.getOwnedOrder(requestingUserId, orderId);
     await this.orderStateMachine.transition(orderId, OrderEvent.CANCEL, { id: requestingUserId });
+    await this.refundService.refundOrderIfPaid(orderId, "customer_cancellation", requestingUserId);
     // Re-read rather than trust the pre-transition row -- the
     // transition already committed, and this is the one response
     // field (orderStatus) that call just changed.

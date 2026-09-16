@@ -112,16 +112,22 @@ const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>>
   [OrderStatus.EXPIRED]: {},
 };
 
-/** §78/7.3: which of an order's transitions are also one of the seven
- * customer-facing domain events. Centralized here, inside the state
- * machine itself, rather than left for every future caller (8.x's
- * shop-accept action, 9.x's print-dispatch worker, ...) to separately
- * remember to notify on -- a future call site that transitions an
- * order via `transition()` gets this for free, by construction, the
- * same way it already gets the audit row for free. Events with no
- * entry here (REQUEST_PAYMENT, CANCEL, ...) simply produce no
- * notification, which is correct: not every state change is one of
- * §78's seven. */
+/** §78/7.3: which of an order's transitions are also a customer-facing
+ * domain event. Centralized here, inside the state machine itself,
+ * rather than left for every future caller (8.x's shop-accept action,
+ * 9.x's print-dispatch worker, ...) to separately remember to notify
+ * on -- a future call site that transitions an order via
+ * `transition()` gets this for free, by construction, the same way it
+ * already gets the audit row for free. Events with no entry here
+ * (REQUEST_PAYMENT, CANCEL, ...) simply produce no notification, which
+ * is correct: not every state change is customer-facing.
+ *
+ * Started as exactly §78's own seven events; SHOP_REJECT was added in
+ * 11.3 after a real gap surfaced there -- rejecting a paid order had no
+ * notification at all despite 11.3's own Done-when requiring one, since
+ * SHOP_REJECT was never one of the original seven. CANCEL deliberately
+ * still has no entry: 11.3's Done-when only names rejection, not
+ * cancellation, and nothing else in the plan asks for one. */
 const NOTIFICATION_TYPE_BY_EVENT: Partial<Record<OrderEvent, NotificationType>> = {
   [OrderEvent.CONFIRM_PAYMENT]: "PAYMENT_CONFIRMED",
   [OrderEvent.SHOP_ACCEPT]: "ORDER_ACCEPTED",
@@ -130,6 +136,7 @@ const NOTIFICATION_TYPE_BY_EVENT: Partial<Record<OrderEvent, NotificationType>> 
   [OrderEvent.FINISH_PRINT]: "PRINT_COMPLETED",
   [OrderEvent.MARK_READY]: "READY_FOR_COLLECTION",
   [OrderEvent.COMPLETE]: "ORDER_COMPLETED",
+  [OrderEvent.SHOP_REJECT]: "ORDER_REJECTED",
 };
 
 export interface TransitionActor {

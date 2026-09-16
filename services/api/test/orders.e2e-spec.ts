@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
-import { DocumentStatus, ShopStatus, UserRole } from "@prisma/client";
+import { DocumentStatus, PaymentStatus, ShopStatus, UserRole } from "@prisma/client";
 import { OrderEvent, OrderStateMachine, PrismaService } from "@print-automated/backend-shared";
 import request from "supertest";
 import { AppModule } from "../src/app.module.js";
@@ -10,6 +10,7 @@ import { TokenService } from "../src/auth/token.service.js";
 import type { ApiEnv } from "@print-automated/config";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
 
 const CONFIG = {
   pages: { mode: "all" as const },
@@ -25,6 +26,7 @@ describe("Orders API (5.5, e2e)", () => {
   let prisma: PrismaService;
   let tokenService: TokenService;
   let stateMachine: OrderStateMachine;
+  let provider: MockPaymentProvider;
 
   let owner: { id: string; role: UserRole };
   let stranger: { id: string; role: UserRole };
@@ -44,6 +46,7 @@ describe("Orders API (5.5, e2e)", () => {
     prisma = app.get(PrismaService);
     tokenService = app.get(TokenService);
     stateMachine = app.get(OrderStateMachine);
+    provider = app.get(MockPaymentProvider);
 
     owner = await prisma.user.create({
       data: {
@@ -103,6 +106,9 @@ describe("Orders API (5.5, e2e)", () => {
   });
 
   afterAll(async () => {
+    await prisma.refund.deleteMany({ where: { order: { shopId } } });
+    await prisma.payment.deleteMany({ where: { order: { shopId } } });
+    await prisma.notification.deleteMany({ where: { order: { shopId } } });
     await prisma.order.deleteMany({ where: { shopId } });
     await prisma.pricingRule.deleteMany({ where: { shopId } });
     await prisma.document.deleteMany({ where: { id: readyDocumentId } });
@@ -276,6 +282,54 @@ describe("Orders API (5.5, e2e)", () => {
       .set("Authorization", `Bearer ${ownerToken}`);
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.orderStatus).toBe("CANCELLED");
+
+    // §80/11.3: cancelling from PAYMENT_PENDING has nothing to refund
+    // -- payment never succeeded here (only REQUEST_PAYMENT ran, never
+    // CONFIRM_PAYMENT) -- so refundOrderIfPaid() must be a genuine no-op.
+    const refunds = await prisma.refund.findMany({ where: { orderId } });
+    expect(refunds).toHaveLength(0);
+  });
+
+  it("§80/11.3: cancelling from WAITING_FOR_SHOP (payment already succeeded) opens a refund", async () => {
+    const created = await request(app.getHttpServer())
+      .post("/v1/orders")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ documentId: readyDocumentId, shopId, printConfiguration: CONFIG });
+    const orderId = created.body.id as string;
+
+    const session = await provider.createCheckout({ orderId, amountMinor: 1000, currency: "PKR" });
+    await prisma.payment.create({
+      data: {
+        orderId,
+        provider: provider.name,
+        providerPaymentId: session.providerPaymentId,
+        checkoutUrl: session.checkoutUrl,
+        amountMinor: 1000,
+        currency: "PKR",
+        status: PaymentStatus.PAID,
+      },
+    });
+
+    await stateMachine.transition(orderId, OrderEvent.REQUEST_PAYMENT, { id: null });
+    await stateMachine.transition(orderId, OrderEvent.CONFIRM_PAYMENT, { id: null });
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { paymentStatus: PaymentStatus.PAID },
+    });
+    await stateMachine.transition(orderId, OrderEvent.ROUTE_TO_SHOP, { id: null });
+
+    const cancelled = await request(app.getHttpServer())
+      .post(`/v1/orders/${orderId}/cancel`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.orderStatus).toBe("CANCELLED");
+
+    const refund = await prisma.refund.findFirstOrThrow({ where: { orderId } });
+    expect(refund.status).toBe(PaymentStatus.REFUNDED);
+    expect(refund.reason).toBe("customer_cancellation");
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.paymentStatus).toBe(PaymentStatus.REFUNDED);
   });
 
   it("an unauthenticated request is rejected before touching any of this", async () => {

@@ -18,6 +18,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
 
 /** §36/8.3, e2e: accept/reject/ready/complete, each validated through
  * the real OrderStateMachine (5.4), against real Postgres rows. */
@@ -25,6 +26,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
   let app: NestExpressApplication;
   let prisma: PrismaService;
   let tokenService: TokenService;
+  let provider: MockPaymentProvider;
 
   let customer: { id: string; role: UserRole };
   let documentId: string;
@@ -76,6 +78,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
     prisma = app.get(PrismaService);
     tokenService = app.get(TokenService);
+    provider = app.get(MockPaymentProvider);
 
     customer = await prisma.user.create({
       data: {
@@ -159,6 +162,8 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
   afterAll(async () => {
     await prisma.printJob.deleteMany({ where: { orderId: { in: orderIds } } });
+    await prisma.refund.deleteMany({ where: { orderId: { in: orderIds } } });
+    await prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } });
     await prisma.notification.deleteMany({ where: { orderId: { in: orderIds } } });
     await prisma.auditLog.deleteMany({
       where: { resourceType: "order", resourceId: { in: orderIds } },
@@ -360,6 +365,62 @@ describe("Shop order actions API (8.3, e2e)", () => {
       where: { resourceType: "order", resourceId: orderId, action: "ORDER_SHOP_REJECT" },
     });
     expect((audit.metadata as { reason?: string } | null)?.reason).toBe("PRINTER_UNAVAILABLE");
+  });
+
+  it("§80/11.3: rejecting a genuinely paid order opens a refund and notifies the customer", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.WAITING_FOR_SHOP);
+    const session = await provider.createCheckout({
+      orderId,
+      amountMinor: 2000,
+      currency: "PKR",
+    });
+    await prisma.payment.create({
+      data: {
+        orderId,
+        provider: provider.name,
+        providerPaymentId: session.providerPaymentId,
+        checkoutUrl: session.checkoutUrl,
+        amountMinor: 2000,
+        currency: "PKR",
+        status: PaymentStatus.PAID,
+      },
+    });
+
+    const rejected = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/reject`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ reason: "SHOP_UNAVAILABLE" });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.orderStatus).toBe("SHOP_REJECTED");
+
+    const refund = await prisma.refund.findFirstOrThrow({ where: { orderId } });
+    expect(refund.status).toBe(PaymentStatus.REFUNDED);
+    expect(refund.reason).toBe("shop_rejection");
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.paymentStatus).toBe(PaymentStatus.REFUNDED);
+
+    const notification = await prisma.notification.findFirstOrThrow({
+      where: { orderId, type: "ORDER_REJECTED" },
+    });
+    expect(notification.userId).toBe(customer.id);
+  });
+
+  it("rejecting an order that was never paid does not attempt a refund", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.WAITING_FOR_SHOP);
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { paymentStatus: PaymentStatus.PENDING },
+    });
+
+    const rejected = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${orderId}/reject`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ reason: "DOCUMENT_ISSUE" });
+    expect(rejected.status).toBe(200);
+
+    const refunds = await prisma.refund.findMany({ where: { orderId } });
+    expect(refunds).toHaveLength(0);
   });
 
   it("ready moves PRINTED -> READY_FOR_COLLECTION, and is refused from the wrong state", async () => {

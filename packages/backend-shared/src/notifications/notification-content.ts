@@ -44,5 +44,10 @@ export function buildNotificationContent(
         subject: `Order ${publicOrderNumber} complete`,
         text: `Order ${publicOrderNumber} is complete. Thanks for using Print Automated.`,
       };
+    case "ORDER_REJECTED":
+      return {
+        subject: `Order ${publicOrderNumber} could not be accepted`,
+        text: `Unfortunately, the shop was unable to accept order ${publicOrderNumber}. A refund has been started and will reach you shortly.`,
+      };
   }
 }

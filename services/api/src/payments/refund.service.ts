@@ -102,6 +102,37 @@ export class RefundService {
     });
   }
 
+  /** §80/11.3's own entry point for both automatic triggers (shop
+   * rejection, permitted cancellation): "where payment already
+   * succeeded" means look up whether this order has a PAID payment at
+   * all, rather than assuming every caller already knows. A no-op
+   * (returns null) for an order that was never paid -- e.g. cancelling
+   * from PAYMENT_PENDING, where there's nothing to refund -- so callers
+   * can invoke this unconditionally after any permitted
+   * reject/cancel transition rather than each separately re-deriving
+   * "is this order refundable" themselves. */
+  async refundOrderIfPaid(
+    orderId: string,
+    reason: string,
+    actorId: string | null,
+  ): Promise<Refund | null> {
+    const order = await this.prisma.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { paymentStatus: true },
+    });
+    if (order.paymentStatus !== PaymentStatus.PAID) {
+      return null;
+    }
+    const payment = await this.prisma.payment.findFirst({
+      where: { orderId, status: PaymentStatus.PAID },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!payment) {
+      return null;
+    }
+    return this.requestRefund(payment.id, reason, actorId);
+  }
+
   private async syncPaymentAndOrderStatus(
     paymentId: string,
     orderId: string,

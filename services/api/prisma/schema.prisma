@@ -389,6 +389,16 @@ enum NotificationType {
   PRINT_COMPLETED
   READY_FOR_COLLECTION
   ORDER_COMPLETED
+  // 11.3/§122: a real gap found while wiring the shop-rejection refund
+  // trigger -- SHOP_REJECT had no entry in NOTIFICATION_TYPE_BY_EVENT
+  // at all (7.3's own seven §78 events never included it), so
+  // rejecting a paid order silently told the customer nothing, despite
+  // 11.3's own Done-when explicitly requiring "rejecting a paid order
+  // notifies the customer." Every order that ever reaches
+  // WAITING_FOR_SHOP (the only state SHOP_REJECT is legal from) has
+  // already been paid, so this notification's own text can say
+  // "you'll be refunded" unconditionally rather than hedging.
+  ORDER_REJECTED
 }
 
 enum NotificationChannel {

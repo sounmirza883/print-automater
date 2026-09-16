@@ -23,6 +23,7 @@ import {
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
+import { RefundService } from "../payments/refund.service.js";
 
 const SHOP_ORDER_INCLUDE = {
   customer: { select: { name: true } },
@@ -98,6 +99,7 @@ export class ShopOrdersService {
     private readonly shopMembership: ShopMembershipService,
     private readonly orderStateMachine: OrderStateMachine,
     private readonly agentJobsService: AgentJobsService,
+    private readonly refundService: RefundService,
   ) {
     this.repository = ShopOrdersService.buildRepository(prisma);
   }
@@ -525,8 +527,11 @@ export class ShopOrdersService {
   /** §36: rejection requires a reason (the picker's four fixed options,
    * validated by the Zod schema before this ever runs) -- kept only in
    * the transition's own audit metadata, not a dedicated order column,
-   * since nothing yet needs it queryable and SHOP_REJECTED isn't one
-   * of 7.3's seven customer-notification events. */
+   * since nothing yet needs it queryable. The transition itself now
+   * produces the customer's ORDER_REJECTED notification for free
+   * (11.3 added SHOP_REJECT to NOTIFICATION_TYPE_BY_EVENT), atomically
+   * with the state change; the refund trigger below is a genuinely
+   * separate step, run only after that commits. */
   async rejectOrder(
     orderId: string,
     actorId: string,
@@ -538,6 +543,16 @@ export class ShopOrdersService {
       { id: actorId },
       { metadata: { reason } },
     );
+    // §80/11.3: "shop rejection... trigger[s] refunds where payment
+    // already succeeded" -- run as a separate step *after* the
+    // transition commits, not inside its own `sideEffect`.
+    // RefundService takes its own Redis order-lock and calls out to
+    // the payment provider; holding the transition's Postgres row lock
+    // open across that (the same thing webhooks.service.ts already
+    // avoids for its own post-transition ROUTE_TO_SHOP step) is worth
+    // avoiding even though the mock provider itself resolves
+    // instantly.
+    await this.refundService.refundOrderIfPaid(orderId, "shop_rejection", actorId);
     return this.getOrder(orderId);
   }
 
