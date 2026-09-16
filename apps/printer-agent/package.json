@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "package:win": "pnpm run build && pnpm exec pkg . --targets node22-win-x64 --output dist-pkg/print-automated-agent.exe",
+    "package:installer": "powershell -ExecutionPolicy Bypass -File scripts/package-installer.ps1"
   },
   "dependencies": {
     "@print-automated/config": "workspace:*",
@@ -21,7 +23,21 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@yao-pkg/pkg": "^6.6.0",
     "pino-pretty": "^13.0.0",
     "tsx": "^4.19.2"
+  },
+  "bin": "dist/index.js",
+  "pkg": {
+    "scripts": [
+      "dist/**/*.js"
+    ],
+    "assets": [
+      "node_modules/systray/traybin/**/*"
+    ],
+    "targets": [
+      "node22-win-x64"
+    ],
+    "outputPath": "dist-pkg"
   }
 }

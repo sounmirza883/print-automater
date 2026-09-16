@@ -1,6 +1,14 @@
 node_modules/
 dist/
+dist-pkg/
 build/
+# §13.3: the installer's own staged/downloaded/compiled artifacts --
+# the packaging script (apps/printer-agent/scripts/package-installer.ps1)
+# and the Inno Setup source script are committed; everything it
+# produces (the downloaded SumatraPDF zip, the packaged agent .exe, the
+# final installer .exe) is a build output, not source.
+apps/printer-agent/installer/staging/
+apps/printer-agent/installer/output/
 .next/
 .turbo/
 *.log
