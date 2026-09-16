@@ -1,0 +1,96 @@
+# §12.6's own Done-when: "all three images build in CI and run from
+# docker compose against the dev stack." Deliberately a SEPARATE file
+# from docker-compose.dev.yml, not services added into it directly --
+# this whole project's established local workflow runs api/worker/web
+# via `pnpm dev` against the dev infra containers directly, and this
+# file exists to verify the built images themselves, not to replace
+# that workflow. Run together with the dev stack so `depends_on` and
+# the default network resolve across both files as one project:
+#
+#   docker compose \
+#     -f infrastructure/docker/docker-compose.dev.yml \
+#     -f infrastructure/docker/docker-compose.apps.yml \
+#     up -d --build
+name: print-automated-dev
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    ports:
+      # Overridable: a host already running services/api's own `pnpm
+      # dev` (bound directly to 3000, not through Docker) has no room
+      # for this container on the same host port.
+      - "${API_HOST_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      PORT: 3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3001
+      PLATFORM_FEE_MINOR: 2000
+      DATABASE_URL: postgresql://print_automated:print_automated_dev@postgres:5432/print_automated?connection_limit=20&pool_timeout=30
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: dev-only-jwt-access-secret-not-for-production-use-000000
+      JWT_REFRESH_SECRET: dev-only-jwt-refresh-secret-not-for-production-use-00000
+      JWT_AGENT_SECRET: dev-only-jwt-agent-secret-not-for-production-use-0000000
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: print-automated-documents
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_FORCE_PATH_STYLE: "true"
+      KMS_PROVIDER: local
+      KMS_LOCAL_MASTER_KEY: dev-only-kms-master-key-not-for-production-use-0000000
+      PAYMENT_PROVIDER: mock
+      MOCK_PAYMENT_WEBHOOK_SECRET: dev-only-webhook-secret-not-for-production-use-00000
+      API_PUBLIC_BASE_URL: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://print_automated:print_automated_dev@postgres:5432/print_automated?connection_limit=20&pool_timeout=30
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: print-automated-documents
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_FORCE_PATH_STYLE: "true"
+      KMS_PROVIDER: local
+      KMS_LOCAL_MASTER_KEY: dev-only-kms-master-key-not-for-production-use-0000000
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      EMAIL_FROM_ADDRESS: noreply@print-automated.dev
+      EMAIL_TRANSPORT: mailhog
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+    ports:
+      - "${WEB_HOST_PORT:-3001}:3001"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+    depends_on:
+      - api

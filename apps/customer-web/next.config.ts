@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // §12.6: traces the actual require/import graph into a minimal
+  // .next/standalone/ folder (its own node_modules subset, not this
+  // whole workspace's) -- what makes a Docker image for this app small
+  // and self-contained instead of copying the entire monorepo's
+  // node_modules into the runtime image.
+  output: "standalone",
   // Workspace packages consumed as raw TS source (main: "./src/index.ts",
   // no build step -- see packages/design-tokens and packages/api-client's
   // package.json) live outside this app's own src tree. Without this,
