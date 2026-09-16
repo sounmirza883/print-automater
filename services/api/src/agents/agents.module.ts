@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ShopAgentsModule } from "../shop-agents/shop-agents.module.js";
+import { DocumentsModule } from "../documents/documents.module.js";
 import { AgentAuthGuard } from "./agent-auth.guard.js";
 import { AgentChallengeService } from "./agent-challenge.service.js";
 import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
@@ -9,7 +10,7 @@ import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
 
 @Module({
-  imports: [ShopAgentsModule],
+  imports: [ShopAgentsModule, DocumentsModule],
   controllers: [AgentsController],
   providers: [
     AgentsService,

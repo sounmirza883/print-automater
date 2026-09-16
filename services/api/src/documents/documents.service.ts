@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
-import { DocumentStatus, type Document } from "@prisma/client";
+import { DocumentStatus, PrintJobStatus, type Document } from "@prisma/client";
 import type { CreateDocumentInput } from "@print-automated/validation";
 import {
   AppException,
@@ -123,7 +123,63 @@ export class DocumentsService {
    * Order/PrintJob to authorize against. */
   async download(documentId: string, requestingUserId: string): Promise<DecryptedDocument> {
     const document = await this.getOwned(documentId, requestingUserId);
+    const decrypted = await this.decrypt(document);
 
+    await this.audit.record({
+      actorId: requestingUserId,
+      action: AuditAction.DOCUMENT_ACCESSED,
+      resourceType: "document",
+      resourceId: documentId,
+    });
+
+    return decrypted;
+  }
+
+  /** §64/9.8's own agent read path -- deferred at 2.8 for exactly the
+   * reason its own comment gives: no PrintJob existed yet to authorize
+   * against. Authorization here is "job assignment + job status," not
+   * document ownership: an agent has no owner relationship to any
+   * document at all, only a claim on the *job* that references one.
+   * `CLAIMED` or `PRINTING` are the only legal states to fetch from --
+   * QUEUED means this agent hasn't claimed it yet (9.7's claim is a
+   * hard prerequisite, not optional), and every later state means the
+   * print already finished or failed, where re-fetching the document
+   * is either pointless or a signal something is wrong, not a normal
+   * retry path. */
+  async downloadForJob(jobId: string, deviceId: string): Promise<DecryptedDocument> {
+    const job = await this.prisma.printJob.findFirst({
+      where: { id: jobId, printer: { agent: { deviceId } } },
+      include: { order: { select: { documentId: true } } },
+    });
+    if (!job) {
+      throw new NotFoundException("Print job not found.");
+    }
+    if (job.status !== PrintJobStatus.CLAIMED && job.status !== PrintJobStatus.PRINTING) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "JOB_NOT_CLAIMED",
+        "This job must be claimed before its document can be fetched.",
+        false,
+      );
+    }
+
+    const document = await this.prisma.document.findUniqueOrThrow({
+      where: { id: job.order.documentId },
+    });
+    const decrypted = await this.decrypt(document);
+
+    await this.audit.record({
+      actorId: null,
+      action: AuditAction.DOCUMENT_ACCESSED,
+      resourceType: "document",
+      resourceId: document.id,
+      metadata: { deviceId, jobId },
+    });
+
+    return decrypted;
+  }
+
+  private async decrypt(document: Document): Promise<DecryptedDocument> {
     if (
       document.status !== DocumentStatus.READY ||
       !document.encryptedDek ||
@@ -146,13 +202,6 @@ export class DocumentsService {
       Buffer.from(document.iv),
       Buffer.from(document.authTag),
     );
-
-    await this.audit.record({
-      actorId: requestingUserId,
-      action: AuditAction.DOCUMENT_ACCESSED,
-      resourceType: "document",
-      resourceId: documentId,
-    });
 
     return { buffer, filename: document.filename };
   }

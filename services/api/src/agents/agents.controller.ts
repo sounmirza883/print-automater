@@ -15,6 +15,7 @@ import type { Request, Response } from "express";
 import { AgentAuthGuard, type RequestWithAgent } from "./agent-auth.guard.js";
 import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
 import { AgentJobsService, type PrintJobSummary } from "./agent-jobs.service.js";
+import { DocumentsService } from "../documents/documents.service.js";
 import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
 import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import { AuthenticateChallengeDto } from "./dto/authenticate-challenge.dto.js";
@@ -42,6 +43,7 @@ export class AgentsController {
     private readonly agentsService: AgentsService,
     private readonly heartbeatService: AgentHeartbeatService,
     private readonly agentJobsService: AgentJobsService,
+    private readonly documentsService: DocumentsService,
   ) {}
 
   @Post("register")
@@ -98,5 +100,30 @@ export class AgentsController {
   @UseGuards(AgentAuthGuard)
   claim(@Req() req: RequestWithAgent, @Param("id") id: string): Promise<PrintJobSummary> {
     return this.agentJobsService.claim(id, req.agent!.deviceId);
+  }
+
+  /** §64/§65/9.8: same "decrypt on the fly, stream the bytes, never a
+   * reusable link" contract as the customer-facing download endpoint
+   * -- this one is just authorized against job assignment instead of
+   * document ownership. */
+  @Get("jobs/:id/document")
+  @UseGuards(AgentAuthGuard)
+  async downloadDocument(
+    @Req() req: RequestWithAgent,
+    @Param("id") id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.documentsService.downloadForJob(
+      id,
+      req.agent!.deviceId,
+    );
+    res
+      .status(HttpStatus.OK)
+      .set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${encodeURIComponent(filename)}"`,
+        "Content-Length": String(buffer.length),
+      })
+      .send(buffer);
   }
 }
