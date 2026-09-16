@@ -44,6 +44,7 @@ model User {
   auditLogs           AuditLog[]           @relation("AuditActor")
   documents           Document[]
   orders              Order[]
+  notifications       Notification[]
 
   @@map("users")
 }
@@ -229,7 +230,7 @@ model Document {
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
-  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  owner  User    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   orders Order[]
 
   @@index([ownerUserId])
@@ -270,10 +271,11 @@ model Order {
   updatedAt          DateTime      @updatedAt @map("updated_at")
   completedAt        DateTime?     @map("completed_at")
 
-  customer User     @relation(fields: [customerId], references: [id])
-  shop     Shop     @relation(fields: [shopId], references: [id])
-  document Document @relation(fields: [documentId], references: [id])
-  payments Payment[]
+  customer      User           @relation(fields: [customerId], references: [id])
+  shop          Shop           @relation(fields: [shopId], references: [id])
+  document      Document       @relation(fields: [documentId], references: [id])
+  payments      Payment[]
+  notifications Notification[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
@@ -342,6 +344,49 @@ model IdempotencyKey {
 
   @@unique([key, scope])
   @@map("idempotency_keys")
+}
+
+// 7.1/§78. One row per (recipient, event) -- `type` names which of
+// the seven §78 domain events this is, `channel` which delivery
+// surface carries it (APP always; EMAIL only "where practical", per
+// the PRD's own hedge). `sentAt` stays null until the channel's own
+// transport actually dispatches it (7.2's queued send, retried on
+// failure) -- a row existing is "this notification was decided," not
+// "this notification was delivered." `readAt` is customer-web's own
+// "mark as read" action on the in-app feed; irrelevant to EMAIL rows,
+// which is why it's nullable rather than a second, channel-specific
+// table.
+model Notification {
+  id        String              @id @default(uuid())
+  userId    String              @map("user_id")
+  orderId   String              @map("order_id")
+  type      NotificationType
+  channel   NotificationChannel
+  payload   Json
+  sentAt    DateTime?           @map("sent_at")
+  readAt    DateTime?           @map("read_at")
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  PAYMENT_CONFIRMED
+  ORDER_ACCEPTED
+  PRINT_STARTED
+  PRINT_FAILED
+  PRINT_COMPLETED
+  READY_FOR_COLLECTION
+  ORDER_COMPLETED
+}
+
+enum NotificationChannel {
+  APP
+  EMAIL
 }
 
 // 6.1/§57. `amountMinor` (not `amount`) matches this codebase's
