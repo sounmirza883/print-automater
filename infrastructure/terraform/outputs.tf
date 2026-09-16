@@ -1,3 +1,13 @@
+output "private_subnet_ids" {
+  description = "Used by §12.8's deploy pipeline to run the one-off `prisma migrate deploy` ECS task on the same network the api/worker services themselves run on."
+  value       = aws_subnet.private[*].id
+}
+
+output "ecs_api_security_group_id" {
+  description = "Used by §12.8's deploy pipeline for the migration task -- it runs the api image, so it needs the same DB/Redis reachability api's own service has."
+  value       = aws_security_group.ecs_api.id
+}
+
 output "alb_dns_name" {
   description = "ALB's own AWS-assigned DNS name -- point var.domain_name's and api.var.domain_name's DNS records here (CNAME/ALIAS) once the stack is up."
   value       = aws_lb.main.dns_name
