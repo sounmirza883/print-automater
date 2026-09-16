@@ -32,3 +32,4 @@ export {
   listPrintersQuerySchema,
   type ListPrintersQueryInput,
 } from "./printers/index.js";
+export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";

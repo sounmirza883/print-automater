@@ -19,6 +19,7 @@ import { PaymentsModule } from "./payments/payments.module.js";
 import { ShopOrdersModule } from "./shop-orders/shop-orders.module.js";
 import { PrintersModule } from "./printers/printers.module.js";
 import { ShopStaffModule } from "./shop-staff/shop-staff.module.js";
+import { ShopAgentsModule } from "./shop-agents/shop-agents.module.js";
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ShopStaffModule } from "./shop-staff/shop-staff.module.js";
     ShopOrdersModule,
     PrintersModule,
     ShopStaffModule,
+    ShopAgentsModule,
   ],
 })
 export class AppModule {}
