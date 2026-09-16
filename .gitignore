@@ -17,3 +17,14 @@ blob-report/
 playwright/.cache/
 .expo/
 expo-env.d.ts
+
+# Terraform state holds every secret this config generates (DB
+# password, JWT secrets, S3 access keys, §102) in plaintext -- never
+# committed, matching every other real-secret exclusion above.
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+crash.log
+crash.*.log
