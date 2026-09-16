@@ -125,7 +125,7 @@ describe("DocumentProcessingService (integration, real MinIO/Postgres/ClamAV)", 
     // ...and the final encrypted object round-trips back to the
     // original plaintext bytes end to end.
     const plaintextDek = await kms.unwrap(Buffer.from(doc.encryptedDek!));
-    const ciphertext = await storage.getObjectBuffer(doc.storageKey);
+    const ciphertext = await storage.getObjectBuffer(doc.storageKey!);
     const decrypted = await crypto.decryptBuffer(
       ciphertext,
       plaintextDek,

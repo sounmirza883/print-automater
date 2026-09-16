@@ -30,6 +30,12 @@ export const workerEnvSchema = baseEnvSchema
     // seconds, not minutes -- but still a placeholder default, not a
     // researched business number.
     PRINT_JOB_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(10),
+    // §66/§67/11.5: how long a completed order's document survives
+    // before the retention sweep erases it. 30 days is a placeholder
+    // default, not a researched business/legal retention requirement --
+    // easy to retune later since nothing else depends on this exact
+    // figure.
+    DOCUMENT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   })
   .superRefine(checkStorageEnv);
 

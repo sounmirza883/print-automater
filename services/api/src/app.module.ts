@@ -7,6 +7,7 @@ import {
   CryptoModule,
   AuditModule,
   OrderStateMachineModule,
+  DocumentDeletionModule,
 } from "@print-automated/backend-shared";
 import { AppConfigModule, apiEnv } from "./config/config.module.js";
 import { QueuesModule } from "./queues/queues.module.js";
@@ -54,6 +55,7 @@ import { PaymentReconciliationModule } from "./payment-reconciliation/payment-re
     QueuesModule,
     AuditModule,
     OrderStateMachineModule,
+    DocumentDeletionModule,
     HealthModule,
     AuthModule,
     DocumentsModule,

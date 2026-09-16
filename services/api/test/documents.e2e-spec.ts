@@ -69,7 +69,7 @@ describe("Documents (e2e)", () => {
   afterAll(async () => {
     if (documentId) {
       const doc = await prisma.document.findUnique({ where: { id: documentId } });
-      if (doc) {
+      if (doc?.storageKey) {
         await storage.deleteObject(doc.storageKey).catch(() => undefined);
       }
     }

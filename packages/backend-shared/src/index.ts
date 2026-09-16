@@ -12,6 +12,9 @@ export { S3_CLIENT, STORAGE_BUCKET } from "./storage/storage.tokens.js";
 export { StorageModule, type StorageModuleOptions } from "./storage/storage.module.js";
 export { StorageService } from "./storage/storage.service.js";
 
+export { DocumentDeletionService } from "./documents/document-deletion.service.js";
+export { DocumentDeletionModule } from "./documents/document-deletion.module.js";
+
 export {
   KEY_MANAGEMENT_SERVICE,
   type KeyManagementService,

@@ -219,7 +219,12 @@ enum DocumentStatus {
 model Document {
   id                String         @id @default(uuid())
   ownerUserId       String         @map("owner_user_id")
-  storageKey        String         @map("storage_key")
+  // 11.5: nullable as of its own migration -- a DELETED document (2.5's
+  // own customer-initiated remove(), or 11.5's own retention sweep) has
+  // its object genuinely gone from storage, so a non-null value here
+  // must always mean "this key is live," never a dangling pointer to
+  // something that no longer exists.
+  storageKey        String?        @map("storage_key")
   filename          String
   mimeType          String         @map("mime_type")
   sizeBytes         Int            @map("size_bytes")

@@ -9,6 +9,7 @@ import {
   CryptoModule,
   AuditModule,
   OrderStateMachineModule,
+  DocumentDeletionModule,
   EmailModule,
   REDIS_CLIENT,
 } from "@print-automated/backend-shared";
@@ -18,6 +19,7 @@ import { OrderExpirationModule } from "./order-expiration/order-expiration.modul
 import { NotificationsModule } from "./notifications/notifications.module.js";
 import { PrinterOfflineSweepModule } from "./printer-offline-sweep/printer-offline-sweep.module.js";
 import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
+import { DocumentRetentionModule } from "./document-retention/document-retention.module.js";
 
 @Module({
   imports: [
@@ -49,6 +51,7 @@ import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
     CryptoModule,
     AuditModule,
     OrderStateMachineModule,
+    DocumentDeletionModule,
     EmailModule.forRoot(
       workerEnv.EMAIL_TRANSPORT === "ses"
         ? {
@@ -72,6 +75,7 @@ import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
     NotificationsModule,
     PrinterOfflineSweepModule,
     PrintTimeoutModule,
+    DocumentRetentionModule,
   ],
 })
 export class AppModule {}

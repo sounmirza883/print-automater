@@ -23,4 +23,7 @@ export const QUEUE_NAMES = {
   // the provider's own, flagging divergence rather than auto-correcting
   // money.
   PAYMENT_RECONCILIATION: "payment-reconciliation",
+  // §66/§67/11.5's own repeatable sweep -- erases a completed order's
+  // document once it's past the configurable retention window.
+  DOCUMENT_RETENTION: "document-retention",
 } as const;

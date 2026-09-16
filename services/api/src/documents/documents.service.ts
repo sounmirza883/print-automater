@@ -20,6 +20,7 @@ import {
   type KeyManagementService,
   QUEUE_NAMES,
   type DocumentProcessingJob,
+  DocumentDeletionService,
 } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { sanitizeFilename } from "./sanitize-filename.js";
@@ -53,6 +54,7 @@ export class DocumentsService {
     @Inject(KEY_MANAGEMENT_SERVICE) private readonly kms: KeyManagementService,
     @InjectQueue(QUEUE_NAMES.DOCUMENT_PROCESSING)
     private readonly documentProcessingQueue: Queue<DocumentProcessingJob>,
+    private readonly documentDeletion: DocumentDeletionService,
   ) {}
 
   async create(ownerUserId: string, input: CreateDocumentInput): Promise<CreateDocumentResult> {
@@ -182,6 +184,7 @@ export class DocumentsService {
   private async decrypt(document: Document): Promise<DecryptedDocument> {
     if (
       document.status !== DocumentStatus.READY ||
+      !document.storageKey ||
       !document.encryptedDek ||
       !document.iv ||
       !document.authTag
@@ -206,17 +209,17 @@ export class DocumentsService {
     return { buffer, filename: document.filename };
   }
 
-  /** Soft delete: removes the storage object (best-effort -- a document
-   * still in PENDING_UPLOAD may have no object yet) and marks the row
-   * DELETED rather than removing it, so order history (7.5) can still
-   * reference it after the document itself is gone. */
+  /** Soft delete: marks the row DELETED rather than removing it, so
+   * order history (7.5) can still reference it after the document
+   * itself is gone. 11.5's own DocumentDeletionService owns the actual
+   * storage/encryption-metadata erasure (shared with its own retention
+   * sweep) -- and, unlike this method's own original inline version,
+   * genuinely propagates a real storage failure instead of swallowing
+   * it, so a document is never marked DELETED while its ciphertext is
+   * still sitting in the bucket. */
   async remove(documentId: string, ownerUserId: string): Promise<void> {
-    const document = await this.getOwned(documentId, ownerUserId);
-    await this.storage.deleteObject(document.storageKey).catch(() => undefined);
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { status: DocumentStatus.DELETED },
-    });
+    await this.getOwned(documentId, ownerUserId);
+    await this.documentDeletion.deleteDocumentStorage(documentId);
   }
 
   /** §64: "Customer: own documents/orders only." Distinguishes 404
