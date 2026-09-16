@@ -13,6 +13,11 @@ import { JobLedger } from "./ledger/ledger.js";
 import { BackendClient, BackendError } from "./backend/backend-client.js";
 import { createTray } from "./tray/tray.js";
 import { LoopbackServer, type AgentStatus } from "./server/loopback-server.js";
+import {
+  discoverPrinters,
+  toHeartbeatPrinters,
+  type DiscoveredPrinter,
+} from "./printers/discovery.js";
 
 const LOOPBACK_PORT = 7171;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -64,6 +69,7 @@ async function main(): Promise<void> {
   let lastError: string | null = null;
   let lastHeartbeatAt: string | null = null;
   let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+  const lastReportedCapabilities = new Map<string, DiscoveredPrinter["capabilities"]>();
 
   const tray = createTray(logger);
 
@@ -98,11 +104,9 @@ async function main(): Promise<void> {
     }
     try {
       const token = await getAccessToken();
-      // Printer discovery lands in 9.6 -- until then this is a bare
-      // liveness signal (an empty printer list), not yet a capability
-      // report. The backend's own heartbeat handler treats an empty
-      // list as "no printers reported this beat," not as "go offline."
-      await backendClient.sendHeartbeat(token, []);
+      const discovered = await discoverPrinters(logger);
+      const printers = toHeartbeatPrinters(discovered, lastReportedCapabilities);
+      await backendClient.sendHeartbeat(token, printers);
       lastHeartbeatAt = new Date().toISOString();
       lastError = null;
       tray?.setStatus(`paired (shop ${identity.shopId})`);

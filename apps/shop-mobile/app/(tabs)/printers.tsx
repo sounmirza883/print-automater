@@ -4,12 +4,27 @@ import {
   FlatList,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { tokens } from "@print-automated/design-tokens";
-import type { PrinterResponse } from "@print-automated/api-client";
+import type { PrinterCapabilities, PrinterResponse } from "@print-automated/api-client";
+
+const CAPABILITY_LABELS: Array<{ key: keyof PrinterCapabilities; label: string }> = [
+  { key: "color", label: "Color" },
+  { key: "duplex", label: "Duplex" },
+  { key: "a4", label: "A4" },
+  { key: "a3", label: "A3" },
+];
+
+const DEFAULT_CAPABILITIES: PrinterCapabilities = {
+  color: false,
+  duplex: false,
+  a4: false,
+  a3: false,
+};
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { usePrinters } from "@/lib/use-printers";
 
@@ -142,6 +157,7 @@ function PrinterRow({
   const [name, setName] = useState(printer.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capsBusyKey, setCapsBusyKey] = useState<keyof PrinterCapabilities | null>(null);
 
   async function run(action: () => Promise<unknown>): Promise<void> {
     setError(null);
@@ -153,6 +169,29 @@ function PrinterRow({
       setError(err instanceof Error ? err.message : "That action failed.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // §9.6's "manual override toggles in the Shop app where the driver
+  // lies" -- the agent's own WMI probe (discovery.ts) is a best-effort
+  // guess (Windows print-queue capability reporting is inconsistent
+  // across drivers, per the plan's own named risk), so staff can
+  // correct any single flag without retyping the other three.
+  // updatePrinterSchema requires all four booleans together -- a
+  // partial capabilities object would be indistinguishable from
+  // "the other three are false" -- so every toggle sends the full,
+  // merged set.
+  async function toggleCapability(key: keyof PrinterCapabilities, value: boolean): Promise<void> {
+    setError(null);
+    setCapsBusyKey(key);
+    try {
+      const next = { ...(printer.capabilities ?? DEFAULT_CAPABILITIES), [key]: value };
+      await apiClient.printers.update(printer.id, { capabilities: next });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update that capability.");
+    } finally {
+      setCapsBusyKey(null);
     }
   }
 
@@ -185,6 +224,21 @@ function PrinterRow({
             >
               <Text style={styles.smallButtonText}>Save name</Text>
             </Pressable>
+          </View>
+          <View style={styles.capabilitiesSection}>
+            <Text style={styles.capabilitiesTitle}>
+              Capabilities{printer.capabilities === null ? " (not yet detected)" : ""}
+            </Text>
+            {CAPABILITY_LABELS.map(({ key, label }) => (
+              <View key={key} style={styles.capabilityRow}>
+                <Text style={styles.capabilityLabel}>{label}</Text>
+                <Switch
+                  value={(printer.capabilities ?? DEFAULT_CAPABILITIES)[key]}
+                  onValueChange={(value) => void toggleCapability(key, value)}
+                  disabled={capsBusyKey !== null}
+                />
+              </View>
+            ))}
           </View>
           <View style={styles.actionRow}>
             <Pressable
@@ -259,6 +313,15 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   renameRow: { flexDirection: "row", gap: 8 },
+  capabilitiesSection: { gap: 4 },
+  capabilitiesTitle: { fontWeight: "600", color: "#6B7280", fontSize: 13 },
+  capabilityRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  capabilityLabel: { fontWeight: "500" },
   actionRow: { flexDirection: "row", gap: 8 },
   smallButton: {
     borderWidth: 1,
