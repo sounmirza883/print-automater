@@ -1,12 +1,26 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from "@nestjs/common";
-import type { Request } from "express";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import type { Request, Response } from "express";
 import { AgentAuthGuard, type RequestWithAgent } from "./agent-auth.guard.js";
 import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
+import { AgentJobsService, type PrintJobSummary } from "./agent-jobs.service.js";
 import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
 import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import { AuthenticateChallengeDto } from "./dto/authenticate-challenge.dto.js";
 import { AuthenticateDto } from "./dto/authenticate.dto.js";
 import { HeartbeatDto } from "./dto/heartbeat.dto.js";
+import { PollJobsQueryDto } from "./dto/poll-jobs-query.dto.js";
 import { RegisterAgentDto } from "./dto/register-agent.dto.js";
 import { AgentsService, type RegisteredAgent } from "./agents.service.js";
 
@@ -27,6 +41,7 @@ export class AgentsController {
   constructor(
     private readonly agentsService: AgentsService,
     private readonly heartbeatService: AgentHeartbeatService,
+    private readonly agentJobsService: AgentJobsService,
   ) {}
 
   @Post("register")
@@ -57,5 +72,31 @@ export class AgentsController {
   @UseGuards(AgentAuthGuard)
   async heartbeat(@Req() req: RequestWithAgent, @Body() dto: HeartbeatDto): Promise<void> {
     await this.heartbeatService.processHeartbeat(req.agent!.deviceId, req.agent!.shopId, dto);
+  }
+
+  /** §9.7. 200 with a job when one is found (immediately, or after the
+   * Redis signal wakes this call); 204 on a plain timeout. Never 4xx
+   * for "nothing to do" -- an empty queue is this endpoint's normal,
+   * expected steady state, not a client error. */
+  @Get("jobs")
+  @UseGuards(AgentAuthGuard)
+  async pollJobs(
+    @Req() req: RequestWithAgent,
+    @Query() query: PollJobsQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<PrintJobSummary | undefined> {
+    const job = await this.agentJobsService.waitForJob(req.agent!.deviceId, query.wait);
+    if (!job) {
+      res.status(HttpStatus.NO_CONTENT);
+      return undefined;
+    }
+    return job;
+  }
+
+  @Post("jobs/:id/claim")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AgentAuthGuard)
+  claim(@Req() req: RequestWithAgent, @Param("id") id: string): Promise<PrintJobSummary> {
+    return this.agentJobsService.claim(id, req.agent!.deviceId);
   }
 }

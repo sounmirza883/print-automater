@@ -3,6 +3,7 @@ import { ShopAgentsModule } from "../shop-agents/shop-agents.module.js";
 import { AgentAuthGuard } from "./agent-auth.guard.js";
 import { AgentChallengeService } from "./agent-challenge.service.js";
 import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
+import { AgentJobsService } from "./agent-jobs.service.js";
 import { AgentTokenService } from "./agent-token.service.js";
 import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
@@ -15,8 +16,9 @@ import { AgentsService } from "./agents.service.js";
     AgentChallengeService,
     AgentTokenService,
     AgentHeartbeatService,
+    AgentJobsService,
     AgentAuthGuard,
   ],
-  exports: [AgentTokenService],
+  exports: [AgentTokenService, AgentJobsService],
 })
 export class AgentsModule {}

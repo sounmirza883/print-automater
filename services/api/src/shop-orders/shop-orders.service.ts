@@ -10,6 +10,7 @@ import {
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { AgentJobsService } from "../agents/agent-jobs.service.js";
 
 const SHOP_ORDER_INCLUDE = {
   customer: { select: { name: true } },
@@ -71,6 +72,7 @@ export class ShopOrdersService {
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
     private readonly orderStateMachine: OrderStateMachine,
+    private readonly agentJobsService: AgentJobsService,
   ) {
     this.repository = ShopOrdersService.buildRepository(prisma);
   }
@@ -170,6 +172,13 @@ export class ShopOrdersService {
       throw new NotFoundException("Order not found.");
     }
 
+    // Set inside the transaction's sideEffect (the only place the
+    // winning printer -- and its agent, if any -- is known) but only
+    // acted on after that transaction actually commits: Redis isn't
+    // part of the Postgres transaction, so notifying from inside the
+    // callback could announce a job that a later rollback undoes.
+    let notifyDeviceId: string | null = null;
+
     try {
       await this.orderStateMachine.transition(
         orderId,
@@ -179,6 +188,7 @@ export class ShopOrdersService {
           sideEffect: async (tx) => {
             const printer = await tx.printer.findFirst({
               where: { shopId: order.shopId, status: { not: PrinterStatus.DISABLED } },
+              include: { agent: { select: { deviceId: true } } },
             });
             if (!printer) {
               throw new AppException(
@@ -196,6 +206,11 @@ export class ShopOrdersService {
                 idempotencyToken: randomUUID(),
               },
             });
+            // A printer staff registered by hand (8.4) before any
+            // agent ever heartbeated it has no agent yet -- nothing to
+            // wake. The job still sits QUEUED for whenever an agent
+            // does start reporting it.
+            notifyDeviceId = printer.agent?.deviceId ?? null;
           },
         },
       );
@@ -203,6 +218,10 @@ export class ShopOrdersService {
       if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
         throw error;
       }
+    }
+
+    if (notifyDeviceId) {
+      await this.agentJobsService.notify(notifyDeviceId);
     }
 
     await this.queuePrintIfStillAccepted(orderId, actorId);
