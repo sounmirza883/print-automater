@@ -74,6 +74,17 @@ export class WebhooksService {
     }
 
     if (await this.alreadyProcessed(event.providerEventId)) {
+      // §6.6: still attempted on a replay, not just on a fresh
+      // transition below -- if an earlier delivery crashed after this
+      // event's transition committed but before ROUTE_TO_SHOP ran, the
+      // order is stuck at PAID and payment_events' unique constraint
+      // means this early-return branch is the *only* code path a later
+      // redelivery of the exact same event will ever take.
+      if (event.outcome === "PAID") {
+        await this.orderLock.withLock(payment.orderId, () =>
+          this.routeToShopIfStillPaid(payment.orderId),
+        );
+      }
       return;
     }
 
@@ -83,6 +94,9 @@ export class WebhooksService {
       // been committed by the other caller while this one waited for
       // the lock.
       if (await this.alreadyProcessed(event.providerEventId)) {
+        if (event.outcome === "PAID") {
+          await this.routeToShopIfStillPaid(payment.orderId);
+        }
         return;
       }
 
@@ -97,6 +111,12 @@ export class WebhooksService {
           metadata: { provider: payment.provider, providerEventId: event.providerEventId },
           sideEffect: async (tx) => {
             await tx.payment.update({ where: { id: payment.id }, data: { status: paymentStatus } });
+            // §26: `orders.payment_status` is its own column, deliberately
+            // separate from `order_status` -- kept in sync with the
+            // payment row's own status here rather than left to drift,
+            // since it's the field OrderResponse and (eventually) 9.13's
+            // dispatch gate actually read, not `payments.status` itself.
+            await tx.order.update({ where: { id: payment.orderId }, data: { paymentStatus } });
             await tx.paymentEvent.create({
               data: {
                 paymentId: payment.id,
@@ -108,7 +128,30 @@ export class WebhooksService {
           },
         },
       );
+
+      // §6.6: a successful payment doesn't just leave the order sitting
+      // at PAID -- it also routes to the shop queue, in the same locked
+      // step (though necessarily a second Postgres transaction, since
+      // OrderStateMachine.transition() owns its own).
+      if (event.outcome === "PAID") {
+        await this.routeToShopIfStillPaid(payment.orderId);
+      }
     });
+  }
+
+  /** Treats "already routed past PAID by an earlier delivery of this
+   * event, or moved further still" as success, not an error -- that's
+   * exactly what should have happened. Only a genuinely different
+   * failure propagates. */
+  private async routeToShopIfStillPaid(orderId: string): Promise<void> {
+    try {
+      await this.orderStateMachine.transition(orderId, OrderEvent.ROUTE_TO_SHOP, { id: null });
+    } catch (error) {
+      if (error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION") {
+        return;
+      }
+      throw error;
+    }
   }
 
   private async alreadyProcessed(providerEventId: string): Promise<boolean> {

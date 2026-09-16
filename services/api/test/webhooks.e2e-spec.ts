@@ -135,19 +135,32 @@ describe("POST /webhooks/payment/:provider (6.5, e2e)", () => {
       expect(res.status).toBe(200);
     }
 
+    // §6.6: a confirmed payment doesn't just leave the order at PAID --
+    // it routes straight on to WAITING_FOR_SHOP within the same call.
+    // §26: `orders.payment_status` (its own column, separate from
+    // `order_status`) is kept in sync with the payment too.
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-    expect(order.orderStatus).toBe(OrderStatus.PAID);
+    expect(order.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+    expect(order.paymentStatus).toBe(PaymentStatus.PAID);
 
     const payment = await prisma.payment.findUniqueOrThrow({ where: { providerPaymentId } });
     const events = await prisma.paymentEvent.findMany({ where: { paymentId: payment.id } });
     expect(events).toHaveLength(1);
     expect(events[0]?.processedAt).not.toBeNull();
 
-    // Exactly one ORDER_CONFIRM_PAYMENT audit row -- not five.
-    const audits = await prisma.auditLog.count({
+    // Exactly one ORDER_CONFIRM_PAYMENT audit row -- not five -- and
+    // exactly one ORDER_ROUTE_TO_SHOP row: the 4 redeliveries after the
+    // first each re-attempt routing (self-healing, in case an earlier
+    // one crashed between the two transitions) but find the order
+    // already past PAID and no-op rather than routing a second time.
+    const confirmAudits = await prisma.auditLog.count({
       where: { resourceType: "order", resourceId: orderId, action: "ORDER_CONFIRM_PAYMENT" },
     });
-    expect(audits).toBe(1);
+    expect(confirmAudits).toBe(1);
+    const routeAudits = await prisma.auditLog.count({
+      where: { resourceType: "order", resourceId: orderId, action: "ORDER_ROUTE_TO_SHOP" },
+    });
+    expect(routeAudits).toBe(1);
   });
 
   it("§92: 5 genuinely concurrent deliveries of the same webhook still produce exactly one financial operation", async () => {
@@ -170,7 +183,8 @@ describe("POST /webhooks/payment/:provider (6.5, e2e)", () => {
     }
 
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-    expect(order.orderStatus).toBe(OrderStatus.PAID);
+    expect(order.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+    expect(order.paymentStatus).toBe(PaymentStatus.PAID);
 
     const audits = await prisma.auditLog.count({
       where: { resourceType: "order", resourceId: orderId, action: "ORDER_CONFIRM_PAYMENT" },
@@ -227,11 +241,13 @@ describe("POST /webhooks/payment/:provider (6.5, e2e)", () => {
     expect(failedRes.status).toBe(409);
     expect(failedRes.body.error_code).toBe("ILLEGAL_ORDER_TRANSITION");
 
-    // Still PAID -- the out-of-order FAILED never got a chance to
-    // corrupt it, and the payment row still reflects the successful
-    // outcome that actually applied, not the rejected later one.
+    // Still routed on to WAITING_FOR_SHOP -- the out-of-order FAILED
+    // never got a chance to corrupt it, and the payment row still
+    // reflects the successful outcome that actually applied, not the
+    // rejected later one.
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-    expect(order.orderStatus).toBe(OrderStatus.PAID);
+    expect(order.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+    expect(order.paymentStatus).toBe(PaymentStatus.PAID);
     const payment = await prisma.payment.findUniqueOrThrow({ where: { providerPaymentId } });
     expect(payment.status).toBe(PaymentStatus.PAID);
   });

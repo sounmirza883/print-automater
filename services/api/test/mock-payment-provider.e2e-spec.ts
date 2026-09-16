@@ -158,8 +158,11 @@ describe("MockPaymentProvider + dev checkout page (6.3, e2e)", () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain("Webhook delivery: 200");
 
+    // §6.6: routed straight on to WAITING_FOR_SHOP, not left at PAID.
+    // §26: orders.payment_status mirrors the payment's own status too.
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-    expect(order.orderStatus).toBe(OrderStatus.PAID);
+    expect(order.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+    expect(order.paymentStatus).toBe(PaymentStatus.PAID);
     const payment = await prisma.payment.findUniqueOrThrow({ where: { providerPaymentId } });
     expect(payment.status).toBe(PaymentStatus.PAID);
   });
@@ -170,9 +173,9 @@ describe("MockPaymentProvider + dev checkout page (6.3, e2e)", () => {
       `/v1/payments/mock/resolve?providerPaymentId=${failPaymentId}&outcome=FAILED`,
     );
     expect(failRes.text).toContain("Webhook delivery: 200");
-    expect((await prisma.order.findUniqueOrThrow({ where: { id: failOrderId } })).orderStatus).toBe(
-      OrderStatus.PAYMENT_FAILED,
-    );
+    const failOrder = await prisma.order.findUniqueOrThrow({ where: { id: failOrderId } });
+    expect(failOrder.orderStatus).toBe(OrderStatus.PAYMENT_FAILED);
+    expect(failOrder.paymentStatus).toBe(PaymentStatus.FAILED);
     expect(
       (await prisma.payment.findUniqueOrThrow({ where: { providerPaymentId: failPaymentId } }))
         .status,
@@ -184,9 +187,9 @@ describe("MockPaymentProvider + dev checkout page (6.3, e2e)", () => {
       `/v1/payments/mock/resolve?providerPaymentId=${abandonPaymentId}&outcome=CANCELLED`,
     );
     expect(abandonRes.text).toContain("Webhook delivery: 200");
-    expect(
-      (await prisma.order.findUniqueOrThrow({ where: { id: abandonOrderId } })).orderStatus,
-    ).toBe(OrderStatus.PAYMENT_FAILED);
+    const abandonOrder = await prisma.order.findUniqueOrThrow({ where: { id: abandonOrderId } });
+    expect(abandonOrder.orderStatus).toBe(OrderStatus.PAYMENT_FAILED);
+    expect(abandonOrder.paymentStatus).toBe(PaymentStatus.CANCELLED);
     expect(
       (await prisma.payment.findUniqueOrThrow({ where: { providerPaymentId: abandonPaymentId } }))
         .status,
