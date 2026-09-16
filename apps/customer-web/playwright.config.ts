@@ -13,6 +13,17 @@ const API_PORT = 3000;
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
+  // `fullyParallel: false` only serializes tests *within* one file --
+  // Playwright still spreads separate spec files across concurrent
+  // worker processes by default. Against a real, shared, mutable dev
+  // backend (this config's own whole point) that's a real correctness
+  // problem, not just slower: two files logging in/registering at once
+  // hit the exact same per-IP/per-email rate-limit buckets (§85) and
+  // can race Next.js's own dev-server request handling badly enough to
+  // corrupt an in-flight request body. Only surfaced once a second spec
+  // file (golden-path.spec.ts, 13.1) existed to run alongside
+  // auth-round-trip.spec.ts -- one file alone never exercised this.
+  workers: 1,
   timeout: 30_000,
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
@@ -31,6 +42,21 @@ export default defineConfig({
       command: "pnpm --filter @print-automated/customer-web dev",
       cwd: "../..",
       url: `http://localhost:${WEB_PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    // §121/13.1's own golden path needs a real document to reach READY
+    // (§2.7's pipeline), which nothing does without a live worker
+    // consuming the document-processing queue. No `url`/`port` here --
+    // §2.6 gives it no HTTP server to poll -- so this only starts the
+    // process; golden-path.spec.ts's own polling wait for the
+    // document's status is what actually confirms it's up and working,
+    // the same "start the process, let the test itself prove
+    // readiness" shape §2.6/12.6's own worker healthcheck already uses
+    // for the exact same reason (nothing to poll over HTTP).
+    {
+      command: "pnpm --filter @print-automated/worker dev",
+      cwd: "../..",
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },

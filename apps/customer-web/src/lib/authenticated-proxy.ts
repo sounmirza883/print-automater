@@ -40,6 +40,18 @@ export async function proxyAuthenticatedRequest(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
 
+  // §2.5/§71's own DELETE /documents/:id (only discovered missing while
+  // building 13.1's golden path) is the first call through this proxy
+  // that ever gets a 204 back -- every other route this helper serves
+  // returns 200 with a real body. The HTTP spec forbids a body on 204
+  // (and 205/304), and NextResponse.json() throws internally if given
+  // one anyway, surfacing as an opaque 500 with no error body at all --
+  // exactly what a real DELETE call through this exact path produced
+  // before this check existed.
+  if (backendResponse.status === 204) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   const payload: unknown = await backendResponse.json().catch(() => undefined);
   return NextResponse.json(payload, { status: backendResponse.status });
 }
