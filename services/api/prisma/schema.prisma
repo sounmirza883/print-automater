@@ -117,6 +117,7 @@ model Shop {
   staff        ShopStaff[]
   pricingRules PricingRule[]
   orders       Order[]
+  printers     Printer[]
 
   @@map("shops")
 }
@@ -276,6 +277,7 @@ model Order {
   document      Document       @relation(fields: [documentId], references: [id])
   payments      Payment[]
   notifications Notification[]
+  printJobs     PrintJob[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
@@ -441,4 +443,77 @@ model PaymentEvent {
 
   @@index([paymentId])
   @@map("payment_events")
+}
+
+// §38/§49/8.4. `capabilities` mirrors packages/types' `PrinterCapabilities`,
+// same shape and same "null means not yet declared" convention as
+// Shop.capabilities. Printers are registered directly under a shop by
+// shop staff (8.4) -- Phase 9's agent doesn't exist yet at this point in
+// the plan; 9.1-9.6 attach real device identity and discovery on top of
+// rows that already exist, rather than the agent being the only thing
+// that can ever create one.
+enum PrinterStatus {
+  ONLINE
+  OFFLINE
+  ERROR
+  DISABLED
+}
+
+model Printer {
+  id           String        @id @default(uuid())
+  shopId       String        @map("shop_id")
+  name         String
+  capabilities Json?
+  status       PrinterStatus @default(OFFLINE)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  shop      Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  printJobs PrintJob[]
+
+  @@index([shopId])
+  @@map("printers")
+}
+
+// §45/8.1. `shopId` is denormalized from the order/printer (both belong
+// to the same shop by construction, enforced in the service layer, not
+// a DB constraint) rather than joined every time -- 8.2's shop-scoped
+// queries need it directly indexed, matching this sub-phase's own
+// Done-when. `idempotencyToken` is the client-generated key from 8.8's
+// "one key per Accept attempt" -- `@unique` is what makes double-tapping
+// Accept create exactly one job (8.3's Done-when) a database guarantee,
+// not just an application-level check. `claimedAt`/`osJobId` are 9.7's
+// and 9.11's respectively; carried in this migration now because 8.1
+// explicitly calls for them, even though nothing writes them until
+// Phase 9.
+model PrintJob {
+  id               String        @id @default(uuid())
+  orderId          String        @map("order_id")
+  printerId        String        @map("printer_id")
+  shopId           String        @map("shop_id")
+  status           PrintJobStatus @default(QUEUED)
+  idempotencyToken String        @unique @map("idempotency_token")
+  claimedAt        DateTime?     @map("claimed_at")
+  osJobId          String?       @map("os_job_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  printer Printer @relation(fields: [printerId], references: [id])
+
+  @@index([shopId])
+  @@index([orderId])
+  @@index([printerId])
+  @@map("print_jobs")
+}
+
+enum PrintJobStatus {
+  QUEUED
+  CLAIMED
+  PRINTING
+  PRINTED
+  FAILED
+  UNKNOWN
+  TIMEOUT
+  CANCELLED
 }
