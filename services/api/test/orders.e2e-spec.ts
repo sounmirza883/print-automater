@@ -33,6 +33,7 @@ describe("Orders API (5.5, e2e)", () => {
 
   let readyDocumentId: string;
   let shopId: string;
+  let shopName: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -78,9 +79,10 @@ describe("Orders API (5.5, e2e)", () => {
       },
     });
 
+    shopName = `Orders E2E Shop ${randomUUID()}`;
     const shop = await prisma.shop.create({
       data: {
-        name: `Orders E2E Shop ${randomUUID()}`,
+        name: shopName,
         address: "1 Test Street",
         status: ShopStatus.OPEN,
         capabilities: { color: true, duplex: true, a4: true, a3: false },
@@ -127,6 +129,8 @@ describe("Orders API (5.5, e2e)", () => {
     expect(res.body.shopId).toBe(shopId);
     expect(res.body.orderStatus).toBe("UPLOADED");
     expect(res.body.paymentStatus).toBe("PENDING");
+    expect(res.body.documentFilename).toBe("orders-e2e-test.pdf");
+    expect(res.body.shopName).toBe(shopName);
     // 10 pages x 2 copies x Rs 10.00/page = Rs 200.00 (20000).
     expect(res.body.pricingSnapshot.quote.totalMinor).toBe(
       20000 + res.body.pricingSnapshot.quote.platformFeeMinor,
@@ -163,6 +167,8 @@ describe("Orders API (5.5, e2e)", () => {
     expect(reread.status).toBe(200);
     expect(reread.body.pricingSnapshot.quote.totalMinor).toBe(originalTotal);
     expect(reread.body.pricingSnapshot.pricingRuleVersion).toBe(1);
+    expect(reread.body.documentFilename).toBe("orders-e2e-test.pdf");
+    expect(reread.body.shopName).toBe(shopName);
 
     // A fresh order, quoted after the price change, is priced under
     // the new rule -- proving the old order's stability isn't just
@@ -212,6 +218,11 @@ describe("Orders API (5.5, e2e)", () => {
       .set("Authorization", `Bearer ${ownerToken}`);
     expect(ownerList.status).toBe(200);
     expect(ownerList.body.map((order: { id: string }) => order.id)).toContain(created.body.id);
+    const ownerListed = ownerList.body.find(
+      (order: { id: string }) => order.id === created.body.id,
+    );
+    expect(ownerListed.documentFilename).toBe("orders-e2e-test.pdf");
+    expect(ownerListed.shopName).toBe(shopName);
 
     const strangerList = await request(app.getHttpServer())
       .get("/v1/orders")

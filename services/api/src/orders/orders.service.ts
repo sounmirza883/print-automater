@@ -44,13 +44,29 @@ export interface OrderResponse {
   id: string;
   publicOrderNumber: string;
   documentId: string;
+  documentFilename: string;
   shopId: string;
+  shopName: string;
   printConfiguration: CreateQuoteInput["printConfiguration"];
   pricingSnapshot: PricingSnapshot;
   paymentStatus: Order["paymentStatus"];
   orderStatus: Order["orderStatus"];
   createdAt: Date;
 }
+
+/** §28's history list needs the shop's name and the document's
+ * filename alongside the order itself -- joined in, not a second
+ * round trip per order. `document.filename` survives Phase 11's
+ * eventual retention deletion (only `storage_key`/`encrypted_dek` get
+ * cleared; the row and its filename are kept precisely so 7.5's own
+ * Done-when -- "a past order renders fully after its document has
+ * been deleted" -- holds). */
+const ORDER_INCLUDE = {
+  shop: { select: { name: true } },
+  document: { select: { filename: true } },
+} satisfies Prisma.OrderInclude;
+
+type OrderWithRelations = Prisma.OrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
 
 @Injectable()
 export class OrdersService {
@@ -108,6 +124,7 @@ export class OrdersService {
         printConfiguration: input.printConfiguration as unknown as Prisma.InputJsonValue,
         pricingSnapshot: pricingSnapshot as unknown as Prisma.InputJsonValue,
       },
+      include: ORDER_INCLUDE,
     });
 
     await this.orderStateMachine.transition(order.id, OrderEvent.CONFIRM_UPLOAD, {
@@ -121,6 +138,7 @@ export class OrdersService {
     const orders = await this.prisma.order.findMany({
       where: { customerId: requestingUserId },
       orderBy: { createdAt: "desc" },
+      include: ORDER_INCLUDE,
     });
     return orders.map((order) => this.toOrderResponse(order));
   }
@@ -147,9 +165,15 @@ export class OrdersService {
 
   /** Public -- 6.4's PaymentsService reuses this rather than
    * duplicating the same 404-vs-403 ownership check against the same
-   * table for the same reason. */
-  async getOwnedOrder(requestingUserId: string, orderId: string): Promise<Order> {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+   * table for the same reason. Always includes shop/document (a small,
+   * fixed extra join) rather than a second, leaner variant just for
+   * PaymentsService's own narrower needs -- one query shape for "the
+   * order this requester owns," not two that could quietly drift. */
+  async getOwnedOrder(requestingUserId: string, orderId: string): Promise<OrderWithRelations> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: ORDER_INCLUDE,
+    });
     if (!order) {
       throw new NotFoundException("Order not found.");
     }
@@ -162,12 +186,14 @@ export class OrdersService {
     return order;
   }
 
-  private toOrderResponse(order: Order): OrderResponse {
+  private toOrderResponse(order: OrderWithRelations): OrderResponse {
     return {
       id: order.id,
       publicOrderNumber: order.publicOrderNumber,
       documentId: order.documentId,
+      documentFilename: order.document.filename,
       shopId: order.shopId,
+      shopName: order.shop.name,
       printConfiguration:
         order.printConfiguration as unknown as CreateQuoteInput["printConfiguration"],
       pricingSnapshot: order.pricingSnapshot as unknown as PricingSnapshot,
