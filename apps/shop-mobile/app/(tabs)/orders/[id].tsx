@@ -18,6 +18,27 @@ const REJECTION_REASONS: { value: ShopRejectionReason; label: string }[] = [
   { value: "DOCUMENT_ISSUE", label: "Document issue" },
 ];
 
+// §37/9.14: a job is "in flight" (accepted, waiting for an agent to
+// pick it up, or actively printing) from SHOP_ACCEPTED through
+// PRINTING -- this screen polls only across that window, the same 5s
+// cadence 8.5's dashboard already established, so staff watching an
+// active print see it move to PRINTED without a manual refresh.
+const IN_FLIGHT_STATUSES = new Set(["SHOP_ACCEPTED", "QUEUED_FOR_PRINT", "PRINTING"]);
+const PRINTING_POLL_MS = 5_000;
+
+// §37's own line: "page progress where the driver actually reports it
+// -- otherwise the literal text 'Printing…', never a fabricated
+// percentage." No page-by-page progress is reported to the backend
+// anywhere in this pipeline (9.12 only reports the final PRINTING/
+// PRINTED/FAILED/UNKNOWN verdict, not intermediate page counts) --
+// so every in-flight state honestly renders as plain-language waiting
+// text, never a number this screen has no real basis for.
+const IN_FLIGHT_LABELS: Record<string, string> = {
+  SHOP_ACCEPTED: "Preparing to print…",
+  QUEUED_FOR_PRINT: "Waiting for the printer…",
+  PRINTING: "Printing…",
+};
+
 /** §34's detail screen, §35's unmistakable payment banner, and §36's
  * accept/reject (plus 8.3's ready/complete, which have no separate
  * PRD section of their own but are the same "one action, one state
@@ -55,6 +76,24 @@ export default function OrderDetailScreen(): ReactNode {
       cancelled = true;
     };
   }, [apiClient, id]);
+
+  const orderStatus = state.phase === "ready" ? state.order.orderStatus : null;
+
+  useEffect(() => {
+    if (orderStatus === null || !IN_FLIGHT_STATUSES.has(orderStatus)) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      apiClient.shopOrders
+        .get(id)
+        .then((order) => setState({ phase: "ready", order }))
+        .catch(() => {
+          // A single missed poll isn't worth surfacing as an error --
+          // the next tick tries again, same as 8.5's dashboard.
+        });
+    }, PRINTING_POLL_MS);
+    return () => clearInterval(intervalId);
+  }, [apiClient, id, orderStatus]);
 
   async function runAction(action: () => Promise<ShopOrderResponse>): Promise<void> {
     setActionError(null);
@@ -106,6 +145,20 @@ export default function OrderDetailScreen(): ReactNode {
         </Text>
         {paid && <Text style={styles.paymentBannerAmount}>✓ {formatOrderTotal(order)}</Text>}
       </View>
+
+      {IN_FLIGHT_STATUSES.has(order.orderStatus) && (
+        <View style={styles.printingCard}>
+          <View style={styles.printingRow}>
+            <ActivityIndicator size="small" color={tokens.colors.primaryAction} />
+            <Text style={styles.printingStatusText}>
+              {IN_FLIGHT_LABELS[order.orderStatus] ?? "Printing…"}
+            </Text>
+          </View>
+          <Text style={styles.printingPrinterText}>
+            {order.printerName ? `Printer: ${order.printerName}` : "Printer: assigning…"}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Customer</Text>
@@ -236,6 +289,16 @@ const styles = StyleSheet.create({
   paymentBannerPending: { backgroundColor: "#FEF3C7" },
   paymentBannerText: { fontWeight: "800", fontSize: 16 },
   paymentBannerAmount: { fontWeight: "700" },
+  printingCard: {
+    borderWidth: 1,
+    borderColor: tokens.borders.color,
+    borderRadius: tokens.radius.md,
+    padding: 16,
+    gap: 6,
+  },
+  printingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  printingStatusText: { fontWeight: "700", fontSize: 15 },
+  printingPrinterText: { color: "#6B7280" },
   detailRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   detailLabel: { color: "#6B7280" },
   detailValue: { fontWeight: "600", flexShrink: 1, textAlign: "right" },

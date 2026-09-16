@@ -15,6 +15,15 @@ import { AgentJobsService } from "../agents/agent-jobs.service.js";
 const SHOP_ORDER_INCLUDE = {
   customer: { select: { name: true } },
   document: { select: { filename: true } },
+  // §37's own printing screen needs a printer name to show -- the
+  // most recently created job is "the" job for MVP purposes (nothing
+  // before 10.4's own "change printer" ever creates a second one for
+  // the same order).
+  printJobs: {
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: { status: true, printer: { select: { name: true } } },
+  },
 } satisfies Prisma.OrderInclude;
 
 type ShopOrderWithRelations = Prisma.OrderGetPayload<{ include: typeof SHOP_ORDER_INCLUDE }>;
@@ -29,6 +38,10 @@ export interface ShopOrderResponse {
   paymentStatus: string;
   orderStatus: string;
   createdAt: Date;
+  // §37: null until a print_job exists (i.e. before SHOP_ACCEPT) --
+  // the printing screen has nothing to show a printer name for yet at
+  // that point anyway.
+  printerName: string | null;
 }
 
 export interface ShopOrdersGrouped {
@@ -319,6 +332,7 @@ export class ShopOrdersService {
       paymentStatus: order.paymentStatus,
       orderStatus: order.orderStatus,
       createdAt: order.createdAt,
+      printerName: order.printJobs[0]?.printer.name ?? null,
     };
   }
 }

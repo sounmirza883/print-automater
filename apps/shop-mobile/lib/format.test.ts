@@ -18,6 +18,7 @@ const BASE_ORDER: ShopOrderResponse = {
   paymentStatus: "PAID",
   orderStatus: "WAITING_FOR_SHOP",
   createdAt: "2026-01-01T00:00:00.000Z",
+  printerName: null,
 };
 
 describe("summarizeConfiguration", () => {

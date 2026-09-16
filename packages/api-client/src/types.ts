@@ -99,6 +99,7 @@ export interface ShopOrderResponse {
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
   createdAt: string;
+  printerName: string | null;
 }
 
 export interface ShopOrdersGrouped {
