@@ -46,6 +46,7 @@ model User {
   orders               Order[]
   notifications        Notification[]
   createdPairingCodes  AgentPairingCode[]
+  refundsActedOn       Refund[]             @relation("RefundActor")
 
   @@map("users")
 }
@@ -281,6 +282,7 @@ model Order {
   payments      Payment[]
   notifications Notification[]
   printJobs     PrintJob[]
+  refunds       Refund[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
@@ -419,8 +421,9 @@ model Payment {
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
 
-  order  Order          @relation(fields: [orderId], references: [id])
-  events PaymentEvent[]
+  order   Order          @relation(fields: [orderId], references: [id])
+  events  PaymentEvent[]
+  refunds Refund[]
 
   @@index([orderId])
   @@index([status])
@@ -446,6 +449,50 @@ model PaymentEvent {
 
   @@index([paymentId])
   @@map("payment_events")
+}
+
+// 11.1/§80. Denormalizes order_id alongside payment_id -- the same
+// "convenient direct FK, not just a join-away hop" reasoning
+// print_jobs already established for its own shop_id alongside
+// order_id -- so 11.1's own Done-when ("refunds are linked to both the
+// original payment and order") holds literally, and a shop-order-
+// history or customer-order-history view can query refunds by orderId
+// directly. amountMinor/currency are snapshotted at refund-creation
+// time rather than read live off Payment, the same "never trust a live
+// join for money, snapshot it" reasoning orders.pricing_snapshot
+// already established -- moot for MVP (partial refunds are explicitly
+// out of scope, so this always equals the payment's own amount today)
+// but still the more honest, auditable shape for a financial record.
+// `status` reuses PaymentStatus rather than a second, parallel enum --
+// 11.2's own refund state machine only ever needs REFUND_PENDING,
+// REFUND_FAILED and REFUNDED, all three already defined there (Payment
+// itself moves through the same three values in lockstep), so a
+// dedicated RefundStatus enum would just be a second name for the same
+// three strings with a real risk of drifting out of sync. actorId is
+// nullable for the same reason OrderStateMachine's TransitionActor.id
+// already is -- a system-driven refund (11.3's own automatic triggers)
+// has no human actor.
+model Refund {
+  id               String        @id @default(uuid())
+  paymentId        String        @map("payment_id")
+  orderId          String        @map("order_id")
+  providerRefundId String?       @unique @map("provider_refund_id")
+  amountMinor      Int           @map("amount_minor")
+  currency         String
+  status           PaymentStatus @default(REFUND_PENDING)
+  reason           String
+  actorId          String?       @map("actor_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+  actor   User?   @relation("RefundActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([status])
+  @@map("refunds")
 }
 
 // §38/§49/8.4. `capabilities` mirrors packages/types' `PrinterCapabilities`,
