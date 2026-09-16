@@ -38,13 +38,14 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  shopStaff           ShopStaff[]
-  auditLogs           AuditLog[]           @relation("AuditActor")
-  documents           Document[]
-  orders              Order[]
-  notifications       Notification[]
+  refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
+  shopStaff            ShopStaff[]
+  auditLogs            AuditLog[]           @relation("AuditActor")
+  documents            Document[]
+  orders               Order[]
+  notifications        Notification[]
+  createdPairingCodes  AgentPairingCode[]
 
   @@map("users")
 }
@@ -114,10 +115,12 @@ model Shop {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  staff        ShopStaff[]
-  pricingRules PricingRule[]
-  orders       Order[]
-  printers     Printer[]
+  staff             ShopStaff[]
+  pricingRules      PricingRule[]
+  orders            Order[]
+  printers          Printer[]
+  printerAgents     PrinterAgent[]
+  agentPairingCodes AgentPairingCode[]
 
   @@map("shops")
 }
@@ -516,4 +519,56 @@ enum PrintJobStatus {
   UNKNOWN
   TIMEOUT
   CANCELLED
+}
+
+// §41/9.1. A device's own lifecycle (ACTIVE once paired, REVOKED if
+// staff removes it) -- deliberately not the same enum as PrinterStatus
+// (ONLINE/OFFLINE/ERROR/DISABLED). That tracks a *printer's* own
+// heartbeat-derived connectivity (9.4 sets it from an active agent's
+// heartbeat); this tracks whether the *agent's own credential* is
+// still valid at all. `publicKey` is the Ed25519 public key the agent
+// generated locally and never transmits the private half of (§41's
+// own "prefer cryptographic device identity over shared passwords") --
+// never a shared secret, per this sub-phase's own Done-when.
+enum PrinterAgentStatus {
+  ACTIVE
+  REVOKED
+}
+
+model PrinterAgent {
+  id          String             @id @default(uuid())
+  deviceId    String             @unique @map("device_id")
+  shopId      String             @map("shop_id")
+  publicKey   String             @map("public_key")
+  status      PrinterAgentStatus @default(ACTIVE)
+  lastSeenAt  DateTime?          @map("last_seen_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@map("printer_agents")
+}
+
+// §41/9.2. `codeHash` (never the raw code, same "identified by its
+// hash" convention as refresh_tokens/password_reset_tokens) is
+// `@unique` so a redemption lookup is a single indexed query.
+// `consumedAt` makes it single-use: 9.2's own Done-when ("a second
+// redemption returns 410") is checked by the service, not a DB
+// constraint, since "already consumed" and "expired" both need their
+// own distinct 410 rather than a generic constraint-violation 500.
+model AgentPairingCode {
+  id         String    @id @default(uuid())
+  codeHash   String    @unique @map("code_hash")
+  shopId     String    @map("shop_id")
+  createdBy  String    @map("created_by")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  shop    Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  creator User @relation(fields: [createdBy], references: [id])
+
+  @@index([shopId])
+  @@map("agent_pairing_codes")
 }
