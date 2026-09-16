@@ -5,6 +5,7 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import {
   DocumentStatus,
   OrderStatus,
+  PaymentStatus,
   PrinterStatus,
   ShopStaffStatus,
   ShopStatus,
@@ -37,6 +38,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
   const orderIds: string[] = [];
   const printerIds: string[] = [];
+  const extraDocumentIds: string[] = [];
 
   async function seedOrder(shopId: string, orderStatus: OrderStatus): Promise<string> {
     const order = await prisma.order.create({
@@ -55,6 +57,11 @@ describe("Shop order actions API (8.3, e2e)", () => {
         },
         pricingSnapshot: { quote: { totalMinor: 2000, currency: "PKR" } },
         orderStatus,
+        // §44/9.13: any order genuinely reaching WAITING_FOR_SHOP is
+        // already PAID (6.6's own ROUTE_TO_SHOP only fires off a PAID
+        // webhook) -- acceptOrder() now checks this for real, so a
+        // seeded fixture has to be realistic about it too.
+        paymentStatus: PaymentStatus.PAID,
       },
     });
     orderIds.push(order.id);
@@ -161,7 +168,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
     await prisma.shopStaff.deleteMany({
       where: { userId: { in: [counterAtShopA.id, counterAtShopB.id] } },
     });
-    await prisma.document.deleteMany({ where: { id: documentId } });
+    await prisma.document.deleteMany({ where: { id: { in: [documentId, ...extraDocumentIds] } } });
     await prisma.user.deleteMany({
       where: { id: { in: [customer.id, counterAtShopA.id, counterAtShopB.id] } },
     });
@@ -227,6 +234,89 @@ describe("Shop order actions API (8.3, e2e)", () => {
       .set("Authorization", `Bearer ${counterBToken}`);
     expect(res.status).toBe(409);
     expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+  });
+
+  it("§44/9.13: accept refuses an order whose payment isn't confirmed, leaving it at WAITING_FOR_SHOP with no print job", async () => {
+    const order = await prisma.order.create({
+      data: {
+        publicOrderNumber: `TEST-SHOPACT-${randomUUID()}`,
+        customerId: customer.id,
+        shopId: shopA.id,
+        documentId,
+        printConfiguration: {
+          pages: { mode: "all" },
+          copies: 1,
+          paperSize: "A4",
+          color: "BW",
+          sides: "SINGLE",
+          orientation: "PORTRAIT",
+        },
+        pricingSnapshot: { quote: { totalMinor: 2000, currency: "PKR" } },
+        orderStatus: OrderStatus.WAITING_FOR_SHOP,
+        // Not realistically reachable via the real payment flow (6.6's
+        // own ROUTE_TO_SHOP only fires from a PAID webhook) -- exactly
+        // why the gate re-checks it here instead of trusting that.
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    });
+    orderIds.push(order.id);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${order.id}/accept`)
+      .set("Authorization", `Bearer ${counterAToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("PAYMENT_NOT_CONFIRMED");
+
+    const reloaded = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(reloaded.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+    expect(await prisma.printJob.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  it("§44/9.13: accept refuses an order whose document isn't READY, leaving it at WAITING_FOR_SHOP with no print job", async () => {
+    const notReadyDocument = await prisma.document.create({
+      data: {
+        ownerUserId: customer.id,
+        storageKey: `test/shop-actions/not-ready-${randomUUID()}`,
+        filename: "not-ready.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 10,
+        status: DocumentStatus.PROCESSING,
+      },
+    });
+    const order = await prisma.order.create({
+      data: {
+        publicOrderNumber: `TEST-SHOPACT-${randomUUID()}`,
+        customerId: customer.id,
+        shopId: shopA.id,
+        documentId: notReadyDocument.id,
+        printConfiguration: {
+          pages: { mode: "all" },
+          copies: 1,
+          paperSize: "A4",
+          color: "BW",
+          sides: "SINGLE",
+          orientation: "PORTRAIT",
+        },
+        pricingSnapshot: { quote: { totalMinor: 2000, currency: "PKR" } },
+        orderStatus: OrderStatus.WAITING_FOR_SHOP,
+        paymentStatus: PaymentStatus.PAID,
+      },
+    });
+    orderIds.push(order.id);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/shop/orders/${order.id}/accept`)
+      .set("Authorization", `Bearer ${counterAToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("DOCUMENT_NOT_READY");
+
+    const reloaded = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(reloaded.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+    expect(await prisma.printJob.count({ where: { orderId: order.id } })).toBe(0);
+
+    // Cleaned up in afterAll, after orders (whose FK still points at
+    // it) are gone -- deleting it here would violate that constraint.
+    extraDocumentIds.push(notReadyDocument.id);
   });
 
   it("accept returns 403 when shop B staff target a shop A order", async () => {

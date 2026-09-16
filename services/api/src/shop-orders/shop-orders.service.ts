@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, Prisma, PrinterStatus } from "@prisma/client";
+import { DocumentStatus, OrderStatus, PaymentStatus, Prisma, PrinterStatus } from "@prisma/client";
 import type { ShopRejectionReason } from "@print-automated/types";
 import {
   AppException,
@@ -151,9 +151,9 @@ export class ShopOrdersService {
     return this.toResponse(order);
   }
 
-  /** §36/8.3: one user-facing action, two internal transitions --
-   * SHOP_ACCEPT (WAITING_FOR_SHOP -> SHOP_ACCEPTED, with the print_job
-   * row created in the *same* transaction) then QUEUE_PRINT
+  /** §36/8.3/§44/9.13: one user-facing action, two internal transitions
+   * -- SHOP_ACCEPT (WAITING_FOR_SHOP -> SHOP_ACCEPTED, with the
+   * print_job row created in the *same* transaction) then QUEUE_PRINT
    * (SHOP_ACCEPTED -> QUEUED_FOR_PRINT), the same "chain them in one
    * call" shape 6.6 already established for a confirmed payment
    * routing straight on to WAITING_FOR_SHOP. A genuine double-tap finds
@@ -162,7 +162,20 @@ export class ShopOrdersService {
    * accepted," not an error, mirroring 6.4's own checkout-race
    * handling -- so "exactly one print job" falls out of the order's
    * own row lock, the same guarantee that already protects the audit
-   * row and notification, not a client-supplied idempotency key. */
+   * row and notification, not a client-supplied idempotency key.
+   *
+   * §44's own gate -- all four conditions, re-checked here rather than
+   * trusted from however the order reached this call -- is enforced
+   * inside the sideEffect, reading fresh through `tx` rather than the
+   * outer, pre-transaction `order` lookup: `order_status ==
+   * SHOP_ACCEPTED` is already guaranteed by the transition itself
+   * having just legally succeeded to reach this point, but
+   * `payment_status == PAID` and the document being `READY` are both
+   * independently mutable state (a refund, a document deletion) that
+   * could have changed in the gap between an earlier read and this
+   * transaction acquiring the order's row lock -- checking them fresh,
+   * inside the same lock, is what makes "dispatch is refused" an
+   * atomic guarantee instead of a race. */
   async acceptOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -186,8 +199,35 @@ export class ShopOrdersService {
         { id: actorId },
         {
           sideEffect: async (tx) => {
+            const freshOrder = await tx.order.findUniqueOrThrow({
+              where: { id: orderId },
+              select: { shopId: true, paymentStatus: true, documentId: true },
+            });
+
+            if (freshOrder.paymentStatus !== PaymentStatus.PAID) {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "PAYMENT_NOT_CONFIRMED",
+                "This order's payment has not been confirmed.",
+                true,
+              );
+            }
+
+            const document = await tx.document.findUniqueOrThrow({
+              where: { id: freshOrder.documentId },
+              select: { status: true },
+            });
+            if (document.status !== DocumentStatus.READY) {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "DOCUMENT_NOT_READY",
+                "This order's document is not ready to print.",
+                true,
+              );
+            }
+
             const printer = await tx.printer.findFirst({
-              where: { shopId: order.shopId, status: { not: PrinterStatus.DISABLED } },
+              where: { shopId: freshOrder.shopId, status: { not: PrinterStatus.DISABLED } },
               include: { agent: { select: { deviceId: true } } },
             });
             if (!printer) {
@@ -202,7 +242,7 @@ export class ShopOrdersService {
               data: {
                 orderId,
                 printerId: printer.id,
-                shopId: order.shopId,
+                shopId: freshOrder.shopId,
                 idempotencyToken: randomUUID(),
               },
             });

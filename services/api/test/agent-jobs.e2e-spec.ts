@@ -5,6 +5,7 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import {
   DocumentStatus,
   OrderStatus,
+  PaymentStatus,
   PrintJobStatus,
   PrinterStatus,
   ShopStaffStatus,
@@ -104,6 +105,9 @@ describe("Agent job long-poll & claim (9.7, e2e)", () => {
         },
         pricingSnapshot: { quote: { totalMinor: 1500, currency: "PKR" } },
         orderStatus,
+        // §44/9.13: acceptOrder() now checks payment_status == PAID for
+        // real -- a seeded WAITING_FOR_SHOP order needs to be realistic.
+        paymentStatus: PaymentStatus.PAID,
       },
     });
     orderIds.push(order.id);
