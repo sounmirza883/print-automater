@@ -71,6 +71,9 @@ describe("POST /webhooks/payment/:provider (6.5, e2e)", () => {
   afterAll(async () => {
     await prisma.paymentEvent.deleteMany({ where: { payment: { order: { shopId } } } });
     await prisma.payment.deleteMany({ where: { order: { shopId } } });
+    // 7.3: a successful PAID/CONFIRM_PAYMENT transition now creates
+    // notifications rows referencing the order -- delete those first.
+    await prisma.notification.deleteMany({ where: { order: { shopId } } });
     await prisma.order.deleteMany({ where: { shopId } });
     await prisma.document.delete({ where: { id: documentId } });
     await prisma.shop.delete({ where: { id: shopId } });

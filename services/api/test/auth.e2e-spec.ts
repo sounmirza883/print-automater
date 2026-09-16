@@ -116,24 +116,32 @@ describe("Auth (e2e)", () => {
   });
 
   it("recovery always returns 204 whether or not the email is registered (no enumeration), and only the registered case enqueues a real recovery email", async () => {
-    const jobCountBefore = await notificationsQueue.getJobCountByTypes("waiting", "completed");
+    const unknownEmail = `nobody-${randomUUID()}@print-automated.dev`;
 
     const known = await request(app.getHttpServer()).post("/v1/auth/recovery").send({ email });
     const unknown = await request(app.getHttpServer())
       .post("/v1/auth/recovery")
-      .send({ email: `nobody-${randomUUID()}@print-automated.dev` });
+      .send({ email: unknownEmail });
 
     expect(known.status).toBe(204);
     expect(unknown.status).toBe(204);
 
     // 7.2 replaced the Phase-1 stub (log instead of email) with a real
     // enqueue -- exactly one job for the known email, none for the
-    // unknown one. Actual delivery (via services/worker's own
-    // processor consuming this same queue) is services/worker's own
-    // e2e test's job, not this one's -- nothing here consumes the
-    // queue, so this only asserts the enqueue itself happened.
-    const jobCountAfter = await notificationsQueue.getJobCountByTypes("waiting", "completed");
-    expect(jobCountAfter).toBe(jobCountBefore + 1);
+    // unknown one. Filtered by this test's own (randomUUID-based,
+    // hence unique) recipient address rather than a raw queue-wide
+    // count: other e2e files run concurrently against this same
+    // shared Redis "notifications" queue and enqueue their own jobs,
+    // which a plain before/after delta can't tell apart from this
+    // test's. Actual delivery (via services/worker's own processor
+    // consuming this same queue) is services/worker's own e2e test's
+    // job, not this one's -- nothing here consumes the queue, so this
+    // only asserts the enqueue itself happened.
+    const jobs = await notificationsQueue.getJobs(["waiting", "completed"]);
+    const jobsForKnownEmail = jobs.filter((job) => job.data.to === email);
+    const jobsForUnknownEmail = jobs.filter((job) => job.data.to === unknownEmail);
+    expect(jobsForKnownEmail).toHaveLength(1);
+    expect(jobsForUnknownEmail).toHaveLength(0);
   });
 
   it("rejects a malformed register payload before it reaches the service layer", async () => {

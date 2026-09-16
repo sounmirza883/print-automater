@@ -1,8 +1,18 @@
-import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, type Prisma } from "@prisma/client";
+import { Injectable, HttpStatus, NotFoundException } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import type { Queue } from "bullmq";
+import {
+  NotificationChannel,
+  OrderStatus,
+  type NotificationType,
+  type Prisma,
+} from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
+import { buildNotificationContent } from "../notifications/notification-content.js";
+import { QUEUE_NAMES } from "../queues/queue-names.js";
+import type { SendEmailJob } from "../queues/send-email.job.js";
 
 /** Every event this machine accepts. Not shared with any client bundle
  * (packages/types' `OrderStatus` is the public-facing state; the
@@ -102,6 +112,26 @@ const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>>
   [OrderStatus.EXPIRED]: {},
 };
 
+/** §78/7.3: which of an order's transitions are also one of the seven
+ * customer-facing domain events. Centralized here, inside the state
+ * machine itself, rather than left for every future caller (8.x's
+ * shop-accept action, 9.x's print-dispatch worker, ...) to separately
+ * remember to notify on -- a future call site that transitions an
+ * order via `transition()` gets this for free, by construction, the
+ * same way it already gets the audit row for free. Events with no
+ * entry here (REQUEST_PAYMENT, CANCEL, ...) simply produce no
+ * notification, which is correct: not every state change is one of
+ * §78's seven. */
+const NOTIFICATION_TYPE_BY_EVENT: Partial<Record<OrderEvent, NotificationType>> = {
+  [OrderEvent.CONFIRM_PAYMENT]: "PAYMENT_CONFIRMED",
+  [OrderEvent.SHOP_ACCEPT]: "ORDER_ACCEPTED",
+  [OrderEvent.START_PRINT]: "PRINT_STARTED",
+  [OrderEvent.FAIL_PRINT]: "PRINT_FAILED",
+  [OrderEvent.FINISH_PRINT]: "PRINT_COMPLETED",
+  [OrderEvent.MARK_READY]: "READY_FOR_COLLECTION",
+  [OrderEvent.COMPLETE]: "ORDER_COMPLETED",
+};
+
 export interface TransitionActor {
   /** null for system-driven transitions (the 5.6 expiration worker,
    * webhook-driven payment confirmation) that have no human actor. */
@@ -132,7 +162,11 @@ export interface TransitionContext {
  * being upserted. */
 @Injectable()
 export class OrderStateMachine {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS)
+    private readonly notificationsQueue: Queue<SendEmailJob>,
+  ) {}
 
   async transition(
     orderId: string,
@@ -140,7 +174,13 @@ export class OrderStateMachine {
     actor: TransitionActor,
     ctx: TransitionContext = {},
   ): Promise<OrderStatus> {
-    return this.prisma.$transaction(
+    // Captured from inside the transaction below (§78/7.3's email leg
+    // can only be enqueued once the transaction genuinely commits --
+    // Redis has no part in that transaction, so enqueueing from inside
+    // it risks a job for a transition that then rolls back).
+    let pendingEmail: SendEmailJob | undefined;
+
+    const next = await this.prisma.$transaction(
       async (tx) => {
         const rows = await tx.$queryRaw<Array<{ order_status: OrderStatus }>>`
           SELECT order_status FROM orders WHERE id = ${orderId} FOR UPDATE
@@ -150,8 +190,8 @@ export class OrderStateMachine {
           throw new NotFoundException("Order not found.");
         }
 
-        const next = TRANSITIONS[current][event];
-        if (next === undefined) {
+        const nextStatus = TRANSITIONS[current][event];
+        if (nextStatus === undefined) {
           throw new AppException(
             HttpStatus.CONFLICT,
             "ILLEGAL_ORDER_TRANSITION",
@@ -160,7 +200,10 @@ export class OrderStateMachine {
           );
         }
 
-        await tx.order.update({ where: { id: orderId }, data: { orderStatus: next } });
+        const updatedOrder = await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: nextStatus },
+        });
 
         await tx.auditLog.create({
           data: {
@@ -170,17 +213,61 @@ export class OrderStateMachine {
             resourceId: orderId,
             metadata: redactMetadata({
               from: current,
-              to: next,
+              to: nextStatus,
               ...ctx.metadata,
             }) as Prisma.InputJsonValue,
           },
         });
 
-        if (ctx.sideEffect) {
-          await ctx.sideEffect(tx, next);
+        // §78/7.3: this transition's own row lock and legality check
+        // are what make "exactly one notification per event, no
+        // duplicates on transition replay" (7.3's own Done-when) true
+        // for free -- this only ever runs once per genuine state
+        // change, the same guarantee that already protects the audit
+        // row above.
+        const notificationType = NOTIFICATION_TYPE_BY_EVENT[event];
+        if (notificationType) {
+          const recipient = await tx.user.findUniqueOrThrow({
+            where: { id: updatedOrder.customerId },
+            select: { email: true },
+          });
+          const content = buildNotificationContent(
+            notificationType,
+            updatedOrder.publicOrderNumber,
+          );
+
+          await tx.notification.create({
+            data: {
+              userId: updatedOrder.customerId,
+              orderId,
+              type: notificationType,
+              channel: NotificationChannel.APP,
+              payload: content as unknown as Prisma.InputJsonValue,
+              sentAt: new Date(),
+            },
+          });
+          const emailNotification = await tx.notification.create({
+            data: {
+              userId: updatedOrder.customerId,
+              orderId,
+              type: notificationType,
+              channel: NotificationChannel.EMAIL,
+              payload: content as unknown as Prisma.InputJsonValue,
+            },
+          });
+          pendingEmail = {
+            to: recipient.email,
+            subject: content.subject,
+            text: content.text,
+            notificationId: emailNotification.id,
+          };
         }
 
-        return next;
+        if (ctx.sideEffect) {
+          await ctx.sideEffect(tx, nextStatus);
+        }
+
+        return nextStatus;
       },
       // Prisma's own interactive-transaction defaults (maxWait: 2000ms
       // to acquire a connection, timeout: 5000ms for the whole
@@ -195,5 +282,16 @@ export class OrderStateMachine {
       // of "hung").
       { maxWait: 10_000, timeout: 10_000 },
     );
+
+    // Outside the transaction, only after it committed -- a job
+    // enqueued from inside it could survive a rollback (Redis isn't
+    // part of that transaction), and this order's status has now
+    // genuinely changed regardless of whether this enqueue itself
+    // ever succeeds.
+    if (pendingEmail) {
+      await this.notificationsQueue.add("send-email", pendingEmail);
+    }
+
+    return next;
   }
 }

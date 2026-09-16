@@ -36,7 +36,13 @@ export class SendEmailProcessor extends WorkerHost {
     await this.emailTransport.send({ to, subject, text });
 
     if (notificationId) {
-      await this.prisma.notification.update({
+      // updateMany, not update -- silently a no-op if the row is
+      // already gone (deleted by a since-superseded test cleanup, or a
+      // future retention sweep) rather than throwing, which would
+      // otherwise burn through SEND_EMAIL_JOB_OPTIONS' retries for a
+      // condition retrying can never fix. The email was still sent
+      // either way; this is only the row's own delivery-status stamp.
+      await this.prisma.notification.updateMany({
         where: { id: notificationId },
         data: { sentAt: new Date() },
       });

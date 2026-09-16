@@ -108,6 +108,11 @@ describe("OrderStateMachine (5.4, e2e)", () => {
   });
 
   afterAll(async () => {
+    // 7.3: some of the matrix's legal transitions (CONFIRM_PAYMENT,
+    // SHOP_ACCEPT, ...) now create notifications rows referencing
+    // these orders -- delete those first, or the FK blocks the order
+    // delete below.
+    await prisma.notification.deleteMany({ where: { orderId: { in: createdOrderIds } } });
     await prisma.order.deleteMany({ where: { id: { in: createdOrderIds } } });
     await prisma.document.delete({ where: { id: documentId } });
   });
