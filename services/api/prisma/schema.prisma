@@ -352,7 +352,11 @@ model Payment {
   id                String        @id @default(uuid())
   orderId           String        @map("order_id")
   provider          String
-  providerPaymentId String?       @map("provider_payment_id")
+  // 6.5: @unique -- the webhook endpoint looks a payment up by exactly
+  // this id to know which order an incoming event belongs to; Postgres
+  // allows multiple NULLs under a unique constraint, so this doesn't
+  // conflict with rows that never reached a real provider checkout.
+  providerPaymentId String?       @unique @map("provider_payment_id")
   // 6.4: not in §57's bare table sketch, but needed for real behavior
   // -- a second `POST /payments/checkout` call for the same order
   // reuses this stored URL instead of asking the provider to mint a

@@ -5,9 +5,12 @@ import { API_ENV, apiEnv } from "../config/config.module.js";
 import { OrdersModule } from "../orders/orders.module.js";
 import { MockCheckoutController } from "./mock-checkout.controller.js";
 import { MockPaymentProvider } from "./mock-payment-provider.js";
+import { OrderLockService } from "./order-lock.service.js";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "./payment-provider.interface.js";
 import { PaymentsController } from "./payments.controller.js";
 import { PaymentsService } from "./payments.service.js";
+import { WebhooksController } from "./webhooks.controller.js";
+import { WebhooksService } from "./webhooks.service.js";
 
 // Adding a second real provider later is: implement the class, add one
 // entry to this array, done -- nothing that depends on PAYMENT_PROVIDER
@@ -16,9 +19,11 @@ const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutC
 
 @Module({
   imports: [AuthModule, OrdersModule],
-  controllers: [PaymentsController, ...PROVIDER_CONTROLLERS],
+  controllers: [PaymentsController, WebhooksController, ...PROVIDER_CONTROLLERS],
   providers: [
     PaymentsService,
+    WebhooksService,
+    OrderLockService,
     MockPaymentProvider,
     {
       provide: PAYMENT_PROVIDER,
