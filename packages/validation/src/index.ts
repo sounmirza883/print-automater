@@ -22,3 +22,13 @@ export {
   rejectOrderSchema,
   type RejectOrderInput,
 } from "./shop-orders/index.js";
+export {
+  printerCapabilitiesSchema,
+  type PrinterCapabilitiesInput,
+  registerPrinterSchema,
+  type RegisterPrinterInput,
+  updatePrinterSchema,
+  type UpdatePrinterInput,
+  listPrintersQuerySchema,
+  type ListPrintersQueryInput,
+} from "./printers/index.js";
