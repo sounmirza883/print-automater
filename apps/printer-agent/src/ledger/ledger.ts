@@ -104,6 +104,26 @@ export class JobLedger {
     return rows.map(toLedgerRow);
   }
 
+  /** 11.6: deletes only rows that are genuinely done and definitive
+   * (PRINTED or FAILED) with `result_at` older than `retentionMs` --
+   * deliberately excludes both NULL (still in-flight, or will become
+   * UNKNOWN on the next startup sweep) and UNKNOWN itself. An UNKNOWN
+   * row means "we told the backend the outcome was unresolved," and
+   * this process has no way to learn afterward whether a human at the
+   * shop ever actually resolved it (§47/10.3's own resolution flow
+   * lives entirely server-side) -- so an UNKNOWN row is the one piece
+   * of local evidence this agent can offer if that print is ever
+   * disputed later, and it is never pruned by age alone. Returns the
+   * number of rows removed. */
+  pruneOldResolved(retentionMs: number): number {
+    const cutoff = new Date(Date.now() - retentionMs).toISOString();
+    const stmt = this.db.prepare(
+      "DELETE FROM job_ledger WHERE result IN ('PRINTED', 'FAILED') AND result_at < ?",
+    );
+    const result = stmt.run(cutoff);
+    return Number(result.changes);
+  }
+
   close(): void {
     this.db.close();
   }

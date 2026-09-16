@@ -11,6 +11,7 @@ import {
 } from "./config/identity-store.js";
 import { JobLedger } from "./ledger/ledger.js";
 import { markUnresolvedAsUnknown } from "./ledger/startup-sweep.js";
+import { sweepTempFiles } from "./documents/temp-sweep.js";
 import { BackendClient, BackendError } from "./backend/backend-client.js";
 import { ReconnectBackoff } from "./backend/reconnect-backoff.js";
 import { createTray } from "./tray/tray.js";
@@ -41,6 +42,16 @@ const JOB_POLL_WAIT_SECONDS = 20;
 const JOB_LOOP_ERROR_BACKOFF_MS = 5_000;
 const JOB_LOOP_BACKOFF_CEILING_MS = 60_000;
 const NOT_PAIRED_POLL_MS = 1_000;
+// 11.6: the periodic (not startup) sweep's own cadence -- a background
+// health-check, not latency-sensitive, matching 11.4/11.5's own
+// "hourly is plenty responsive for something with no real-time
+// user-facing deadline" reasoning.
+const PERIODIC_SWEEP_INTERVAL_MS = 60 * 60_000;
+// 11.6: how old an in-TMP_DIR file must be before the *periodic* sweep
+// (not startup, which sweeps unconditionally) treats it as orphaned --
+// a real print job's own temp file lifetime is seconds to a few
+// minutes, so this is a generous floor with no real false-positive risk.
+const TEMP_FILE_ORPHAN_AGE_MS = 60 * 60_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,6 +90,16 @@ async function main(): Promise<void> {
   // learning the outcome) is marked UNKNOWN here, on this process's
   // very first tick -- never silently resubmitted.
   markUnresolvedAsUnknown(ledger, logger);
+  // 11.6's own Done-when: "orphans from a force-killed run are gone
+  // after the next start." minAgeMs omitted (0) -- startup mode, see
+  // temp-sweep.ts's own comment for why every file already on disk
+  // here is safe to remove unconditionally.
+  void sweepTempFiles(logger);
+  ledger.pruneOldResolved(env.LEDGER_RETENTION_DAYS * 24 * 60 * 60_000);
+  setInterval(() => {
+    void sweepTempFiles(logger, TEMP_FILE_ORPHAN_AGE_MS);
+    ledger.pruneOldResolved(env.LEDGER_RETENTION_DAYS * 24 * 60 * 60_000);
+  }, PERIODIC_SWEEP_INTERVAL_MS).unref();
 
   const backendClient = new BackendClient(env.API_BASE_URL, logger);
   const driver = new SumatraPrinterDriver(env.SUMATRA_PATH, logger);
