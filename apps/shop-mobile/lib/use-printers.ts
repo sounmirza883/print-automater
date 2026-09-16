@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApiClient, PrinterResponse } from "@print-automated/api-client";
 import { SHOP_ORDERS_POLL_INTERVAL_MS } from "./use-shop-orders.js";
+import { useIsOffline } from "./use-is-offline.js";
 
 export type PrintersState =
   | { phase: "loading" }
@@ -22,9 +23,13 @@ export function usePrinters(
 ): PrintersState & { refresh: () => void } {
   const [state, setState] = useState<PrintersState>({ phase: "loading" });
   const [refreshCount, setRefreshCount] = useState(0);
+  // §89/§90/10.7: same "tear down while offline, refetch immediately on
+  // reconnect" pattern as use-shop-orders.ts's own dependency-array
+  // trick -- see that file's comment for the full reasoning.
+  const isOffline = useIsOffline();
 
   useEffect(() => {
-    if (shopId === null) {
+    if (shopId === null || isOffline) {
       return;
     }
     const activeShopId = shopId;
@@ -52,7 +57,7 @@ export function usePrinters(
       cancelled = true;
       clearInterval(interval);
     };
-  }, [apiClient, shopId, refreshCount]);
+  }, [apiClient, shopId, refreshCount, isOffline]);
 
   return { ...state, refresh: () => setRefreshCount((count) => count + 1) };
 }

@@ -12,6 +12,7 @@ import {
 import { JobLedger } from "./ledger/ledger.js";
 import { markUnresolvedAsUnknown } from "./ledger/startup-sweep.js";
 import { BackendClient, BackendError } from "./backend/backend-client.js";
+import { ReconnectBackoff } from "./backend/reconnect-backoff.js";
 import { createTray } from "./tray/tray.js";
 import { LoopbackServer, type AgentStatus } from "./server/loopback-server.js";
 import {
@@ -24,16 +25,21 @@ import { processNextJob } from "./printers/job-processor.js";
 
 const LOOPBACK_PORT = 7171;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+// §90/10.7: on a heartbeat failure, back off past the healthy 30s
+// cadence rather than just waiting for the next fixed tick -- up to
+// this ceiling for a persistent outage.
+const HEARTBEAT_BACKOFF_CEILING_MS = 5 * 60_000;
 // Server-side agent JWT TTL is 15m (agent-token.service.ts) -- cache
 // for less than that so a call made right at the cache boundary never
 // presents a token the server would already consider expired.
 const ACCESS_TOKEN_CACHE_MS = 14 * 60_000;
 const JOB_POLL_WAIT_SECONDS = 20;
-// Deliberately simple: a fixed pause after any job-loop error, not the
-// exponential-backoff-with-ceiling reconnection policy 10.7 owns --
-// this just keeps a persistent failure (backend down, bad credentials)
-// from spinning the loop at full speed instead of actually backing off.
+// §90/10.7: same exponential-backoff-with-ceiling shape as the
+// heartbeat loop above -- starts at the same 5s pause this constant
+// always used, but now grows on a persistent failure instead of
+// repeating forever at a fixed interval.
 const JOB_LOOP_ERROR_BACKOFF_MS = 5_000;
+const JOB_LOOP_BACKOFF_CEILING_MS = 60_000;
 const NOT_PAIRED_POLL_MS = 1_000;
 
 function sleep(ms: number): Promise<void> {
@@ -86,6 +92,31 @@ async function main(): Promise<void> {
   let shuttingDown = false;
 
   const tray = createTray(logger);
+
+  // §90/10.7: one tracker per independently-failing loop -- the
+  // heartbeat and job-poll loops hit the backend on their own separate
+  // schedules and can fail independently (e.g. a job-poll timeout while
+  // heartbeats keep succeeding), so each needs its own consecutive-
+  // failure count rather than sharing one.
+  const heartbeatBackoff = new ReconnectBackoff({
+    initialIntervalMs: HEARTBEAT_INTERVAL_MS,
+    maxIntervalMs: HEARTBEAT_BACKOFF_CEILING_MS,
+  });
+  const jobLoopBackoff = new ReconnectBackoff({
+    initialIntervalMs: JOB_LOOP_ERROR_BACKOFF_MS,
+    maxIntervalMs: JOB_LOOP_BACKOFF_CEILING_MS,
+  });
+
+  // §90/10.7's own "reconciles state before resuming": re-running the
+  // same startup sweep (9.5/9.10) an outage's first successful call
+  // triggers it. It's a cheap, idempotent local SQLite scan (a second,
+  // redundant call from the other loop recovering in the same tick
+  // just finds nothing left to sweep), so no extra guard is needed
+  // against both loops reconnecting on the same tick.
+  function onReconnect(source: "heartbeat" | "job-loop"): void {
+    const swept = markUnresolvedAsUnknown(ledger, logger);
+    logger.info({ source, sweptCount: swept }, "reconnected to backend -- ledger reconciled");
+  }
 
   function currentStatus(): AgentStatus {
     return {
@@ -141,9 +172,13 @@ async function main(): Promise<void> {
     }
   }
 
-  async function sendHeartbeat(): Promise<void> {
+  // Returns whether the attempt succeeded -- unpaired is treated as
+  // success (nothing to report yet, not a failure to back off from),
+  // matching the "just wait quietly" shape the job loop already uses
+  // for the same unpaired case.
+  async function sendHeartbeat(): Promise<boolean> {
     if (identity === null) {
-      return;
+      return true;
     }
     try {
       const token = await getAccessToken();
@@ -153,10 +188,29 @@ async function main(): Promise<void> {
       lastHeartbeatAt = new Date().toISOString();
       lastError = null;
       tray?.setStatus(`paired (shop ${identity.shopId})`);
+      return true;
     } catch (err) {
       lastError = err instanceof BackendError ? err.message : "Heartbeat failed.";
       logger.warn({ err }, "heartbeat failed");
       tray?.setStatus("heartbeat failed");
+      return false;
+    }
+  }
+
+  /** §90/10.7: replaces a plain `setInterval` so a failure can wait
+   * longer than the next fixed tick (exponential backoff, capped) while
+   * a healthy run always waits the normal HEARTBEAT_INTERVAL_MS. */
+  async function heartbeatLoop(): Promise<void> {
+    while (!shuttingDown) {
+      const ok = await sendHeartbeat();
+      if (ok) {
+        if (heartbeatBackoff.recordSuccess()) {
+          onReconnect("heartbeat");
+        }
+        await sleep(HEARTBEAT_INTERVAL_MS);
+      } else {
+        await sleep(heartbeatBackoff.recordFailure());
+      }
     }
   }
 
@@ -182,6 +236,12 @@ async function main(): Promise<void> {
           logger,
           waitSeconds: JOB_POLL_WAIT_SECONDS,
         });
+        // Reaching here at all -- whether a job was found or the poll
+        // simply came back empty -- means the round-trip to the backend
+        // worked, which is exactly the signal a reconnect happened.
+        if (jobLoopBackoff.recordSuccess()) {
+          onReconnect("job-loop");
+        }
         if (result.outcome === "printed") {
           logger.info(
             { jobId: result.jobId, osJobId: result.osJobId },
@@ -190,7 +250,7 @@ async function main(): Promise<void> {
         }
       } catch (err) {
         logger.error({ err }, "job processing loop error");
-        await sleep(JOB_LOOP_ERROR_BACKOFF_MS);
+        await sleep(jobLoopBackoff.recordFailure());
       }
     }
   }
@@ -234,12 +294,16 @@ async function main(): Promise<void> {
       "loaded existing identity from disk",
     );
     tray?.setStatus(`paired (shop ${identity.shopId})`);
-    void sendHeartbeat();
   } else {
     tray?.setStatus("not paired");
   }
 
-  setInterval(() => void sendHeartbeat(), HEARTBEAT_INTERVAL_MS).unref();
+  // heartbeatLoop() itself sends one immediately as its first
+  // iteration (no separate startup-only call needed anymore, unlike
+  // the old setInterval, which only fired its first tick after a full
+  // HEARTBEAT_INTERVAL_MS) -- a standalone call here would just race
+  // that same first iteration and double up the very first heartbeat.
+  void heartbeatLoop();
   void runJobLoop();
 
   const loopbackServer = new LoopbackServer({

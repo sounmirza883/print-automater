@@ -27,6 +27,7 @@ const DEFAULT_CAPABILITIES: PrinterCapabilities = {
 };
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { usePrinters } from "@/lib/use-printers";
+import { useIsOffline } from "@/lib/use-is-offline";
 
 const STATUS_LABEL: Record<string, string> = {
   ONLINE: "Online",
@@ -51,6 +52,11 @@ export default function PrintersScreen(): ReactNode {
   const [registering, setRegistering] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // §90/10.7: registering a printer while offline would just fail into
+  // formError on tap -- blocking it outright is the honest state,
+  // matching [id].tsx's own actionBlocked treatment.
+  const isOffline = useIsOffline();
+  const registerBlocked = registering || newName.trim().length === 0 || isOffline;
 
   if (shopId === null) {
     return (
@@ -94,12 +100,9 @@ export default function PrintersScreen(): ReactNode {
         />
         <Pressable
           accessibilityRole="button"
-          disabled={registering || newName.trim().length === 0}
+          disabled={registerBlocked}
           onPress={() => void handleRegister()}
-          style={[
-            styles.registerButton,
-            (registering || newName.trim().length === 0) && styles.buttonDisabled,
-          ]}
+          style={[styles.registerButton, registerBlocked && styles.buttonDisabled]}
         >
           {registering ? (
             <ActivityIndicator color="#fff" />
@@ -158,6 +161,8 @@ function PrinterRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [capsBusyKey, setCapsBusyKey] = useState<keyof PrinterCapabilities | null>(null);
+  const isOffline = useIsOffline();
+  const blocked = busy || isOffline;
 
   async function run(action: () => Promise<unknown>): Promise<void> {
     setError(null);
@@ -216,11 +221,11 @@ function PrinterRow({
             <TextInput value={name} onChangeText={setName} style={styles.input} editable={!busy} />
             <Pressable
               accessibilityRole="button"
-              disabled={busy || name.trim().length === 0}
+              disabled={blocked || name.trim().length === 0}
               onPress={() =>
                 void run(() => apiClient.printers.update(printer.id, { name: name.trim() }))
               }
-              style={[styles.smallButton, busy && styles.buttonDisabled]}
+              style={[styles.smallButton, blocked && styles.buttonDisabled]}
             >
               <Text style={styles.smallButtonText}>Save name</Text>
             </Pressable>
@@ -235,7 +240,7 @@ function PrinterRow({
                 <Switch
                   value={(printer.capabilities ?? DEFAULT_CAPABILITIES)[key]}
                   onValueChange={(value) => void toggleCapability(key, value)}
-                  disabled={capsBusyKey !== null}
+                  disabled={capsBusyKey !== null || isOffline}
                 />
               </View>
             ))}
@@ -243,7 +248,7 @@ function PrinterRow({
           <View style={styles.actionRow}>
             <Pressable
               accessibilityRole="button"
-              disabled={busy}
+              disabled={blocked}
               onPress={() =>
                 void run(() =>
                   apiClient.printers.update(printer.id, {
@@ -251,7 +256,7 @@ function PrinterRow({
                   }),
                 )
               }
-              style={[styles.smallButton, busy && styles.buttonDisabled]}
+              style={[styles.smallButton, blocked && styles.buttonDisabled]}
             >
               <Text style={styles.smallButtonText}>
                 {printer.status === "DISABLED" ? "Enable" : "Disable"}
@@ -259,9 +264,9 @@ function PrinterRow({
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              disabled={busy}
+              disabled={blocked}
               onPress={() => void run(() => apiClient.printers.remove(printer.id))}
-              style={[styles.removeButton, busy && styles.buttonDisabled]}
+              style={[styles.removeButton, blocked && styles.buttonDisabled]}
             >
               {busy ? <ActivityIndicator /> : <Text style={styles.removeButtonText}>Remove</Text>}
             </Pressable>

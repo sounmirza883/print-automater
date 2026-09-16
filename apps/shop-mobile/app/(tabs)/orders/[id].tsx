@@ -6,6 +6,7 @@ import type { ShopOrderResponse, ShopRejectionReason } from "@print-automated/ap
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
 import { usePrinters } from "@/lib/use-printers";
+import { useIsOffline } from "@/lib/use-is-offline";
 
 type LoadState =
   | { phase: "loading" }
@@ -54,8 +55,22 @@ export default function OrderDetailScreen(): ReactNode {
   const [showRejectPicker, setShowRejectPicker] = useState(false);
   const [showPrinterPicker, setShowPrinterPicker] = useState(false);
   const printers = usePrinters(apiClient, shopId);
+  // §89/§90/10.7: see use-shop-orders.ts's own comment for the general
+  // pattern -- both effects below skip entirely while offline (no
+  // wasted requests, last-known state preserved untouched) and re-run
+  // the instant connectivity returns, which fires an immediate refetch
+  // rather than waiting for the next tick.
+  const isOffline = useIsOffline();
+  // §90's "blocks duplicate operations": actionInFlight alone only
+  // covers the in-flight race (can't double-tap while a request is
+  // already out); a device known offline needs every mutating action
+  // disabled too, not just left to fail into actionError on tap.
+  const actionBlocked = actionInFlight || isOffline;
 
   useEffect(() => {
+    if (isOffline) {
+      return;
+    }
     let cancelled = false;
 
     async function load(): Promise<void> {
@@ -78,12 +93,12 @@ export default function OrderDetailScreen(): ReactNode {
     return () => {
       cancelled = true;
     };
-  }, [apiClient, id]);
+  }, [apiClient, id, isOffline]);
 
   const orderStatus = state.phase === "ready" ? state.order.orderStatus : null;
 
   useEffect(() => {
-    if (orderStatus === null || !IN_FLIGHT_STATUSES.has(orderStatus)) {
+    if (isOffline || orderStatus === null || !IN_FLIGHT_STATUSES.has(orderStatus)) {
       return;
     }
     const intervalId = setInterval(() => {
@@ -96,7 +111,7 @@ export default function OrderDetailScreen(): ReactNode {
         });
     }, PRINTING_POLL_MS);
     return () => clearInterval(intervalId);
-  }, [apiClient, id, orderStatus]);
+  }, [apiClient, id, orderStatus, isOffline]);
 
   async function runAction(action: () => Promise<ShopOrderResponse>): Promise<void> {
     setActionError(null);
@@ -155,11 +170,11 @@ export default function OrderDetailScreen(): ReactNode {
             <Pressable
               key={printer.id}
               accessibilityRole="button"
-              disabled={actionInFlight}
+              disabled={actionBlocked}
               onPress={() =>
                 void runAction(() => apiClient.shopOrders.changePrinter(order.id, printer.id))
               }
-              style={[styles.secondaryButton, actionInFlight && styles.buttonDisabled]}
+              style={[styles.secondaryButton, actionBlocked && styles.buttonDisabled]}
             >
               <Text style={styles.secondaryButtonText}>{printer.name}</Text>
             </Pressable>
@@ -236,9 +251,9 @@ export default function OrderDetailScreen(): ReactNode {
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
-            disabled={!paid || actionInFlight}
+            disabled={!paid || actionBlocked}
             onPress={() => void runAction(() => apiClient.shopOrders.accept(order.id))}
-            style={[styles.primaryButton, (!paid || actionInFlight) && styles.buttonDisabled]}
+            style={[styles.primaryButton, (!paid || actionBlocked) && styles.buttonDisabled]}
           >
             {actionInFlight ? (
               <ActivityIndicator color="#fff" />
@@ -248,7 +263,7 @@ export default function OrderDetailScreen(): ReactNode {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() => setShowRejectPicker(true)}
             style={styles.secondaryButton}
           >
@@ -264,7 +279,7 @@ export default function OrderDetailScreen(): ReactNode {
             <Pressable
               key={reason.value}
               accessibilityRole="button"
-              disabled={actionInFlight}
+              disabled={actionBlocked}
               onPress={() =>
                 void runAction(() => apiClient.shopOrders.reject(order.id, reason.value))
               }
@@ -290,9 +305,9 @@ export default function OrderDetailScreen(): ReactNode {
           </Text>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() => void runAction(() => apiClient.shopOrders.retryPrint(order.id))}
-            style={[styles.primaryButton, actionInFlight && styles.buttonDisabled]}
+            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
           >
             {actionInFlight ? (
               <ActivityIndicator color="#fff" />
@@ -303,7 +318,7 @@ export default function OrderDetailScreen(): ReactNode {
           {!showPrinterPicker && (
             <Pressable
               accessibilityRole="button"
-              disabled={actionInFlight}
+              disabled={actionBlocked}
               onPress={() => setShowPrinterPicker(true)}
               style={styles.secondaryButton}
             >
@@ -324,13 +339,13 @@ export default function OrderDetailScreen(): ReactNode {
           </Text>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() =>
               void runAction(() =>
                 apiClient.shopOrders.resolveUnknown(order.id, "CONFIRMED_PRINTED"),
               )
             }
-            style={[styles.primaryButton, actionInFlight && styles.buttonDisabled]}
+            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
           >
             {actionInFlight ? (
               <ActivityIndicator color="#fff" />
@@ -340,7 +355,7 @@ export default function OrderDetailScreen(): ReactNode {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() =>
               void runAction(() => apiClient.shopOrders.resolveUnknown(order.id, "RETRY"))
             }
@@ -350,7 +365,7 @@ export default function OrderDetailScreen(): ReactNode {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() =>
               void runAction(() => apiClient.shopOrders.resolveUnknown(order.id, "MARK_FAILED"))
             }
@@ -365,9 +380,9 @@ export default function OrderDetailScreen(): ReactNode {
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() => void runAction(() => apiClient.shopOrders.markReady(order.id))}
-            style={[styles.primaryButton, actionInFlight && styles.buttonDisabled]}
+            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
           >
             {actionInFlight ? (
               <ActivityIndicator color="#fff" />
@@ -382,9 +397,9 @@ export default function OrderDetailScreen(): ReactNode {
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
-            disabled={actionInFlight}
+            disabled={actionBlocked}
             onPress={() => void runAction(() => apiClient.shopOrders.complete(order.id))}
-            style={[styles.primaryButton, actionInFlight && styles.buttonDisabled]}
+            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
           >
             {actionInFlight ? (
               <ActivityIndicator color="#fff" />
