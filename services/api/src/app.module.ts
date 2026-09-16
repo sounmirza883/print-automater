@@ -16,6 +16,7 @@ import { DocumentsModule } from "./documents/documents.module.js";
 import { ShopsModule } from "./shops/shops.module.js";
 import { OrdersModule } from "./orders/orders.module.js";
 import { PaymentsModule } from "./payments/payments.module.js";
+import { ShopOrdersModule } from "./shop-orders/shop-orders.module.js";
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { PaymentsModule } from "./payments/payments.module.js";
     ShopsModule,
     OrdersModule,
     PaymentsModule,
+    ShopOrdersModule,
   ],
 })
 export class AppModule {}

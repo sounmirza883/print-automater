@@ -7,11 +7,27 @@ import { AuthController } from "./auth.controller.js";
 import { JwtAuthGuard } from "./jwt-auth.guard.js";
 import { RolesGuard } from "./roles.guard.js";
 import { ShopScopeGuard } from "./shop-scope.guard.js";
+import { ShopMembershipService } from "./shop-membership.service.js";
 
 @Module({
   imports: [NotificationModule],
   controllers: [AuthController],
-  providers: [PasswordService, TokenService, AuthService, JwtAuthGuard, RolesGuard, ShopScopeGuard],
-  exports: [PasswordService, TokenService, JwtAuthGuard, RolesGuard, ShopScopeGuard],
+  providers: [
+    PasswordService,
+    TokenService,
+    AuthService,
+    JwtAuthGuard,
+    RolesGuard,
+    ShopScopeGuard,
+    ShopMembershipService,
+  ],
+  exports: [
+    PasswordService,
+    TokenService,
+    JwtAuthGuard,
+    RolesGuard,
+    ShopScopeGuard,
+    ShopMembershipService,
+  ],
 })
 export class AuthModule {}

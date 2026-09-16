@@ -6,11 +6,10 @@ import {
   type Type,
 } from "@nestjs/common";
 import { ModuleRef, Reflector } from "@nestjs/core";
-import { ShopStaffStatus } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
 import { SHOP_SCOPE_PARAM_KEY, SHOP_SCOPE_RESOLVER_KEY } from "./shop-scoped.decorator.js";
 import type { ShopResourceResolver } from "./shop-scope.interfaces.js";
 import type { RequestWithUser } from "./jwt-auth.guard.js";
+import { ShopMembershipService } from "./shop-membership.service.js";
 
 /** §81/§82: resolves the target resource's shop_id (via the per-route
  * resolver) and denies access unless the authenticated actor is active
@@ -20,7 +19,7 @@ export class ShopScopeGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly moduleRef: ModuleRef,
-    private readonly prisma: PrismaService,
+    private readonly shopMembership: ShopMembershipService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -54,14 +53,8 @@ export class ShopScopeGuard implements CanActivate {
       throw new ForbiddenException("Resource not found.");
     }
 
-    const membership = await this.prisma.shopStaff.findFirst({
-      where: {
-        shopId: resourceShopId,
-        userId: request.user.id,
-        status: ShopStaffStatus.ACTIVE,
-      },
-    });
-    if (!membership) {
+    const isMember = await this.shopMembership.isActiveStaff(resourceShopId, request.user.id);
+    if (!isMember) {
       throw new ForbiddenException("You do not have access to this shop's resource.");
     }
 
