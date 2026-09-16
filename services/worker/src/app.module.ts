@@ -17,6 +17,7 @@ import { DocumentProcessingModule } from "./document-processing/document-process
 import { OrderExpirationModule } from "./order-expiration/order-expiration.module.js";
 import { NotificationsModule } from "./notifications/notifications.module.js";
 import { PrinterOfflineSweepModule } from "./printer-offline-sweep/printer-offline-sweep.module.js";
+import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { PrinterOfflineSweepModule } from "./printer-offline-sweep/printer-offli
     OrderExpirationModule,
     NotificationsModule,
     PrinterOfflineSweepModule,
+    PrintTimeoutModule,
   ],
 })
 export class AppModule {}

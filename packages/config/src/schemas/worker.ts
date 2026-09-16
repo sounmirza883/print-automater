@@ -23,6 +23,13 @@ export const workerEnvSchema = baseEnvSchema
     // an exact figure, and it's easy to retune later since nothing else
     // depends on this specific value.
     ORDER_PAYMENT_PENDING_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+    // §109: how long an order may sit in QUEUED_FOR_PRINT with no agent
+    // response (never claimed, or claimed but never reported back)
+    // before 10.5's sweep gives up on it. Much shorter than the payment
+    // TTL above -- an agent that's actually online claims within
+    // seconds, not minutes -- but still a placeholder default, not a
+    // researched business number.
+    PRINT_JOB_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(10),
   })
   .superRefine(checkStorageEnv);
 

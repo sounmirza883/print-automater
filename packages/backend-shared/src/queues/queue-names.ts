@@ -15,4 +15,8 @@ export const QUEUE_NAMES = {
   // flips its printers to Offline within the threshold": nothing
   // proactively notices a missing heartbeat except this tick.
   PRINTER_OFFLINE_SWEEP: "printer-offline-sweep",
+  // §109/10.5's own repeatable sweep -- the other half of "never stuck
+  // in QUEUED forever": nothing proactively notices a job an agent
+  // never claimed (or claimed and then went silent on) except this tick.
+  PRINT_TIMEOUT: "print-timeout",
 } as const;
