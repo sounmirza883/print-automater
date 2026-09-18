@@ -34,10 +34,35 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+    # packages/config's loadEnvOrExit runs at module scope in both
+    # services/api (config.module.ts) and apps/customer-web (src/env.ts)
+    # -- imported transitively by almost every test/build target, so a
+    # missing required var here isn't a test failure, it's an immediate
+    # process.exit(1) that kills the job outright. Locally this was
+    # always masked by a real .env file on disk since Phase 0.5; CI has
+    # no .env, so every one of apiEnvSchema/webEnvSchema's required keys
+    # (no `.default()`) must be set explicitly. Values below are
+    # syntactically-valid throwaway placeholders (matching each
+    # .env.example's own style) -- schema validation only checks shape,
+    # nothing here needs to be a real secret or reach a real service.
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://print_automated:print_automated_test@localhost:5432/print_automated_test
       REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-test-access-secret-needs-32-plus-chars
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-needs-32-plus-ch
+      JWT_AGENT_SECRET: ci-test-agent-secret-needs-32-plus-chars
+      CORS_ALLOWED_ORIGINS: http://localhost:3001
+      MOCK_PAYMENT_WEBHOOK_SECRET: ci-test-webhook-secret-needs-32-plus-ch
+      S3_ENDPOINT: http://localhost:9010
+      S3_REGION: us-east-1
+      S3_BUCKET: print-automated-documents-ci
+      S3_ACCESS_KEY_ID: ci-test-access-key
+      S3_SECRET_ACCESS_KEY: ci-test-secret-key
+      KMS_PROVIDER: local
+      KMS_LOCAL_MASTER_KEY: ci-test-kms-master-key-needs-32-plus-ch
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+      API_BASE_URL: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v4
