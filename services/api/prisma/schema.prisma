@@ -38,15 +38,15 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens        RefreshToken[]
-  passwordResetTokens  PasswordResetToken[]
-  shopStaff            ShopStaff[]
-  auditLogs            AuditLog[]           @relation("AuditActor")
-  documents            Document[]
-  orders               Order[]
-  notifications        Notification[]
-  createdPairingCodes  AgentPairingCode[]
-  refundsActedOn       Refund[]             @relation("RefundActor")
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  shopStaff           ShopStaff[]
+  auditLogs           AuditLog[]           @relation("AuditActor")
+  documents           Document[]
+  orders              Order[]
+  notifications       Notification[]
+  createdPairingCodes AgentPairingCode[]
+  refundsActedOn      Refund[]             @relation("RefundActor")
 
   @@map("users")
 }
@@ -104,17 +104,25 @@ enum ShopStatus {
 // than guessing, so an unconfigured shop is never wrongly offered for a
 // configuration it might not support.
 model Shop {
-  id           String     @id @default(uuid())
-  name         String
-  address      String
-  latitude     Float?
-  longitude    Float?
-  phone        String?
-  status       ShopStatus @default(CLOSED)
-  openingHours Json?      @map("opening_hours")
-  capabilities Json?
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  id                  String     @id @default(uuid())
+  name                String
+  address             String
+  latitude            Float?
+  longitude           Float?
+  phone               String?
+  status              ShopStatus @default(CLOSED)
+  openingHours        Json?      @map("opening_hours")
+  capabilities        Json?
+  // 15.4: both default false, so no existing shop's behaviour changes
+  // the moment this column exists. qualityCheckEnabled is §68/21.3's
+  // per-business QC toggle; multiItemEnabled gates Phase 18's order-
+  // item explosion (§64) -- while false, a shop's orders keep taking
+  // exactly the one synthetic OrderItem this migration backfills, even
+  // after Phase 17/18 ship the machinery to create more than one.
+  qualityCheckEnabled Boolean    @default(false) @map("quality_check_enabled")
+  multiItemEnabled    Boolean    @default(false) @map("multi_item_enabled")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
 
   staff             ShopStaff[]
   pricingRules      PricingRule[]
@@ -240,8 +248,9 @@ model Document {
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
-  owner  User    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  orders Order[]
+  owner      User        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  orders     Order[]
+  orderItems OrderItem[]
 
   @@index([ownerUserId])
   @@index([status])
@@ -277,6 +286,13 @@ model Order {
   pricingSnapshot    Json          @map("pricing_snapshot")
   paymentStatus      PaymentStatus @default(PENDING) @map("payment_status")
   orderStatus        OrderStatus   @default(DRAFT) @map("order_status")
+  // 15.4/§68. Plain string, not an enum -- the small, stable set of
+  // states (NOT_REQUIRED/PENDING/PASSED/FAILED, roughly) is Phase 21.3's
+  // decision to make once the real QC workflow lands; a string column
+  // lets this migration exist now without guessing that shape today.
+  // Defaults to "NOT_REQUIRED" so every pre-existing and newly-created
+  // order is unaffected until a shop turns on qualityCheckEnabled.
+  qualityCheckStatus String?       @default("NOT_REQUIRED") @map("quality_check_status")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
   completedAt        DateTime?     @map("completed_at")
@@ -288,6 +304,7 @@ model Order {
   notifications Notification[]
   printJobs     PrintJob[]
   refunds       Refund[]
+  items         OrderItem[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
@@ -544,18 +561,18 @@ enum PrinterStatus {
 }
 
 model Printer {
-  id           String        @id @default(uuid())
-  shopId       String        @map("shop_id")
+  id                  String        @id @default(uuid())
+  shopId              String        @map("shop_id")
   // §41/9.4. Nullable -- a printer registered by staff (8.4) before
   // any agent is ever installed has no agent yet. Set the first time
   // a heartbeat reports a printer this shop's agent knows about
   // (matched by name, then created if no existing row matches);
   // that's also what makes "this agent's printers" a well-defined set
   // for the missed-heartbeat sweep to mark OFFLINE.
-  agentId      String?       @map("agent_id")
-  name         String
-  capabilities Json?
-  status       PrinterStatus @default(OFFLINE)
+  agentId             String?       @map("agent_id")
+  name                String
+  capabilities        Json?
+  status              PrinterStatus @default(OFFLINE)
   // 15.3/§16's printer profile fields, all nullable/defaulted so every
   // printer row created before this migration is unaffected.
   // `model`/`location`/`connectionType` are plain free-text (the make/
@@ -564,12 +581,12 @@ model Printer {
   // enumerations worth a Postgres enum type for, and staff should be
   // able to describe them without a schema migration every time a new
   // connection type shows up).
-  model              String?
+  model               String?
   // Staff-set (never agent-reported -- 15.6 is explicit that the
   // agent must never overwrite this with null on a heartbeat that
   // simply doesn't carry a location).
-  location           String?
-  connectionType     String?  @map("connection_type")
+  location            String?
+  connectionType      String?       @map("connection_type")
   // §16/§64: what this printer can physically handle, as native
   // Postgres text arrays -- not JSON, to match `PaperSize`/`PaperType`
   // being plain string enums (packages/types) rather than an object
@@ -583,9 +600,9 @@ model Printer {
   // callers must treat an empty array as "unknown", not "supports
   // nothing", the same non-guessing rule 15.2 established for
   // `capabilities === null` on the auto-dispatch path.
-  supportedSizes      String[] @default([]) @map("supported_sizes")
-  supportedPaperTypes String[] @default([]) @map("supported_paper_types")
-  maxJobPages         Int?     @map("max_job_pages")
+  supportedSizes      String[]      @default([]) @map("supported_sizes")
+  supportedPaperTypes String[]      @default([]) @map("supported_paper_types")
+  maxJobPages         Int?          @map("max_job_pages")
   // Plain text, not a second enum alongside PrinterStatus. PrinterStatus
   // (specifically its new MAINTENANCE value) is the machine-readable
   // state allocation/dispatch decisions key off; `maintenanceStatus` is
@@ -594,10 +611,10 @@ model Printer {
   // this codebase branches on. Making it a second closed enum would
   // either duplicate PrinterStatus's own values or invite the two
   // getting out of sync; free text avoids both.
-  maintenanceStatus String?   @map("maintenance_status")
-  lastStatusAt      DateTime? @map("last_status_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  maintenanceStatus   String?       @map("maintenance_status")
+  lastStatusAt        DateTime?     @map("last_status_at")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
 
   shop      Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
   agent     PrinterAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
@@ -620,24 +637,82 @@ model Printer {
 // explicitly calls for them, even though nothing writes them until
 // Phase 9.
 model PrintJob {
-  id               String        @id @default(uuid())
-  orderId          String        @map("order_id")
-  printerId        String        @map("printer_id")
-  shopId           String        @map("shop_id")
+  id               String         @id @default(uuid())
+  orderId          String         @map("order_id")
+  printerId        String         @map("printer_id")
+  shopId           String         @map("shop_id")
   status           PrintJobStatus @default(QUEUED)
-  idempotencyToken String        @unique @map("idempotency_token")
-  claimedAt        DateTime?     @map("claimed_at")
-  osJobId          String?       @map("os_job_id")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
+  idempotencyToken String         @unique @map("idempotency_token")
+  claimedAt        DateTime?      @map("claimed_at")
+  osJobId          String?        @map("os_job_id")
+  // 15.4: the groundwork Phase 18's job-lifecycle split depends on.
+  // orderItemId is nullable FOR NOW (deliberately -- tightening it to
+  // NOT NULL is a later follow-up once every writer sets it; this
+  // migration only adds the column and backfills it for existing
+  // rows). blockedReason/pausedAt/supersededAt/attempt/priority are
+  // all unused by any code path yet -- Phase 18 (blockedReason,
+  // pausedAt, attempt/priority for the allocation engine) and this
+  // same migration's own backfill (supersededAt, reproducing today's
+  // SHOP_ORDER_INCLUDE `take: 1` as real data) are what write them.
+  orderItemId      String?        @map("order_item_id")
+  blockedReason    String?        @map("blocked_reason")
+  supersededAt     DateTime?      @map("superseded_at")
+  pausedAt         DateTime?      @map("paused_at")
+  attempt          Int            @default(1)
+  priority         Int            @default(0)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  order   Order   @relation(fields: [orderId], references: [id])
-  printer Printer @relation(fields: [printerId], references: [id])
+  order     Order      @relation(fields: [orderId], references: [id])
+  printer   Printer    @relation(fields: [printerId], references: [id])
+  orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
 
   @@index([shopId])
   @@index([orderId])
   @@index([printerId])
+  @@index([orderItemId])
   @@map("print_jobs")
+}
+
+// 15.4/§64. An order can require several, differently-configured
+// production steps -- the PRD's own example is one order containing
+// 100 A4 BW pages, 50 A4 color pages, and 10 laminated pages, each
+// needing a different production path. OrderItem is the "what"; a
+// PrintJob (Phase 18) is "how a specific printer/agent executed one
+// item." printConfiguration/pricingSnapshot mirror Order's own fields
+// exactly (same shape, same reasoning) but are per-item once an order
+// has more than one. Every order has at least one item: this
+// migration backfills exactly one synthetic PRINT item per
+// pre-existing order from that order's own document_id +
+// print_configuration; real multi-item orders start once Phase 17/18
+// ship the machinery to create more than one, gated by
+// shops.multiItemEnabled.
+enum OrderItemType {
+  PRINT
+  LAMINATE
+  BIND
+}
+
+model OrderItem {
+  id                 String        @id @default(uuid())
+  orderId            String        @map("order_id")
+  documentId         String        @map("document_id")
+  printConfiguration Json          @map("print_configuration")
+  quantity           Int
+  itemType           OrderItemType @map("item_type")
+  required           Boolean       @default(true)
+  pricingSnapshot    Json?         @map("pricing_snapshot")
+  sequence           Int
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  document  Document   @relation(fields: [documentId], references: [id])
+  printJobs PrintJob[]
+
+  @@index([orderId])
+  @@index([documentId])
+  @@map("order_items")
 }
 
 enum PrintJobStatus {
@@ -666,13 +741,13 @@ enum PrinterAgentStatus {
 }
 
 model PrinterAgent {
-  id          String             @id @default(uuid())
-  deviceId    String             @unique @map("device_id")
-  shopId      String             @map("shop_id")
-  publicKey   String             @map("public_key")
-  status      PrinterAgentStatus @default(ACTIVE)
-  lastSeenAt  DateTime?          @map("last_seen_at")
-  createdAt   DateTime           @default(now()) @map("created_at")
+  id         String             @id @default(uuid())
+  deviceId   String             @unique @map("device_id")
+  shopId     String             @map("shop_id")
+  publicKey  String             @map("public_key")
+  status     PrinterAgentStatus @default(ACTIVE)
+  lastSeenAt DateTime?          @map("last_seen_at")
+  createdAt  DateTime           @default(now()) @map("created_at")
 
   shop     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   printers Printer[]
