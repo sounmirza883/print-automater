@@ -24,6 +24,29 @@ set -euo pipefail
 
 REGISTRY_NAMESPACE="${REGISTRY_NAMESPACE:-ghcr.io/sounmirza883/print-automater}"
 
+# Code review finding (Phase 14 review): COMPOSE_DIR/REGISTRY_NAMESPACE/
+# ROLLBACK_TAG are interpolated into an UNQUOTED heredoc below (deliberately,
+# so ${COMPOSE_DIR} etc. expand locally before the script is sent to the
+# remote host) and then re-embedded inside double-quoted assignments in that
+# remote script. A value containing a `"`, `$(...)`, or a backtick would be
+# evaluated as a shell command on the remote host with the SSH user's
+# privileges. These three values only ever come from a human-set env var or
+# CI secret, not attacker input in the normal flow -- but validating them
+# against a safe character class costs nothing and turns "arbitrary remote
+# code execution from a copy-paste mistake" into "a clear local error".
+validate_safe_token() {
+  local name="$1" value="$2" pattern="$3"
+  if ! [[ "$value" =~ $pattern ]]; then
+    echo "Refusing to continue: \$${name} (\"${value}\") contains characters" >&2
+    echo "outside the expected safe set (${pattern}) -- refusing to" >&2
+    echo "interpolate it into the remote rollback command." >&2
+    exit 1
+  fi
+}
+validate_safe_token "ROLLBACK_TAG" "$ROLLBACK_TAG" '^[A-Za-z0-9._-]+$'
+validate_safe_token "REGISTRY_NAMESPACE" "$REGISTRY_NAMESPACE" '^[A-Za-z0-9./_-]+$'
+validate_safe_token "COMPOSE_DIR" "$COMPOSE_DIR" '^[A-Za-z0-9/._-]+$'
+
 echo "Rolling back api/worker/customer-web to ${REGISTRY_NAMESPACE}/*:${ROLLBACK_TAG} on ${SSH_HOST}..."
 
 # shellcheck disable=SC2087

@@ -96,6 +96,19 @@ jobs:
         env:
           IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
           IMAGE_TAG: ${{ github.sha }}
+          # Code review finding (Phase 14 review): these three were
+          # previously interpolated directly into the `script:` YAML block
+          # below via ${{ }} instead of going through ssh-action's own
+          # `envs:` mechanism the way IMAGE_NAMESPACE/IMAGE_TAG already do.
+          # GitHub does mask known secret values in logs and both values
+          # here are maintainer-controlled (this job requires
+          # `environment: staging` approval plus a literal "deploy" confirm
+          # input), so exploitability was low -- but a STAGING_COMPOSE_DIR
+          # containing a shell metacharacter would have broken the `cd`
+          # line, and consistency with the safe pattern costs nothing.
+          DEPLOY_ACTOR: ${{ github.actor }}
+          DEPLOY_GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_COMPOSE_DIR: ${{ secrets.STAGING_COMPOSE_DIR }}
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
           username: ${{ secrets.STAGING_SSH_USER }}
@@ -106,14 +119,14 @@ jobs:
           # STAGING_COMPOSE_DIR, checked out or synced there ahead of
           # time; this step only ever pulls new images and reapplies
           # the compose file, it never provisions the host itself.
-          envs: IMAGE_NAMESPACE,IMAGE_TAG
+          envs: IMAGE_NAMESPACE,IMAGE_TAG,DEPLOY_ACTOR,DEPLOY_GHCR_TOKEN,DEPLOY_COMPOSE_DIR
           script: |
             set -euo pipefail
-            cd "${{ secrets.STAGING_COMPOSE_DIR }}"
+            cd "$DEPLOY_COMPOSE_DIR"
             export API_IMAGE="$IMAGE_NAMESPACE/api:$IMAGE_TAG"
             export WORKER_IMAGE="$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
             export CUSTOMER_WEB_IMAGE="$IMAGE_NAMESPACE/customer-web:$IMAGE_TAG"
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            echo "$DEPLOY_GHCR_TOKEN" | docker login ghcr.io -u "$DEPLOY_ACTOR" --password-stdin
             docker compose --env-file infrastructure/docker/.env.prod \
               -f infrastructure/docker/docker-compose.prod.yml pull api worker customer-web
             docker compose --env-file infrastructure/docker/.env.prod \

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { baseEnvSchema } from "./base.js";
+import { baseEnvSchema, zBooleanString } from "./base.js";
 import { storageEnvSchema, checkStorageEnv } from "./storage.js";
 
 export const workerEnvSchema = baseEnvSchema
@@ -7,7 +7,7 @@ export const workerEnvSchema = baseEnvSchema
   .extend({
     DATABASE_URL: z.string().url(),
     REDIS_URL: z.string().url(),
-    CLAMAV_ENABLED: z.coerce.boolean().default(true),
+    CLAMAV_ENABLED: zBooleanString(true),
     CLAMAV_HOST: z.string().default("localhost"),
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
     SMTP_HOST: z.string().default("localhost"),
@@ -20,7 +20,7 @@ export const workerEnvSchema = baseEnvSchema
     SMTP_PASSWORD: z.string().optional(),
     // TLS-on-connect (SMTPS, typically port 465) vs. plain/STARTTLS
     // (typically 587 or 25, nodemailer's own `secure: false` default).
-    SMTP_SECURE: z.coerce.boolean().default(false),
+    SMTP_SECURE: zBooleanString(false),
     // §78/7.2, extended 14.5: which EmailTransport is bound to
     // EMAIL_TRANSPORT -- "mailhog" (dev, real SMTP to the local
     // container), "smtp" (prod default: any standards-compliant SMTP
