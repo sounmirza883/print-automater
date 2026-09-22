@@ -1,0 +1,280 @@
+# Production stack for a single Docker host (14.3/§14 of
+# docs/architecture/2026-09-22-prd-v2-alignment.md). This file is the
+# entire replacement for what infrastructure/terraform/ used to
+# provision on AWS -- ECS Fargate (api/worker/web), RDS (Postgres),
+# ElastiCache (Redis), S3 (documents) and SES (email) -- deleted in
+# 14.2 per the locked "Docker only, no Terraform, no AWS" decision
+# (CONTEXT.md). Every one of those managed services has a direct,
+# self-contained counterpart below: postgres/redis/minio containers
+# with named volumes standing in for RDS/ElastiCache/S3, and
+# KMS_PROVIDER=local (packages/backend-shared/src/kms/local-kms.provider.ts,
+# already exists -- built for dev, now serving prod too) standing in
+# for AWS KMS. There is no managed-service SLA behind any of this
+# anymore, which is exactly risk #4 in the plan's own risk list --
+# infrastructure/docker/README.md documents the backup/restore
+# procedure that risk explicitly calls for.
+#
+# apps/shop-web (Phase 23) is not added yet -- that app does not exist
+# in this repo until Phase 23 builds it. When it does, it slots in here
+# as a fourth built-and-deployed service alongside api/worker/
+# customer-web, the same shape as customer-web below.
+#
+# This file intentionally has no top-level `version:` key, matching
+# docker-compose.dev.yml and docker-compose.apps.yml -- the modern
+# Compose Specification, which both `docker compose config` and the
+# `deploy.resources.limits` block below already honor outside of Swarm.
+#
+# Usage: see infrastructure/docker/README.md. Every ${VAR} below is a
+# real secret/host value with no safe default baked in (unlike
+# docker-compose.apps.yml's dev-only stand-ins) -- populate an
+# infrastructure/docker/.env.prod file (see .env.prod.example) and run
+# with `docker compose --env-file infrastructure/docker/.env.prod -f
+# infrastructure/docker/docker-compose.prod.yml up -d`.
+
+name: print-automated-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-print_automated}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-print_automated}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-print_automated} -d ${POSTGRES_DB:-print_automated}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2g
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ's queue state (job payloads, delayed/repeatable schedulers)
+    # lives only in Redis -- appendonly persistence plus the named
+    # volume below is what makes a container restart not silently drop
+    # in-flight jobs, the same durability RDS/ElastiCache gave for free.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+
+  minio:
+    image: quay.io/minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.prod}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.prod}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.prod}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.prod}
+      S3_BUCKET: ${S3_BUCKET:-print-automated-documents}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+      (mc mb -p \"local/$$S3_BUCKET\" || true) &&
+      mc anonymous set none \"local/$$S3_BUCKET\" &&
+      exit 0
+      "
+
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --version"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2g
+
+  # TODO: point SMTP_HOST at a real relay in production (e.g. a
+  # transactional-email provider's SMTP endpoint) and delete this
+  # service. MailHog is a dev-only mail *catcher* -- it never actually
+  # delivers anything to a real inbox -- kept here only as a documented
+  # placeholder so the stack is runnable end to end (14.5 adds a real
+  # SmtpEmailTransport that any standards-compliant SMTP relay can sit
+  # behind; only the host/port/credentials below need to change, not
+  # the code). Which provider is a business decision this plan
+  # deliberately does not make -- see infrastructure/docker/README.md.
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8025"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    image: ${API_IMAGE:-print-automated-api:latest}
+    restart: unless-stopped
+    ports:
+      - "${API_HOST_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 3000
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS in .env.prod}
+      PLATFORM_FEE_MINOR: ${PLATFORM_FEE_MINOR:-2000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-print_automated}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-print_automated}?connection_limit=20&pool_timeout=30
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET in .env.prod}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET in .env.prod}
+      JWT_AGENT_SECRET: ${JWT_AGENT_SECRET:?Set JWT_AGENT_SECRET in .env.prod}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-print-automated-documents}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_FORCE_PATH_STYLE: "true"
+      # Self-hosted MinIO has no AWS KMS to hand off to -- the local
+      # envelope-encryption provider (packages/backend-shared/src/kms/)
+      # is not a dev-only fallback here, it is the production choice.
+      KMS_PROVIDER: local
+      KMS_LOCAL_MASTER_KEY: ${KMS_LOCAL_MASTER_KEY:?Set KMS_LOCAL_MASTER_KEY in .env.prod}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      MOCK_PAYMENT_WEBHOOK_SECRET: ${MOCK_PAYMENT_WEBHOOK_SECRET:?Set MOCK_PAYMENT_WEBHOOK_SECRET in .env.prod}
+      API_PUBLIC_BASE_URL: ${API_PUBLIC_BASE_URL:?Set API_PUBLIC_BASE_URL in .env.prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    image: ${WORKER_IMAGE:-print-automated-worker:latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-print_automated}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-print_automated}?connection_limit=20&pool_timeout=30
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-print-automated-documents}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_FORCE_PATH_STYLE: "true"
+      KMS_PROVIDER: local
+      KMS_LOCAL_MASTER_KEY: ${KMS_LOCAL_MASTER_KEY:?Set KMS_LOCAL_MASTER_KEY in .env.prod}
+      CLAMAV_ENABLED: "true"
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      # 14.5: EMAIL_TRANSPORT=smtp uses the new generic SmtpEmailTransport
+      # (nodemailer) against whatever SMTP_HOST is -- the placeholder
+      # `mailhog` service above by default; point it at a real relay by
+      # overriding SMTP_HOST/PORT/USER/PASS in .env.prod, no code change.
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@print-automated.example}
+      ORDER_PAYMENT_PENDING_TTL_MINUTES: ${ORDER_PAYMENT_PENDING_TTL_MINUTES:-30}
+      PRINT_JOB_TIMEOUT_MINUTES: ${PRINT_JOB_TIMEOUT_MINUTES:-10}
+      DOCUMENT_RETENTION_DAYS: ${DOCUMENT_RETENTION_DAYS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+
+  customer-web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
+    image: ${CUSTOMER_WEB_IMAGE:-print-automated-customer-web:latest}
+    restart: unless-stopped
+    ports:
+      - "${CUSTOMER_WEB_HOST_PORT:-3001}:3001"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+
+  # TODO (Phase 23): apps/shop-web does not exist yet. Once built, add
+  # a `shop-web` service here mirroring `customer-web` above (own
+  # web.Dockerfile-style build, own NEXT_PUBLIC_API_BASE_URL build arg,
+  # own host port), matching CONTEXT.md's locked decision that
+  # apps/shop-web is a new Next.js app, not a route inside customer-web.
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  clamav_data:

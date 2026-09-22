@@ -15,6 +15,9 @@ apps/printer-agent/installer/output/
 .env
 .env.local
 .env.*.local
+# 14.3: real prod secrets for infrastructure/docker/docker-compose.prod.yml --
+# infrastructure/docker/.env.prod.example is the committed template.
+infrastructure/docker/.env.prod
 .DS_Store
 coverage/
 .pnpm-store/
