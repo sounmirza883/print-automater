@@ -1,9 +1,12 @@
 name: Deploy staging
 
-# §12.8: deploy pipeline to staging. Manual dispatch, not on every push
-# to main -- staging is a real, billed AWS environment (12.7's own
-# Terraform), and this project has no separate release-branch
-# convention to gate an automatic trigger on.
+# 14.4: rewritten from Terraform/ECS to Docker Compose over SSH, per
+# the locked "Docker only, no Terraform, no AWS" decision (CONTEXT.md,
+# docs/architecture/2026-09-22-prd-v2-alignment.md 14.2-14.4). Manual
+# dispatch only, unchanged from before -- staging is a real environment
+# (now a single Docker host reached over SSH instead of AWS), and this
+# project still has no separate release-branch convention to gate an
+# automatic trigger on.
 on:
   workflow_dispatch:
     inputs:
@@ -12,139 +15,134 @@ on:
         required: true
 
 env:
-  AWS_REGION: us-east-1
-  PROJECT_NAME: print-automated
-  ENVIRONMENT: staging
+  # ghcr.io is the natural default here: this is a GitHub repo, so
+  # pushing to GitHub Container Registry needs no extra account/secret
+  # beyond the workflow's own GITHUB_TOKEN -- unlike ECR, which needed
+  # its own IAM role (the deleted aws-actions/configure-aws-credentials
+  # step) purely to hold images ECS pulled from.
+  IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
 
 jobs:
   deploy:
     if: github.event.inputs.confirm == 'deploy'
     runs-on: ubuntu-latest
     environment: staging
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
-
-      - name: Build, tag and push api/worker/web images
+      - name: Build and push api/worker/customer-web images
         env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
           # GitHub Actions `${{ }}` expressions are compiled before this
           # script runs at all -- they have no visibility into the `for
-          # service in ...` loop's own shell variable below, so web's
-          # one extra build arg (12.6's own NEXT_PUBLIC_API_BASE_URL
-          # requirement) has to be a plain shell conditional inside the
+          # service in ...` loop's own shell variable below, so
+          # customer-web's one extra build arg (its Dockerfile inlines
+          # NEXT_PUBLIC_API_BASE_URL at build time, per web.Dockerfile's
+          # own comment) has to be a plain shell conditional inside the
           # loop, not a workflow-level expression.
           NEXT_PUBLIC_API_BASE_URL: https://api.${{ secrets.STAGING_DOMAIN }}
         run: |
-          for service in api worker web; do
+          set -euo pipefail
+          declare -A DOCKERFILES=(
+            [api]=infrastructure/docker/api.Dockerfile
+            [worker]=infrastructure/docker/worker.Dockerfile
+            [customer-web]=infrastructure/docker/web.Dockerfile
+          )
+          for service in api worker customer-web; do
             BUILD_ARGS=()
-            if [ "$service" = "web" ]; then
+            if [ "$service" = "customer-web" ]; then
               BUILD_ARGS=(--build-arg "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL")
             fi
             docker build \
-              -f "infrastructure/docker/${service}.Dockerfile" \
+              -f "${DOCKERFILES[$service]}" \
               "${BUILD_ARGS[@]}" \
-              -t "$ECR_REGISTRY/$PROJECT_NAME-$ENVIRONMENT-${service}:$IMAGE_TAG" \
+              -t "$IMAGE_NAMESPACE/$service:$IMAGE_TAG" \
+              -t "$IMAGE_NAMESPACE/$service:latest" \
               .
-            docker push "$ECR_REGISTRY/$PROJECT_NAME-$ENVIRONMENT-${service}:$IMAGE_TAG"
+            docker push "$IMAGE_NAMESPACE/$service:$IMAGE_TAG"
+            docker push "$IMAGE_NAMESPACE/$service:latest"
           done
 
-      # §101's own risk table: ClamAV is a third-party image, not built
-      # from this repo -- mirrored into this account's own ECR (ecr.tf's
-      # own reasoning) rather than built here.
-      - name: Mirror the upstream ClamAV image
+      # ClamAV is no longer mirrored into a private registry (ecr.tf's
+      # own reasoning, deleted in 14.2) -- docker-compose.prod.yml pulls
+      # clamav/clamav:stable directly from quay.io on the staging host
+      # itself, the same way it already pulls postgres/redis/minio;
+      # nothing in this Compose-over-SSH deploy shape requires every
+      # image to originate from one private registry the way ECS did.
+
+      # §12.8's own "migration strategy" still holds here: run
+      # migrations with the *new* api image, before api/worker roll onto
+      # it -- Prisma's migrate deploy is designed to be safe to run
+      # ahead of the code that depends on the resulting schema
+      # (additive migrations, this project's migration history never
+      # having dropped a column a still-running old container reads).
+      # docker-compose.prod.yml's own api/worker service definitions
+      # supply every other env var already (14.3); only the three image
+      # tags need to be pinned to this deploy's own commit SHA, which is
+      # what API_IMAGE/WORKER_IMAGE/CUSTOMER_WEB_IMAGE below do.
+      - name: Deploy over SSH with Docker Compose
+        uses: appleboy/ssh-action@v1
         env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
           IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker pull clamav/clamav:stable
-          docker tag clamav/clamav:stable "$ECR_REGISTRY/$PROJECT_NAME-$ENVIRONMENT-clamav:$IMAGE_TAG"
-          docker push "$ECR_REGISTRY/$PROJECT_NAME-$ENVIRONMENT-clamav:$IMAGE_TAG"
-
-      - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          # The remote host holds its own persistent
+          # infrastructure/docker/.env.prod (real secrets -- never
+          # written by this pipeline, matching 14.3's README) at
+          # STAGING_COMPOSE_DIR, checked out or synced there ahead of
+          # time; this step only ever pulls new images and reapplies
+          # the compose file, it never provisions the host itself.
+          envs: IMAGE_NAMESPACE,IMAGE_TAG
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGING_COMPOSE_DIR }}"
+            export API_IMAGE="$IMAGE_NAMESPACE/api:$IMAGE_TAG"
+            export WORKER_IMAGE="$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
+            export CUSTOMER_WEB_IMAGE="$IMAGE_NAMESPACE/customer-web:$IMAGE_TAG"
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            docker compose --env-file infrastructure/docker/.env.prod \
+              -f infrastructure/docker/docker-compose.prod.yml pull api worker customer-web
+            docker compose --env-file infrastructure/docker/.env.prod \
+              -f infrastructure/docker/docker-compose.prod.yml \
+              run --rm api pnpm --filter @print-automated/api exec prisma migrate deploy
+            docker compose --env-file infrastructure/docker/.env.prod \
+              -f infrastructure/docker/docker-compose.prod.yml up -d api worker customer-web
 
-      - name: terraform apply
-        working-directory: infrastructure/terraform
-        env:
-          TF_VAR_domain_name: ${{ secrets.STAGING_DOMAIN }}
-          TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_alarm_sns_topic_arn: ${{ secrets.ALARM_SNS_TOPIC_ARN }}
-        run: |
-          terraform init
-          terraform apply -auto-approve
-
-      # §12.8's own "migration strategy": run migrations as a one-off
-      # ECS task using the *new* api image, BEFORE the api/worker
-      # services roll onto it -- Prisma's own migrate deploy is
-      # designed to be safe to run repeatedly and ahead of the code
-      # that depends on the resulting schema (additive migrations,
-      # this project's own migration history never having dropped a
-      # column a still-running old task reads). `terraform apply` above
-      # already updated the task definitions' image tag but ECS only
-      # rolls a *service* onto a new revision when told to -- the
-      # explicit `ecs update-service` calls below are that rollout,
-      # deliberately sequenced after this task succeeds.
-      - name: Run database migrations
-        run: |
-          CLUSTER="${PROJECT_NAME}-${ENVIRONMENT}"
-          TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definition "${PROJECT_NAME}-${ENVIRONMENT}-api" \
-            --query 'taskDefinition.taskDefinitionArn' --output text)
-          SUBNETS=$(terraform -chdir=infrastructure/terraform output -json private_subnet_ids | jq -r 'join(",")')
-          SG=$(terraform -chdir=infrastructure/terraform output -raw ecs_api_security_group_id)
-          TASK_ARN=$(aws ecs run-task \
-            --cluster "$CLUSTER" \
-            --task-definition "$TASK_DEF" \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
-            --overrides '{"containerOverrides":[{"name":"api","command":["pnpm","--filter","@print-automated/api","exec","prisma","migrate","deploy"]}]}' \
-            --query 'tasks[0].taskArn' --output text)
-          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN"
-          EXIT_CODE=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" \
-            --query 'tasks[0].containers[0].exitCode' --output text)
-          if [ "$EXIT_CODE" != "0" ]; then
-            echo "Migration task failed with exit code $EXIT_CODE -- aborting before any service is updated."
-            exit 1
-          fi
-
-      - name: Roll api/worker/web services onto the new images
-        run: |
-          CLUSTER="${PROJECT_NAME}-${ENVIRONMENT}"
-          for service in api worker web; do
-            aws ecs update-service \
-              --cluster "$CLUSTER" \
-              --service "${PROJECT_NAME}-${ENVIRONMENT}-${service}" \
-              --force-new-deployment
-          done
-          for service in api worker web; do
-            aws ecs wait services-stable --cluster "$CLUSTER" --services "${PROJECT_NAME}-${ENVIRONMENT}-${service}"
-          done
-
-      - name: Post-deploy smoke test
+      # §12.8's own "post-deploy smoke test", unchanged from before --
+      # infrastructure/scripts/smoke-test.mjs was already deployment-
+      # shape-agnostic (plain HTTP calls against STAGING_API_URL/
+      # STAGING_WEB_URL, no AWS SDK, no ECS/Terraform assumption), so
+      # this step needed no rewrite, only re-verification (see the
+      # commit message). This is the gate: a non-zero exit here fails
+      # the whole job.
+      - name: Post-deploy smoke test -- gates on /v1/health/ready
         env:
           STAGING_API_URL: https://api.${{ secrets.STAGING_DOMAIN }}
           STAGING_WEB_URL: https://${{ secrets.STAGING_DOMAIN }}
         run: node infrastructure/scripts/smoke-test.mjs
 
-      # §12.8's own "rollback procedure." Only reachable manually (this
-      # job doesn't call it on smoke-test failure automatically) --
-      # forcing an unattended rollback risks compounding a bad deploy
-      # with a bad rollback while nobody's watching; a human confirming
-      # first, using the same script this pipeline itself would run, is
-      # the safer default for a staging environment's first iteration.
+      # Only reachable manually (this job doesn't call it on smoke-test
+      # failure automatically) -- forcing an unattended rollback risks
+      # compounding a bad deploy with a bad rollback while nobody's
+      # watching; a human confirming first, using the same script this
+      # pipeline itself would run, is the safer default.
       - name: On smoke test failure, rollback is available
         if: failure()
         run: |
           echo "Smoke test failed. Roll back with:"
-          echo "  AWS_REGION=$AWS_REGION PROJECT_NAME=$PROJECT_NAME ENVIRONMENT=$ENVIRONMENT ./infrastructure/scripts/rollback.sh"
+          echo "  SSH_HOST=<staging host> SSH_USER=<ssh user> COMPOSE_DIR=<remote path> \\"
+          echo "  ROLLBACK_TAG=<previous known-good commit SHA> ./infrastructure/scripts/rollback.sh"
