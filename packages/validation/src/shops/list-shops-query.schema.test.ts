@@ -18,7 +18,9 @@ describe("listShopsQuerySchema", () => {
   });
 
   it("rejects a paper size outside the known enum", () => {
-    const result = listShopsQuerySchema.safeParse({ paper: "A3" });
+    // 15.1 expanded PaperSize to include A3 -- use a value that's
+    // still outside the enum after that expansion.
+    const result = listShopsQuerySchema.safeParse({ paper: "TABLOID" });
     expect(result.success).toBe(false);
   });
 

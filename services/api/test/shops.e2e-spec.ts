@@ -131,7 +131,9 @@ describe("Shop discovery (4.3, e2e)", () => {
   });
 
   it("rejects an unknown paper size before ever querying the database", async () => {
-    const res = await request(app.getHttpServer()).get("/v1/shops").query({ paper: "A3" });
+    // 15.1 expanded PaperSize to include A3 -- use a value that's
+    // still outside the enum after that expansion.
+    const res = await request(app.getHttpServer()).get("/v1/shops").query({ paper: "TABLOID" });
     expect(res.status).toBe(400);
   });
 });

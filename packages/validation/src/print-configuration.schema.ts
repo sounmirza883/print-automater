@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { ColorMode, Orientation, PaperSize, Sides } from "@print-automated/types";
+import {
+  ColorMode,
+  Finishing,
+  Orientation,
+  PaperSize,
+  PaperType,
+  Sides,
+} from "@print-automated/types";
 
 /** A print job never needs more than this many copies in one order --
  * a sanity bound (4.6's "copies (bounded)"), not a business rule
@@ -30,9 +37,14 @@ export const printConfigurationSchema = z.object({
   pages: pageSelectionSchema,
   copies: z.number().int().positive().max(MAX_COPIES),
   paperSize: z.nativeEnum(PaperSize),
+  // 15.1/§64: both optional -- an absent value means today's implicit
+  // "standard paper, no finishing" behaviour, so every config
+  // persisted before this sub-phase still validates unchanged.
+  paperType: z.nativeEnum(PaperType).optional(),
   color: z.nativeEnum(ColorMode),
   sides: z.nativeEnum(Sides),
   orientation: z.nativeEnum(Orientation),
+  finishing: z.array(z.nativeEnum(Finishing)).optional(),
 });
 
 export type PrintConfigurationInput = z.infer<typeof printConfigurationSchema>;

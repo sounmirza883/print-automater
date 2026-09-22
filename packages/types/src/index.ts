@@ -6,6 +6,8 @@ export {
   ShopStatus,
   PrinterStatus,
   PaperSize,
+  PaperType,
+  Finishing,
   ColorMode,
   Sides,
   Orientation,

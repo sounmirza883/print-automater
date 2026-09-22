@@ -5,6 +5,8 @@ export { UserRole } from "./user-role.js";
 export { ShopStatus } from "./shop-status.js";
 export { PrinterStatus } from "./printer-status.js";
 export { PaperSize } from "./paper-size.js";
+export { PaperType } from "./paper-type.js";
+export { Finishing } from "./finishing.js";
 export { ColorMode } from "./color-mode.js";
 export { Sides } from "./sides.js";
 export { Orientation } from "./orientation.js";
