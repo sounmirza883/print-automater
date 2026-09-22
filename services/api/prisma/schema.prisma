@@ -524,11 +524,23 @@ model Refund {
 // the plan; 9.1-9.6 attach real device identity and discovery on top of
 // rows that already exist, rather than the agent being the only thing
 // that can ever create one.
+//
+// 15.3/§16 expands the original 4 values with BUSY/PAUSED/MAINTENANCE/
+// UNKNOWN -- additive only (Postgres `ALTER TYPE ... ADD VALUE`, never
+// remove/rename), since ONLINE/OFFLINE/ERROR/DISABLED are already
+// persisted data and cross the agent wire as literal strings. §16's own
+// rule -- never assume a printer is available when its status is
+// UNKNOWN -- is a Phase 18 allocation-engine concern, not encoded here;
+// this migration only makes the value representable.
 enum PrinterStatus {
   ONLINE
   OFFLINE
   ERROR
   DISABLED
+  BUSY
+  PAUSED
+  MAINTENANCE
+  UNKNOWN
 }
 
 model Printer {
@@ -544,8 +556,48 @@ model Printer {
   name         String
   capabilities Json?
   status       PrinterStatus @default(OFFLINE)
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  // 15.3/§16's printer profile fields, all nullable/defaulted so every
+  // printer row created before this migration is unaffected.
+  // `model`/`location`/`connectionType` are plain free-text (the make/
+  // model string, a physical/human location note, and a connection
+  // description like "USB"/"Network" -- none of these are closed
+  // enumerations worth a Postgres enum type for, and staff should be
+  // able to describe them without a schema migration every time a new
+  // connection type shows up).
+  model              String?
+  // Staff-set (never agent-reported -- 15.6 is explicit that the
+  // agent must never overwrite this with null on a heartbeat that
+  // simply doesn't carry a location).
+  location           String?
+  connectionType     String?  @map("connection_type")
+  // §16/§64: what this printer can physically handle, as native
+  // Postgres text arrays -- not JSON, to match `PaperSize`/`PaperType`
+  // being plain string enums (packages/types) rather than an object
+  // shape the way `capabilities` (a fixed {color,duplex,a4,a3} record)
+  // is. A text array lets Phase 18's allocation engine filter with a
+  // plain `hasSome`/`hasEvery` instead of unpacking JSON, and lets
+  // Postgres enforce "this is a list of strings" structurally, which
+  // a Json column can't. Defaults to an empty array (Prisma disallows
+  // a nullable list field), meaning "nothing declared yet" the same
+  // way `capabilities: null` already does for the boolean shape --
+  // callers must treat an empty array as "unknown", not "supports
+  // nothing", the same non-guessing rule 15.2 established for
+  // `capabilities === null` on the auto-dispatch path.
+  supportedSizes      String[] @default([]) @map("supported_sizes")
+  supportedPaperTypes String[] @default([]) @map("supported_paper_types")
+  maxJobPages         Int?     @map("max_job_pages")
+  // Plain text, not a second enum alongside PrinterStatus. PrinterStatus
+  // (specifically its new MAINTENANCE value) is the machine-readable
+  // state allocation/dispatch decisions key off; `maintenanceStatus` is
+  // staff-facing descriptive detail about *why* or *what* (e.g. "toner
+  // replacement due", "servicing booked 2026-10-01") that nothing in
+  // this codebase branches on. Making it a second closed enum would
+  // either duplicate PrinterStatus's own values or invite the two
+  // getting out of sync; free text avoids both.
+  maintenanceStatus String?   @map("maintenance_status")
+  lastStatusAt      DateTime? @map("last_status_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   shop      Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
   agent     PrinterAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
