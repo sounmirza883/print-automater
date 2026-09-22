@@ -82,6 +82,10 @@ describe("Agent job long-poll & claim (9.7, e2e)", () => {
         agentId: agent.id,
         name: `Agent Jobs E2E Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
+        // 15.2: the auto-dispatch path now excludes printers with
+        // unprobed (null) capabilities -- this suite's own accept
+        // call (the long-poll wake-up test) goes through that path.
+        capabilities: { color: false, duplex: false, a4: true, a3: false },
       },
     });
     printerIds.push(printer.id);

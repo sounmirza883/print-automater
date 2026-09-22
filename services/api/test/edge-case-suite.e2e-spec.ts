@@ -463,6 +463,10 @@ describe("Edge case suite (13.2, e2e)", () => {
         agentId: agent.id,
         name: `Edge Case Unknown Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
+        // 15.2: resolve-unknown's RETRY resolution re-dispatches
+        // through the same auto-dispatch path as accept/retry-print,
+        // which now excludes unprobed (null) capabilities.
+        capabilities: { color: false, duplex: false, a4: true, a3: false },
       },
     });
     printerIds.push(printer.id);

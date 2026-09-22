@@ -32,17 +32,25 @@ describe("Shop order actions API (8.3, e2e)", () => {
   let documentId: string;
   let shopA: { id: string };
   let shopB: { id: string };
+  let shopC: { id: string };
   let counterAtShopA: { id: string; role: UserRole };
   let counterAtShopB: { id: string; role: UserRole };
+  let counterAtShopC: { id: string; role: UserRole };
   let printerA: { id: string };
   let counterAToken: string;
   let counterBToken: string;
+  let counterCToken: string;
 
   const orderIds: string[] = [];
   const printerIds: string[] = [];
+  const printerAgentIds: string[] = [];
   const extraDocumentIds: string[] = [];
 
-  async function seedOrder(shopId: string, orderStatus: OrderStatus): Promise<string> {
+  async function seedOrder(
+    shopId: string,
+    orderStatus: OrderStatus,
+    colorOverride: "BW" | "COLOR" = "BW",
+  ): Promise<string> {
     const order = await prisma.order.create({
       data: {
         publicOrderNumber: `TEST-SHOPACT-${randomUUID()}`,
@@ -53,7 +61,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
           pages: { mode: "all" },
           copies: 1,
           paperSize: "A4",
-          color: "BW",
+          color: colorOverride,
           sides: "SINGLE",
           orientation: "PORTRAIT",
         },
@@ -68,6 +76,25 @@ describe("Shop order actions API (8.3, e2e)", () => {
     });
     orderIds.push(order.id);
     return order.id;
+  }
+
+  /** 15.2's own test fixtures: an ONLINE, agent-attached printer with
+   * an explicit capability set -- the only shape that's ever eligible
+   * on the auto-dispatch path now. */
+  async function createAutoEligiblePrinter(
+    shopId: string,
+    capabilities: { color: boolean; duplex: boolean; a4: boolean; a3: boolean },
+    name: string,
+  ): Promise<{ id: string }> {
+    const agent = await prisma.printerAgent.create({
+      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+    });
+    printerAgentIds.push(agent.id);
+    const printer = await prisma.printer.create({
+      data: { shopId, agentId: agent.id, name, status: PrinterStatus.ONLINE, capabilities },
+    });
+    printerIds.push(printer.id);
+    return printer;
   }
 
   beforeAll(async () => {
@@ -115,9 +142,40 @@ describe("Shop order actions API (8.3, e2e)", () => {
         status: ShopStatus.OPEN,
       },
     });
+    // 15.2's own dedicated shop -- isolated from shopA/shopB so its
+    // auto-dispatch capability/availability tests can add and remove
+    // printers freely without perturbing any other test's "which
+    // printer does auto-dispatch pick" assumptions.
+    shopC = await prisma.shop.create({
+      data: {
+        name: `Shop Actions E2E Shop C ${randomUUID()}`,
+        address: "3 Test Street",
+        status: ShopStatus.OPEN,
+      },
+    });
 
+    // 15.2: the auto-dispatch path now requires ONLINE + an attached
+    // agent + declared, compatible capabilities -- give this shop's
+    // default printer all three so this suite's many auto-dispatch
+    // (accept/retry-print/resolve-unknown) tests keep exercising a
+    // printer that genuinely qualifies, not one that only qualified
+    // under the pre-15.2 looser check.
+    const agentForPrinterA = await prisma.printerAgent.create({
+      data: {
+        deviceId: randomUUID(),
+        shopId: shopA.id,
+        publicKey: "irrelevant-test-public-key",
+      },
+    });
+    printerAgentIds.push(agentForPrinterA.id);
     const printer = await prisma.printer.create({
-      data: { shopId: shopA.id, name: "Shop A Printer 1", status: PrinterStatus.OFFLINE },
+      data: {
+        shopId: shopA.id,
+        agentId: agentForPrinterA.id,
+        name: "Shop A Printer 1",
+        status: PrinterStatus.ONLINE,
+        capabilities: { color: false, duplex: false, a4: true, a3: false },
+      },
     });
     printerA = printer;
     printerIds.push(printer.id);
@@ -156,8 +214,26 @@ describe("Shop order actions API (8.3, e2e)", () => {
       },
     });
 
+    counterAtShopC = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_COUNTER,
+        name: "Shop Actions E2E Counter C",
+        email: `shop-actions-e2e-counter-c-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    await prisma.shopStaff.create({
+      data: {
+        shopId: shopC.id,
+        userId: counterAtShopC.id,
+        role: UserRole.SHOP_COUNTER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+
     counterAToken = tokenService.issueAccessToken(counterAtShopA);
     counterBToken = tokenService.issueAccessToken(counterAtShopB);
+    counterCToken = tokenService.issueAccessToken(counterAtShopC);
   });
 
   afterAll(async () => {
@@ -170,14 +246,15 @@ describe("Shop order actions API (8.3, e2e)", () => {
     });
     await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
     await prisma.printer.deleteMany({ where: { id: { in: printerIds } } });
+    await prisma.printerAgent.deleteMany({ where: { id: { in: printerAgentIds } } });
     await prisma.shopStaff.deleteMany({
-      where: { userId: { in: [counterAtShopA.id, counterAtShopB.id] } },
+      where: { userId: { in: [counterAtShopA.id, counterAtShopB.id, counterAtShopC.id] } },
     });
     await prisma.document.deleteMany({ where: { id: { in: [documentId, ...extraDocumentIds] } } });
     await prisma.user.deleteMany({
-      where: { id: { in: [customer.id, counterAtShopA.id, counterAtShopB.id] } },
+      where: { id: { in: [customer.id, counterAtShopA.id, counterAtShopB.id, counterAtShopC.id] } },
     });
-    await prisma.shop.deleteMany({ where: { id: { in: [shopA.id, shopB.id] } } });
+    await prisma.shop.deleteMany({ where: { id: { in: [shopA.id, shopB.id, shopC.id] } } });
     await app.close();
   });
 
@@ -239,6 +316,165 @@ describe("Shop order actions API (8.3, e2e)", () => {
       .set("Authorization", `Bearer ${counterBToken}`);
     expect(res.status).toBe(409);
     expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+  });
+
+  // 15.2 hotfix: dispatchToPrinter()'s auto-selection path used to be
+  // an unordered findFirst({ status: { not: DISABLED } }) with no
+  // capability check at all -- this is the live defect the sub-phase
+  // fixes, proven end to end against real Postgres rows, all against
+  // the dedicated, isolated shopC.
+  describe("15.2: auto-dispatch is gated on capability and availability", () => {
+    beforeEach(async () => {
+      // Every printer this describe block has ever created at shopC
+      // stays in the DB across tests (afterAll-only cleanup) -- start
+      // each test from a clean slate so auto-selection is deterministic.
+      await prisma.printer.updateMany({
+        where: { shopId: shopC.id },
+        data: { status: PrinterStatus.DISABLED },
+      });
+    });
+
+    it("a COLOR order with only a mono-capable printer available returns NO_PRINTER_AVAILABLE instead of silently dispatching to it", async () => {
+      await createAutoEligiblePrinter(
+        shopC.id,
+        { color: false, duplex: false, a4: true, a3: false },
+        `Shop C Mono Printer ${randomUUID()}`,
+      );
+      const orderId = await seedOrder(shopC.id, OrderStatus.WAITING_FOR_SHOP, "COLOR");
+
+      const res = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/accept`)
+        .set("Authorization", `Bearer ${counterCToken}`);
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+
+      const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+      expect(order.orderStatus).toBe(OrderStatus.WAITING_FOR_SHOP);
+      expect(await prisma.printJob.count({ where: { orderId } })).toBe(0);
+    });
+
+    it("the same COLOR order dispatches once a color-capable printer is also available, ignoring the incompatible mono one", async () => {
+      await createAutoEligiblePrinter(
+        shopC.id,
+        { color: false, duplex: false, a4: true, a3: false },
+        `Shop C Mono Printer ${randomUUID()}`,
+      );
+      const colorPrinter = await createAutoEligiblePrinter(
+        shopC.id,
+        { color: true, duplex: false, a4: true, a3: false },
+        `Shop C Color Printer ${randomUUID()}`,
+      );
+      const orderId = await seedOrder(shopC.id, OrderStatus.WAITING_FOR_SHOP, "COLOR");
+
+      const res = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/accept`)
+        .set("Authorization", `Bearer ${counterCToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.orderStatus).toBe("QUEUED_FOR_PRINT");
+
+      const jobs = await prisma.printJob.findMany({ where: { orderId } });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.printerId).toBe(colorPrinter.id);
+    });
+
+    it("an ONLINE printer with unprobed (null) capabilities is excluded on the auto path, even though a BW/A4 order needs nothing exotic", async () => {
+      const agent = await prisma.printerAgent.create({
+        data: { deviceId: randomUUID(), shopId: shopC.id, publicKey: "irrelevant-test-public-key" },
+      });
+      printerAgentIds.push(agent.id);
+      const printer = await prisma.printer.create({
+        data: {
+          shopId: shopC.id,
+          agentId: agent.id,
+          name: `Shop C Unprobed Printer ${randomUUID()}`,
+          status: PrinterStatus.ONLINE,
+          // capabilities deliberately left null -- never probed.
+        },
+      });
+      printerIds.push(printer.id);
+      const orderId = await seedOrder(shopC.id, OrderStatus.WAITING_FOR_SHOP, "BW");
+
+      const res = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/accept`)
+        .set("Authorization", `Bearer ${counterCToken}`);
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+    });
+
+    it("a capable printer with no attached agent is excluded on the auto path", async () => {
+      const printer = await prisma.printer.create({
+        data: {
+          shopId: shopC.id,
+          name: `Shop C Agentless Printer ${randomUUID()}`,
+          status: PrinterStatus.ONLINE,
+          capabilities: { color: true, duplex: true, a4: true, a3: false },
+        },
+      });
+      printerIds.push(printer.id);
+      const orderId = await seedOrder(shopC.id, OrderStatus.WAITING_FOR_SHOP, "COLOR");
+
+      const res = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/accept`)
+        .set("Authorization", `Bearer ${counterCToken}`);
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+    });
+
+    it("a capable, agent-attached printer that's merely OFFLINE (not DISABLED) is excluded on the auto path", async () => {
+      const agent = await prisma.printerAgent.create({
+        data: { deviceId: randomUUID(), shopId: shopC.id, publicKey: "irrelevant-test-public-key" },
+      });
+      printerAgentIds.push(agent.id);
+      const printer = await prisma.printer.create({
+        data: {
+          shopId: shopC.id,
+          agentId: agent.id,
+          name: `Shop C Offline Printer ${randomUUID()}`,
+          status: PrinterStatus.OFFLINE,
+          capabilities: { color: true, duplex: true, a4: true, a3: false },
+        },
+      });
+      printerIds.push(printer.id);
+      const orderId = await seedOrder(shopC.id, OrderStatus.WAITING_FOR_SHOP, "COLOR");
+
+      const res = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/accept`)
+        .set("Authorization", `Bearer ${counterCToken}`);
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("NO_PRINTER_AVAILABLE");
+    });
+
+    it("§49/10.4 unaffected: the manual change-printer path still trusts a staff-named printer with unprobed (null) capabilities", async () => {
+      // Re-asserts the existing invariant this sub-phase must NOT
+      // change -- already covered by name at shopA further down this
+      // file, re-proven here at the dedicated shop to make the
+      // "manual path untouched" claim explicit for this describe block.
+      const agent = await prisma.printerAgent.create({
+        data: { deviceId: randomUUID(), shopId: shopC.id, publicKey: "irrelevant-test-public-key" },
+      });
+      printerAgentIds.push(agent.id);
+      const unprobedPrinter = await prisma.printer.create({
+        data: {
+          shopId: shopC.id,
+          agentId: agent.id,
+          name: `Shop C Manual Unprobed Printer ${randomUUID()}`,
+          status: PrinterStatus.ONLINE,
+        },
+      });
+      printerIds.push(unprobedPrinter.id);
+      const orderId = await seedOrder(shopC.id, OrderStatus.PRINT_FAILED, "COLOR");
+
+      const res = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/change-printer`)
+        .set("Authorization", `Bearer ${counterCToken}`)
+        .send({ printerId: unprobedPrinter.id });
+      expect(res.status).toBe(200);
+      expect(res.body.orderStatus).toBe("QUEUED_FOR_PRINT");
+
+      const jobs = await prisma.printJob.findMany({ where: { orderId } });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.printerId).toBe(unprobedPrinter.id);
+    });
   });
 
   it("§44/9.13: accept refuses an order whose payment isn't confirmed, leaving it at WAITING_FOR_SHOP with no print job", async () => {

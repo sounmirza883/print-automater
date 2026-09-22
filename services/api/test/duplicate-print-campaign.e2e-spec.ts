@@ -106,6 +106,11 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
         agentId: agent.id,
         name: `Duplicate Campaign E2E Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
+        // 15.2: the auto-dispatch path now excludes printers with
+        // unprobed (null) capabilities, so every printer this suite's
+        // auto-dispatch tests rely on needs a declared capability set
+        // that actually covers the seeded A4/BW/SINGLE configuration.
+        capabilities: { color: false, duplex: false, a4: true, a3: false },
       },
     });
     printerIds.push(printer.id);
@@ -366,23 +371,18 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
 
   it("5. accept tapped 5 times creates exactly one print job", async () => {
     const orderId = await seedOrder(OrderStatus.WAITING_FOR_SHOP);
-    // A printer with no agent yet is still eligible for dispatch (an
-    // agent-less printer just sits QUEUED until an agent starts
-    // polling it) -- disable every OTHER printer this shop has
-    // accumulated from earlier tests so acceptOrder()'s "any
-    // non-disabled printer" pick is deterministic.
+    // 15.2: the auto-dispatch path now requires ONLINE + an attached
+    // agent + declared, compatible capabilities -- an agent-less or
+    // unprobed printer is no longer eligible. Disable every OTHER
+    // printer this shop has accumulated from earlier tests so
+    // acceptOrder()'s auto pick is deterministic, then register a real
+    // agent-backed, capability-declared printer for this test.
     await prisma.printer.updateMany({
       where: { shopId: shop.id },
       data: { status: PrinterStatus.DISABLED },
     });
-    const printer = await prisma.printer.create({
-      data: {
-        shopId: shop.id,
-        name: `Duplicate Campaign Accept Printer ${randomUUID()}`,
-        status: PrinterStatus.ONLINE,
-      },
-    });
-    printerIds.push(printer.id);
+    const { deviceId } = await registerAndAuthenticate();
+    const printer = await createPrinterForAgent(deviceId);
 
     for (let i = 0; i < 5; i += 1) {
       const res = await request(app.getHttpServer())

@@ -303,10 +303,11 @@ export class ShopOrdersService {
           freshOrder.shopId,
           freshOrder.printConfiguration as unknown as PrintConfiguration,
         )
-      : await tx.printer.findFirst({
-          where: { shopId: freshOrder.shopId, status: { not: PrinterStatus.DISABLED } },
-          include: { agent: { select: { deviceId: true } } },
-        });
+      : await this.findAutoPrinter(
+          tx,
+          freshOrder.shopId,
+          freshOrder.printConfiguration as unknown as PrintConfiguration,
+        );
     if (!printer) {
       throw new AppException(
         HttpStatus.CONFLICT,
@@ -324,9 +325,55 @@ export class ShopOrdersService {
       },
     });
     // A printer staff registered by hand (8.4) before any agent ever
-    // heartbeated it has no agent yet -- nothing to wake. The job
-    // still sits QUEUED for whenever an agent does start reporting it.
+    // heartbeated it has no agent yet -- nothing to wake. findAutoPrinter()
+    // never returns one of these (15.2 requires an attached agent on
+    // the auto path), so this is now only reachable via the manual
+    // findRequestedPrinter() path, which still allows it.
     return { notifyDeviceId: printer.agent?.deviceId ?? null };
+  }
+
+  /** 15.2 hotfix. The auto-dispatch path used to be a bare
+   * `findFirst({ status: { not: DISABLED } })` -- no capability check
+   * at all, ONLINE/OFFLINE/ERROR all equally eligible, and no explicit
+   * ordering (so which of several matching printers won was whatever
+   * Postgres felt like returning that day). A COLOR/DOUBLE order could
+   * silently land on a mono/simplex printer, or on a printer with no
+   * agent attached to ever claim the job.
+   *
+   * Fixed here to require ONLINE (not merely "not DISABLED" -- OFFLINE
+   * and ERROR are excluded too, §16's "never assume a printer is
+   * available" applied literally), an attached agent (nothing else
+   * could ever claim the job), and printerSupportsConfiguration().
+   * Deliberately the OPPOSITE null-handling from the manual path's
+   * findRequestedPrinter(): there, a human is naming this exact
+   * printer, so unknown (null) capabilities defer to that informed
+   * choice. Here, nothing human is involved -- the system is guessing
+   * on the customer/order's behalf -- so a printer whose capabilities
+   * were never probed is excluded rather than guessed as compatible.
+   * `orderBy: [{ createdAt: "asc" }, { id: "asc" }]` makes candidate
+   * selection deterministic and reproducible; real tie-breaking
+   * (fewest queued pages, etc.) is Phase 18's allocation engine, not
+   * this hotfix's job. */
+  private async findAutoPrinter(
+    tx: Prisma.TransactionClient,
+    shopId: string,
+    printConfiguration: PrintConfiguration,
+  ) {
+    const candidates = await tx.printer.findMany({
+      where: { shopId, status: PrinterStatus.ONLINE, agent: { isNot: null } },
+      include: { agent: { select: { deviceId: true } } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    return (
+      candidates.find(
+        (candidate) =>
+          candidate.capabilities !== null &&
+          printerSupportsConfiguration(
+            candidate.capabilities as unknown as PrinterCapabilities,
+            printConfiguration,
+          ),
+      ) ?? null
+    );
   }
 
   /** §49/10.4. Distinguishes "doesn't exist / wrong shop / disabled"
@@ -598,7 +645,14 @@ export class ShopOrdersService {
  * (9.4's own established meaning) -- and staff naming THIS printer by
  * id is itself a deliberate, informed choice, not a blind filter, so
  * unknown capabilities don't block it. A capability the system
- * actually knows is missing still refuses, unconditionally. */
+ * actually knows is missing still refuses, unconditionally.
+ *
+ * This function's own null handling ("null capabilities pass") is
+ * therefore correct for findRequestedPrinter() (the manual path,
+ * "trust the human") but wrong for auto-selection -- 15.2's
+ * findAutoPrinter() excludes null-capability candidates itself,
+ * *before* ever calling this function, rather than changing this
+ * function's contract for both callers. */
 function printerSupportsConfiguration(
   capabilities: PrinterCapabilities | null,
   config: PrintConfiguration,
