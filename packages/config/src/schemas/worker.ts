@@ -12,10 +12,23 @@ export const workerEnvSchema = baseEnvSchema
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
     SMTP_HOST: z.string().default("localhost"),
     SMTP_PORT: z.coerce.number().int().positive().default(1025),
-    // §78/7.2: which EmailTransport is bound to EMAIL_TRANSPORT --
-    // "mailhog" (dev, real SMTP to the local container) or "ses"
-    // (prod, real AWS SES via S3_REGION's same AWS account/region).
-    EMAIL_TRANSPORT: z.enum(["mailhog", "ses"]).default("mailhog"),
+    // 14.5: only meaningful when EMAIL_TRANSPORT=smtp -- most real
+    // relays require AUTH LOGIN/PLAIN; MailHog (the dev/placeholder
+    // default) requires neither, so these stay optional rather than
+    // required the way checkStorageEnv's KMS fields are.
+    SMTP_USER: z.string().optional(),
+    SMTP_PASSWORD: z.string().optional(),
+    // TLS-on-connect (SMTPS, typically port 465) vs. plain/STARTTLS
+    // (typically 587 or 25, nodemailer's own `secure: false` default).
+    SMTP_SECURE: z.coerce.boolean().default(false),
+    // §78/7.2, extended 14.5: which EmailTransport is bound to
+    // EMAIL_TRANSPORT -- "mailhog" (dev, real SMTP to the local
+    // container), "smtp" (prod default: any standards-compliant SMTP
+    // relay via SmtpEmailTransport, no AWS required -- 14.5's whole
+    // point) or "ses" (prod, real AWS SES via S3_REGION's same AWS
+    // account/region, still available for anyone who wants to keep
+    // using it).
+    EMAIL_TRANSPORT: z.enum(["mailhog", "smtp", "ses"]).default("mailhog"),
     EMAIL_FROM_ADDRESS: z.string().email().default("no-reply@print-automated.dev"),
     // §108: how long an order may sit in PAYMENT_PENDING before 5.6's
     // sweep expires it. 30 minutes is a placeholder default, not a

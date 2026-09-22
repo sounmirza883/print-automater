@@ -11,6 +11,7 @@ import {
   OrderStateMachineModule,
   DocumentDeletionModule,
   EmailModule,
+  type EmailModuleOptions,
   REDIS_CLIENT,
 } from "@print-automated/backend-shared";
 import { WorkerConfigModule, workerEnv } from "./config/config.module.js";
@@ -21,6 +22,41 @@ import { PrinterOfflineSweepModule } from "./printer-offline-sweep/printer-offli
 import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
 import { DocumentRetentionModule } from "./document-retention/document-retention.module.js";
 import { QueueMetricsModule } from "./queue-metrics/queue-metrics.module.js";
+
+// 14.5: which EmailTransport EMAIL_TRANSPORT selects -- "smtp" (any
+// standards-compliant relay, no AWS required, the production default)
+// alongside the existing "mailhog" (dev) and "ses" (AWS, still
+// available) choices, the same shape KMS_PROVIDER already uses for
+// KmsModule above.
+function buildEmailOptions(): EmailModuleOptions {
+  switch (workerEnv.EMAIL_TRANSPORT) {
+    case "ses":
+      return {
+        provider: "ses",
+        awsRegion: workerEnv.S3_REGION,
+        fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
+      };
+    case "smtp":
+      return {
+        provider: "smtp",
+        host: workerEnv.SMTP_HOST,
+        port: workerEnv.SMTP_PORT,
+        fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
+        secure: workerEnv.SMTP_SECURE,
+        auth:
+          workerEnv.SMTP_USER && workerEnv.SMTP_PASSWORD
+            ? { user: workerEnv.SMTP_USER, pass: workerEnv.SMTP_PASSWORD }
+            : undefined,
+      };
+    case "mailhog":
+      return {
+        provider: "mailhog",
+        host: workerEnv.SMTP_HOST,
+        port: workerEnv.SMTP_PORT,
+        fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
+      };
+  }
+}
 
 @Module({
   imports: [
@@ -53,20 +89,7 @@ import { QueueMetricsModule } from "./queue-metrics/queue-metrics.module.js";
     AuditModule,
     OrderStateMachineModule,
     DocumentDeletionModule,
-    EmailModule.forRoot(
-      workerEnv.EMAIL_TRANSPORT === "ses"
-        ? {
-            provider: "ses",
-            awsRegion: workerEnv.S3_REGION,
-            fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
-          }
-        : {
-            provider: "mailhog",
-            host: workerEnv.SMTP_HOST,
-            port: workerEnv.SMTP_PORT,
-            fromAddress: workerEnv.EMAIL_FROM_ADDRESS,
-          },
-    ),
+    EmailModule.forRoot(buildEmailOptions()),
     BullModule.forRootAsync({
       inject: [REDIS_CLIENT],
       useFactory: (connection: Redis) => ({ connection }),

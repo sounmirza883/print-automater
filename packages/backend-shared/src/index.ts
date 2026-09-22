@@ -61,3 +61,7 @@ export {
 export { EmailModule, type EmailModuleOptions } from "./notifications/email.module.js";
 export { MailhogEmailTransport } from "./notifications/mailhog-email-transport.js";
 export { SesEmailTransport } from "./notifications/ses-email-transport.js";
+export {
+  SmtpEmailTransport,
+  type SmtpEmailTransportOptions,
+} from "./notifications/smtp-email-transport.js";
