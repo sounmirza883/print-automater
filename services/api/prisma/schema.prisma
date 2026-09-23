@@ -130,8 +130,40 @@ model Shop {
   printers          Printer[]
   printerAgents     PrinterAgent[]
   agentPairingCodes AgentPairingCode[]
+  customers         Customer[]
 
   @@map("shops")
+}
+
+// 15.5/§33. A shop's OWN customer record -- distinct from `User`
+// (self-service accounts, §4.1) the same way `customerRecordId` on
+// Order is distinct from `customerId`: this is a walk-in customer a
+// counter staff member describes, not someone who ever logged in.
+// No email/phone uniqueness constraint on purpose -- two different
+// customers can share a phone number (a household, a shared office
+// line) and staff need to be able to record that rather than have it
+// rejected as a duplicate.
+model Customer {
+  id        String   @id @default(uuid())
+  shopId    String   @map("shop_id")
+  name      String
+  phone     String?
+  email     String?
+  company   String?
+  address   String?
+  // §33 "Account status" -- a plain active/inactive flag rather than a
+  // new enum for two states, matching ShopStaffStatus's own boolean-
+  // shaped ACTIVE/REMOVED pattern in spirit without the ceremony of a
+  // second enum type for something this simple.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([shopId])
+  @@map("customers")
 }
 
 // §19/§20, Migration 003 (4.2). Versioned, not updated in place: a price
@@ -280,6 +312,18 @@ model Order {
   id                 String        @id @default(uuid())
   publicOrderNumber  String        @unique @map("public_order_number")
   customerId         String        @map("customer_id")
+  // 15.5/§33. Deliberately coexists with customerId above, never
+  // replaces it: customerId is the self-service User who placed this
+  // order through customer-web (non-nullable, unchanged);
+  // customerRecordId is a shop's own walk-in customer record (a
+  // Customer row, below) that Phase 17's counter-ordering flow will
+  // start writing when a shop takes an order at the counter on
+  // someone's behalf. Nullable because every order created before
+  // Phase 17 -- and every self-service order after it -- has no walk-in
+  // customer record at all. This migration only adds the column;
+  // OrdersService.create() and every other writer are untouched, per
+  // 15.5's own explicit scope (that wiring is Phase 17's job).
+  customerRecordId   String?       @map("customer_record_id")
   shopId             String        @map("shop_id")
   documentId         String        @map("document_id")
   printConfiguration Json          @map("print_configuration")
@@ -297,18 +341,24 @@ model Order {
   updatedAt          DateTime      @updatedAt @map("updated_at")
   completedAt        DateTime?     @map("completed_at")
 
-  customer      User           @relation(fields: [customerId], references: [id])
-  shop          Shop           @relation(fields: [shopId], references: [id])
-  document      Document       @relation(fields: [documentId], references: [id])
-  payments      Payment[]
-  notifications Notification[]
-  printJobs     PrintJob[]
-  refunds       Refund[]
-  items         OrderItem[]
+  customer       User           @relation(fields: [customerId], references: [id])
+  // SetNull, not Cascade -- deleting a shop's walk-in customer record
+  // (17.4's job, not this sub-phase's) should never take an order's
+  // own history down with it, the same "the order survives" reasoning
+  // PrintJob.orderItemId's own onDelete: SetNull already established.
+  customerRecord Customer?      @relation(fields: [customerRecordId], references: [id], onDelete: SetNull)
+  shop           Shop           @relation(fields: [shopId], references: [id])
+  document       Document       @relation(fields: [documentId], references: [id])
+  payments       Payment[]
+  notifications  Notification[]
+  printJobs      PrintJob[]
+  refunds        Refund[]
+  items          OrderItem[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
   @@index([customerId])
+  @@index([customerRecordId])
   @@map("orders")
 }
 
