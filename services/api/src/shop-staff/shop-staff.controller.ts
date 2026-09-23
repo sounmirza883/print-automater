@@ -7,7 +7,13 @@ import { ShopStaffService, type MyShopMembership } from "./shop-staff.service.js
 
 @Controller("shop/staff")
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.SHOP_COUNTER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER)
+@Roles(
+  UserRole.SHOP_COUNTER,
+  UserRole.SHOP_MANAGER,
+  UserRole.SHOP_OWNER,
+  UserRole.OPERATOR,
+  UserRole.PRINTER_MANAGER,
+)
 export class ShopStaffController {
   constructor(private readonly shopStaffService: ShopStaffService) {}
 

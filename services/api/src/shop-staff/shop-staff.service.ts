@@ -1,10 +1,15 @@
 import { Injectable } from "@nestjs/common";
-import { ShopStaffStatus } from "@prisma/client";
+import { ShopStaffStatus, type UserRole } from "@prisma/client";
 import { PrismaService } from "@print-automated/backend-shared";
 
 export interface MyShopMembership {
   id: string;
   name: string;
+  /** §46/16.1: `ShopStaff.role` at THIS shop -- the effective,
+   * per-membership role, not the account-level `User.role` from the
+   * JWT. The Shop app needs this to know what the caller can actually
+   * do at whichever shop it's currently operating for. */
+  role: UserRole;
 }
 
 /** The Shop app (3.4) has no notion of "which shop am I" anywhere --
@@ -29,6 +34,7 @@ export class ShopStaffService {
     return memberships.map((membership) => ({
       id: membership.shop.id,
       name: membership.shop.name,
+      role: membership.role,
     }));
   }
 }

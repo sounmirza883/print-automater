@@ -16,6 +16,13 @@ enum UserRole {
   SHOP_MANAGER
   SHOP_COUNTER
   ADMIN
+  // §46/16.1: added additively. OPERATOR runs the production floor,
+  // PRINTER_MANAGER owns the printer fleet, SUPPLIER is a future
+  // supplier-portal account -- none existed as a shop-staff role
+  // before 16.1, so every existing row is unaffected.
+  OPERATOR
+  PRINTER_MANAGER
+  SUPPLIER
 }
 
 enum UserStatus {

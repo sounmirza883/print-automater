@@ -112,6 +112,50 @@ describe("GET /shop/staff/me (e2e)", () => {
     );
   });
 
+  /** §46/16.1: role is genuinely per-ShopStaff-membership now, not just
+   * per-account -- the JWT's own `role` claim (SHOP_COUNTER, set at
+   * account creation and unchanged here) must not be what this
+   * response reflects; `ShopStaff.role` at each shop must be. */
+  it("surfaces ShopStaff.role per shop, not the account-level User.role, when the two differ", async () => {
+    const dualRoleUser = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_COUNTER,
+        name: "Dual Role Staff",
+        email: `shop-staff-e2e-dual-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    await prisma.shopStaff.createMany({
+      data: [
+        {
+          shopId: shopA.id,
+          userId: dualRoleUser.id,
+          role: UserRole.SHOP_MANAGER,
+          status: ShopStaffStatus.ACTIVE,
+        },
+        {
+          shopId: shopB.id,
+          userId: dualRoleUser.id,
+          role: UserRole.SHOP_COUNTER,
+          status: ShopStaffStatus.ACTIVE,
+        },
+      ],
+    });
+
+    const token = tokenService.issueAccessToken(dualRoleUser);
+    const res = await request(app.getHttpServer())
+      .get("/v1/shop/staff/me")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+
+    const shops = res.body.shops as Array<{ id: string; role: string }>;
+    expect(shops.find((s) => s.id === shopA.id)?.role).toBe(UserRole.SHOP_MANAGER);
+    expect(shops.find((s) => s.id === shopB.id)?.role).toBe(UserRole.SHOP_COUNTER);
+
+    await prisma.shopStaff.deleteMany({ where: { userId: dualRoleUser.id } });
+    await prisma.user.delete({ where: { id: dualRoleUser.id } });
+  });
+
   it("returns an empty list for shop-role staff with no active membership", async () => {
     const token = tokenService.issueAccessToken(unaffiliatedCounter);
     const res = await request(app.getHttpServer())
