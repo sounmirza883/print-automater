@@ -118,7 +118,7 @@ describe("Agent job long-poll & claim (9.7, e2e)", () => {
     return order.id;
   }
 
-  async function seedQueuedJob(printerId: string, orderId: string): Promise<string> {
+  async function seedQueuedJob(printerId: string, orderId: string, priority = 0): Promise<string> {
     const job = await prisma.printJob.create({
       data: {
         orderId,
@@ -126,6 +126,7 @@ describe("Agent job long-poll & claim (9.7, e2e)", () => {
         shopId: shop.id,
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.QUEUED,
+        priority,
       },
     });
     return job.id;
@@ -336,5 +337,26 @@ describe("Agent job long-poll & claim (9.7, e2e)", () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error_code).toBe("JOB_ALREADY_CLAIMED");
+  });
+
+  it("§17/18/18.8: a HIGH-priority job queued AFTER a NORMAL one is still claimed first", async () => {
+    const { deviceId, accessToken } = await registerAndAuthenticate();
+    const printer = await createPrinterForAgent(deviceId);
+    const normalOrderId = await seedOrder(OrderStatus.QUEUED_FOR_PRINT);
+    const normalJobId = await seedQueuedJob(printer.id, normalOrderId, 0);
+    // Queued strictly after the NORMAL job (different iteration of the
+    // event loop, so createdAt is guaranteed later) -- if priority were
+    // ignored, plain FIFO would hand out normalJobId first.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const urgentOrderId = await seedOrder(OrderStatus.QUEUED_FOR_PRINT);
+    const urgentJobId = await seedQueuedJob(printer.id, urgentOrderId, 20);
+
+    const res = await request(app.getHttpServer())
+      .get("/v1/agents/jobs?wait=1")
+      .set("Authorization", `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(urgentJobId);
+    expect(res.body.id).not.toBe(normalJobId);
   });
 });

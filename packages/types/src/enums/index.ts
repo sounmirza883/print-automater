@@ -14,3 +14,4 @@ export { Orientation } from "./orientation.js";
 export { ShopRejectionReason } from "./shop-rejection-reason.js";
 export { BlockedReason } from "./blocked-reason.js";
 export { QualityCheckStatus } from "./quality-check-status.js";
+export { JobPriority } from "./job-priority.js";

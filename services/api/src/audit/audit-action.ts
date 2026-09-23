@@ -34,6 +34,10 @@ export const AuditAction = {
   MANUAL_PAYMENT_RECORDED: "MANUAL_PAYMENT_RECORDED",
   // §36/17.7.
   INVOICE_DOWNLOADED: "INVOICE_DOWNLOADED",
+  // §20/§80/18.7.
+  JOB_REASSIGNED: "JOB_REASSIGNED",
+  // §21/18.9.
+  JOB_OPERATOR_ASSIGNED: "JOB_OPERATOR_ASSIGNED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

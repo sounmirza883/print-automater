@@ -28,6 +28,7 @@ import { AdminModule } from "./admin/admin.module.js";
 import { ProductsModule } from "./products/products.module.js";
 import { PricingRulesModule } from "./pricing-rules/pricing-rules.module.js";
 import { CustomersModule } from "./customers/customers.module.js";
+import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { CustomersModule } from "./customers/customers.module.js";
     ProductsModule,
     PricingRulesModule,
     CustomersModule,
+    PrintJobsModule,
   ],
 })
 export class AppModule {}

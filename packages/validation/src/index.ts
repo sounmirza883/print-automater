@@ -38,6 +38,12 @@ export {
   listPrintersQuerySchema,
   type ListPrintersQueryInput,
 } from "./printers/index.js";
+export {
+  reassignJobSchema,
+  type ReassignJobInput,
+  assignOperatorSchema,
+  type AssignOperatorInput,
+} from "./print-jobs/index.js";
 export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";
 export {
   addShopStaffSchema,

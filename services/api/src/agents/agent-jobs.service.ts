@@ -251,10 +251,15 @@ export class AgentJobsService implements OnModuleDestroy {
     }
   }
 
+  /** §17/18/18.8: priority-first, then FIFO within the same priority --
+   * a HIGH/URGENT job queued after an already-waiting NORMAL one still
+   * gets claimed first on the very next poll, deterministically
+   * (`createdAt` alone never decides between two same-priority jobs
+   * tied to the microsecond, which is why `id` is a final tie-break). */
   private async findQueuedJob(deviceId: string): Promise<PrintJobSummary | null> {
     const job = await this.prisma.printJob.findFirst({
       where: { status: PrintJobStatus.QUEUED, printer: { agent: { deviceId } } },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }, { id: "asc" }],
       include: { printer: true, order: { select: { printConfiguration: true } } },
     });
     return job ? this.toSummary(job) : null;
