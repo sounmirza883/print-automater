@@ -25,6 +25,8 @@ export {
   type ResolveUnknownPrintInput,
   changePrinterSchema,
   type ChangePrinterInput,
+  createCounterOrderSchema,
+  type CreateCounterOrderInput,
 } from "./shop-orders/index.js";
 export {
   printerCapabilitiesSchema,

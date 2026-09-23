@@ -394,6 +394,24 @@ model Order {
   // customer record at all. This migration only adds the column;
   // OrdersService.create() and every other writer are untouched, per
   // 15.5's own explicit scope (that wiring is Phase 17's job).
+  //
+  // 17.5 judgment call: for a COUNTER order, `customerId` (still
+  // non-nullable -- 15.5 deliberately left it that way, per its own
+  // migration comment above) is set to the STAFF MEMBER who created
+  // the order, not a synthetic placeholder User. Reasoning: (1) it
+  // avoids inventing and maintaining a fake per-shop "walk-in" account
+  // with a fabricated email that could collide with a real signup and
+  // that would need its own lifecycle; (2) OrderStateMachine's own
+  // notification step (order-state-machine.ts) looks up
+  // `customer.email` to send order-lifecycle emails -- routing those
+  // to the staff member who placed the order on the customer's behalf
+  // is a real, working inbox, not a bounce; (3) it keeps `customerId`
+  // meaning exactly what it already means everywhere else in this
+  // schema -- "the User account this order belongs to for read/
+  // ownership purposes" -- which for a counter order genuinely is the
+  // staff account that transacted it; the walk-in customer's own
+  // actual identity/contact info lives at `customerRecordId` instead,
+  // which is what 17.4's Customer record (not this field) is for.
   customerRecordId   String?       @map("customer_record_id")
   shopId             String        @map("shop_id")
   documentId         String        @map("document_id")
@@ -408,6 +426,11 @@ model Order {
   // Defaults to "NOT_REQUIRED" so every pre-existing and newly-created
   // order is unaffected until a shop turns on qualityCheckEnabled.
   qualityCheckStatus String?       @default("NOT_REQUIRED") @map("quality_check_status")
+  // §4.2/§11/17.5. Defaults to CUSTOMER_WEB so every pre-existing order
+  // (and every self-service order created after this migration) is
+  // unaffected -- COUNTER is only ever written by 17.5's own shop-side
+  // order-creation path.
+  creationSource     OrderCreationSource @default(CUSTOMER_WEB) @map("creation_source")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
   completedAt        DateTime?     @map("completed_at")
@@ -431,6 +454,16 @@ model Order {
   @@index([customerId])
   @@index([customerRecordId])
   @@map("orders")
+}
+
+// §4.2/§11/17.5. CUSTOMER_WEB: self-service, keyed by
+// orders.customer_id = the User who placed it through customer-web.
+// COUNTER: staff placed it on a customer's behalf via `POST
+// /shop/orders`. See Order.customerId's own comment for the judgment
+// call on which User backs customerId for a COUNTER order.
+enum OrderCreationSource {
+  CUSTOMER_WEB
+  COUNTER
 }
 
 enum PaymentStatus {

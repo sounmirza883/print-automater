@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import {
   DocumentStatus,
+  OrderCreationSource,
   OrderStatus,
   PaymentStatus,
   Prisma,
@@ -19,7 +20,10 @@ import type {
   PrinterCapabilities,
   ShopRejectionReason,
 } from "@print-automated/types";
-import type { ResolveUnknownPrintInput } from "@print-automated/validation";
+import type {
+  CreateCounterOrderInput,
+  ResolveUnknownPrintInput,
+} from "@print-automated/validation";
 import {
   AppException,
   OrderEvent,
@@ -29,10 +33,19 @@ import {
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
+import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
 import { RefundService } from "../payments/refund.service.js";
 
 const SHOP_ORDER_INCLUDE = {
   customer: { select: { name: true } },
+  // 17.5: for a COUNTER order, `customer` is the STAFF member who
+  // placed it (Order.customerId's own schema comment) -- the shop's
+  // own order list should show the actual walk-in customer's name
+  // when one exists, not the staff member's. toResponse() below
+  // prefers `customerRecord.name` over `customer.name` whenever it's
+  // present; every pre-17.5 (self-service) order has no
+  // customerRecord at all, so its own `customer.name` is unaffected.
+  customerRecord: { select: { name: true } },
   document: { select: { filename: true } },
   // §37's own printing screen needs a printer name to show -- the
   // most recently created job is "the" job for MVP purposes (nothing
@@ -107,6 +120,7 @@ export class ShopOrdersService {
     private readonly orderStateMachine: OrderStateMachine,
     private readonly agentJobsService: AgentJobsService,
     private readonly refundService: RefundService,
+    private readonly ordersService: OrdersService,
   ) {
     this.repository = ShopOrdersService.buildRepository(prisma);
   }
@@ -169,6 +183,49 @@ export class ShopOrdersService {
       }
     }
     return grouped;
+  }
+
+  /** §4.2/§11/17.5: `POST /shop/orders` -- staff placing an order at
+   * the counter on a walk-in customer's behalf. A thin wrapper over
+   * OrdersService.createOrder(), the exact same quote/pricing/state-
+   * machine machinery the customer-web path uses -- NOT a parallel
+   * implementation. `shopId` arrives in the body (no single route
+   * param to resolve it from), so membership is checked directly here,
+   * the same pattern listGrouped() above already establishes.
+   *
+   * `requestingUserId` passed down to OrdersService is the STAFF
+   * member's own id, not a synthetic customer -- see Order.customerId's
+   * own schema comment for the full reasoning (17.5's judgment call).
+   * `customerRecordId` must belong to THIS shop -- checked with the
+   * same 403-for-both-"missing"-and-"wrong shop" convention
+   * ShopScopeGuard itself already uses, so a counter order can never be
+   * filed against another shop's walk-in customer. */
+  async createCounterOrder(
+    staffUserId: string,
+    input: CreateCounterOrderInput,
+  ): Promise<OrderResponse> {
+    const isMember = await this.shopMembership.isActiveStaff(input.shopId, staffUserId);
+    if (!isMember) {
+      throw new ForbiddenException("You do not have access to this shop's orders.");
+    }
+
+    const customerRecord = await this.prisma.customer.findUnique({
+      where: { id: input.customerRecordId },
+      select: { shopId: true },
+    });
+    if (!customerRecord || customerRecord.shopId !== input.shopId) {
+      throw new ForbiddenException("That customer record does not belong to this shop.");
+    }
+
+    return this.ordersService.createOrder(
+      staffUserId,
+      {
+        shopId: input.shopId,
+        documentId: input.documentId,
+        printConfiguration: input.printConfiguration,
+      },
+      { customerRecordId: input.customerRecordId, creationSource: OrderCreationSource.COUNTER },
+    );
   }
 
   /** §34. ShopScopeGuard (via OrderShopResolver, at the route level)
@@ -625,7 +682,7 @@ export class ShopOrdersService {
     return {
       id: order.id,
       publicOrderNumber: order.publicOrderNumber,
-      customerName: order.customer.name,
+      customerName: order.customerRecord?.name ?? order.customer.name,
       documentFilename: order.document.filename,
       printConfiguration: order.printConfiguration,
       pricingSnapshot: order.pricingSnapshot,

@@ -19,7 +19,9 @@ import { PermissionsGuard } from "../auth/permissions.guard.js";
 import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped, ShopScopedField } from "../auth/shop-scoped.decorator.js";
+import type { OrderResponse } from "../orders/orders.service.js";
 import { ChangePrinterDto } from "./dto/change-printer.dto.js";
+import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
 import { ResolveUnknownPrintDto } from "./dto/resolve-unknown-print.dto.js";
@@ -70,6 +72,20 @@ export class ShopOrdersController {
     @Query() query: ListShopOrdersQueryDto,
   ): Promise<ShopOrdersGrouped> {
     return this.shopOrdersService.listGrouped(req.user!.id, query.shopId);
+  }
+
+  /** §4.2/§11/17.5: staff placing an order at the counter on a
+   * customer's behalf -- CREATE_ORDERS, the same permission the
+   * customer-web-equivalent action would require of a self-service
+   * customer, held by SHOP_COUNTER (role-permissions.ts). */
+  @Post()
+  @RequirePermission(Permission.CREATE_ORDERS)
+  @ShopScopedField("body", "shopId")
+  createCounterOrder(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateCounterOrderDto,
+  ): Promise<OrderResponse> {
+    return this.shopOrdersService.createCounterOrder(req.user!.id, dto);
   }
 
   @Get(":id")

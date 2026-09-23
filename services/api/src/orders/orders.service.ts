@@ -5,7 +5,14 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { DocumentStatus, type Order, OrderStatus, ShopStatus, type Prisma } from "@prisma/client";
+import {
+  DocumentStatus,
+  type Order,
+  OrderCreationSource,
+  OrderStatus,
+  ShopStatus,
+  type Prisma,
+} from "@prisma/client";
 import type { ApiEnv } from "@print-automated/config";
 import {
   AppException,
@@ -52,7 +59,20 @@ export interface OrderResponse {
   pricingSnapshot: PricingSnapshot;
   paymentStatus: Order["paymentStatus"];
   orderStatus: Order["orderStatus"];
+  creationSource: Order["creationSource"];
+  customerRecordId: string | null;
   createdAt: Date;
+}
+
+/** 17.5: extra, counter-order-only fields `createOrder` accepts on top
+ * of `CreateQuoteInput` -- kept as a separate parameter rather than
+ * folded into `CreateQuoteInput` itself, so the customer-web path
+ * (OrdersController's own `POST /orders`) is structurally unable to
+ * ever set `customerRecordId`/`creationSource: COUNTER` for itself;
+ * only ShopOrdersService's own counter-order method ever passes one. */
+export interface CreateOrderExtra {
+  customerRecordId?: string;
+  creationSource?: OrderCreationSource;
 }
 
 /** §28's history list needs the shop's name and the document's
@@ -101,19 +121,17 @@ export class OrdersService {
    * rather than a raw `create({ orderStatus: ... })`, so the very first
    * status this row ever holds still goes through the same audited,
    * lint-enforced path every later one does. */
-  async createOrder(requestingUserId: string, input: CreateQuoteInput): Promise<OrderResponse> {
+  async createOrder(
+    requestingUserId: string,
+    input: CreateQuoteInput,
+    extra?: CreateOrderExtra,
+  ): Promise<OrderResponse> {
     const { quote, pricingRuleRow } = await this.resolveQuote(requestingUserId, input);
 
     const publicOrderNumber = await this.orderNumberService.generate();
     const pricingSnapshot: PricingSnapshot = {
       pricingRuleVersion: pricingRuleRow.version,
-      pricingRule: {
-        currency: pricingRuleRow.currency,
-        pricePerPageMinor: pricingRuleRow.pricePerPageMinor,
-        colorSurchargePerPageMinor: pricingRuleRow.colorSurchargePerPageMinor,
-        otherCharges: pricingRuleRow.otherCharges as unknown as PricingRule["otherCharges"],
-        minimumChargeMinor: pricingRuleRow.minimumChargeMinor,
-      },
+      pricingRule: toPricingRule(pricingRuleRow),
       quote,
     };
 
@@ -121,6 +139,12 @@ export class OrdersService {
       data: {
         publicOrderNumber,
         customerId: requestingUserId,
+        // 17.5: undefined (never null) for a self-service order --
+        // Prisma treats an undefined field as "not provided," so this
+        // stays out of the INSERT entirely rather than writing an
+        // explicit NULL, identical to every pre-17.5 createOrder() call.
+        customerRecordId: extra?.customerRecordId,
+        creationSource: extra?.creationSource ?? OrderCreationSource.CUSTOMER_WEB,
         shopId: input.shopId,
         documentId: input.documentId,
         printConfiguration: input.printConfiguration as unknown as Prisma.InputJsonValue,
@@ -211,6 +235,8 @@ export class OrdersService {
       pricingSnapshot: order.pricingSnapshot as unknown as PricingSnapshot,
       paymentStatus: order.paymentStatus,
       orderStatus: order.orderStatus,
+      creationSource: order.creationSource,
+      customerRecordId: order.customerRecordId,
       createdAt: order.createdAt,
     };
   }
@@ -265,13 +291,7 @@ export class OrdersService {
       );
     }
 
-    const pricingRule: PricingRule = {
-      currency: pricingRuleRow.currency,
-      pricePerPageMinor: pricingRuleRow.pricePerPageMinor,
-      colorSurchargePerPageMinor: pricingRuleRow.colorSurchargePerPageMinor,
-      otherCharges: pricingRuleRow.otherCharges as unknown as PricingRule["otherCharges"],
-      minimumChargeMinor: pricingRuleRow.minimumChargeMinor,
-    };
+    const pricingRule = toPricingRule(pricingRuleRow);
 
     let quote: Quote;
     try {
@@ -303,6 +323,32 @@ export class OrdersService {
 
     return { quote, pricingRuleRow };
   }
+}
+
+/** 17.2/17.3: maps a persisted `pricing_rules` row onto
+ * packages/pricing's own `PricingRule` input shape, INCLUDING the v2
+ * fields (paper size/type surcharges, finishing charges, tax) -- used
+ * both to build the object `computeQuote()` actually reads and to
+ * snapshot onto a new order's `pricingSnapshot.pricingRule`. A single
+ * function, not duplicated inline at each of those two call sites, so
+ * they can never quietly drift out of sync (e.g. one remembering the
+ * new v2 fields, the other forgetting them, silently pricing/
+ * snapshotting differently for the same rule). */
+function toPricingRule(row: Prisma.PricingRuleGetPayload<object>): PricingRule {
+  return {
+    currency: row.currency,
+    pricePerPageMinor: row.pricePerPageMinor,
+    colorSurchargePerPageMinor: row.colorSurchargePerPageMinor,
+    otherCharges: row.otherCharges as unknown as PricingRule["otherCharges"],
+    minimumChargeMinor: row.minimumChargeMinor,
+    paperSizeSurchargePerPageMinor:
+      row.paperSizeSurchargePerPageMinor as unknown as PricingRule["paperSizeSurchargePerPageMinor"],
+    paperTypeSurchargePerPageMinor:
+      row.paperTypeSurchargePerPageMinor as unknown as PricingRule["paperTypeSurchargePerPageMinor"],
+    finishingChargeMinor:
+      row.finishingChargeMinor as unknown as PricingRule["finishingChargeMinor"],
+    taxRateBasisPoints: row.taxRateBasisPoints ?? undefined,
+  };
 }
 
 /** §18, applied again here (not just at 4.3's discovery filter): a
