@@ -160,9 +160,23 @@ export class OrdersService {
     return this.toOrderResponse({ ...order, orderStatus: OrderStatus.UPLOADED });
   }
 
+  /** Code review finding (17.6-17.7 review): a COUNTER order
+   * (17.5) sets `customerId` to the STAFF member who rang it up, not a
+   * synthetic account -- see this file's own createOrder() comment for
+   * why. That's correct for lifecycle emails and ownership plumbing,
+   * but it means a staff member who has ever placed a walk-in order at
+   * the counter also technically "owns" that order by customerId, and
+   * without this filter every one of those would appear mixed into
+   * their own personal "my orders" history here -- a real information/
+   * UX conflation (not a security leak; they legitimately created
+   * those rows) between "orders I placed for myself" and "orders I
+   * rang up for someone else." This is specifically the self-service
+   * "my orders" view (§72/§79), so it excludes COUNTER-sourced orders;
+   * shop staff see those through GET /shop/orders instead, where
+   * they're correctly attributed to the walk-in customerRecord. */
   async listOrders(requestingUserId: string): Promise<OrderResponse[]> {
     const orders = await this.prisma.order.findMany({
-      where: { customerId: requestingUserId },
+      where: { customerId: requestingUserId, creationSource: OrderCreationSource.CUSTOMER_WEB },
       orderBy: { createdAt: "desc" },
       include: ORDER_INCLUDE,
     });

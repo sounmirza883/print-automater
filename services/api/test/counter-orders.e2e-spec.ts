@@ -237,6 +237,25 @@ describe("Counter-placed orders (§4.2/§11/17.5, e2e)", () => {
       .set("Authorization", `Bearer ${counterAToken}`);
     expect(shopOrderRes.status).toBe(200);
     expect(shopOrderRes.body.customerName).toBe("Walk-in Customer Zainab");
+
+    // Code review finding: customerId being the staff member's own id
+    // (above) means this counter order technically satisfies the same
+    // ownership filter customer-web's own "my orders" endpoint uses.
+    // Without an explicit exclusion, every walk-in order this staff
+    // member ever rings up would appear mixed into THEIR OWN personal
+    // order history -- a real conflation between "orders I placed for
+    // myself" and "orders I created for someone else at the counter."
+    // GET /v1/orders now filters to creationSource: CUSTOMER_WEB only
+    // (orders.service.ts's own listOrders comment), so this COUNTER
+    // order must never appear there even though counterAtShopA is
+    // genuinely its customerId.
+    const myOrdersRes = await request(app.getHttpServer())
+      .get("/v1/orders")
+      .set("Authorization", `Bearer ${counterAToken}`);
+    expect(myOrdersRes.status).toBe(200);
+    expect(myOrdersRes.body.map((order: { id: string }) => order.id)).not.toContain(
+      orderRes.body.id,
+    );
   });
 
   it("§47: a role without CREATE_ORDERS (PRINTER_MANAGER) cannot place a counter order", async () => {

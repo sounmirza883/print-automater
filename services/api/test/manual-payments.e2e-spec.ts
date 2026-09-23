@@ -226,6 +226,38 @@ describe("Manual payment recording (§35/17.6, e2e)", () => {
     expect(payments).toHaveLength(1);
   });
 
+  // Code review finding: the sequential test above (await first, then
+  // await second) proves the two-separate-requests case but NOT the
+  // genuinely concurrent one -- two staff members tapping "record cash
+  // payment" on the same order within the same lock-acquisition window,
+  // which is exactly the class of race the Phase 16 last-owner bug hid
+  // behind a sequential-only test. Fires both requests via Promise.all
+  // (never sequential awaits) so neither has a head start, and asserts
+  // the OrderLockService (order-lock:${orderId}, the same key/class the
+  // mock-PSP webhook path uses) genuinely serializes them: exactly one
+  // succeeds, exactly one Payment row survives, no matter which wins.
+  it("concurrent double-call for the same order never produces two Payment rows", async () => {
+    const { orderId } = await createUploadedOrder();
+
+    const [resOne, resTwo] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/record-payment`)
+        .set("Authorization", `Bearer ${counterAToken}`),
+      request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/record-payment`)
+        .set("Authorization", `Bearer ${counterAToken}`),
+    ]);
+
+    const statuses = [resOne.status, resTwo.status].sort();
+    // Exactly one succeeds (200) and one is correctly refused (409) --
+    // never both 200s, which would mean two Payment rows for one order.
+    expect(statuses).toEqual([200, 409]);
+
+    const payments = await prisma.payment.findMany({ where: { orderId } });
+    expect(payments).toHaveLength(1);
+    expect(payments[0]?.status).toBe(PaymentStatus.PAID);
+  });
+
   it("rejects recording a manual payment on an order that's already PAID", async () => {
     const { orderId } = await createUploadedOrder();
     await prisma.order.update({
