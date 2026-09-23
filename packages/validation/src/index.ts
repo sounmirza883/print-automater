@@ -38,6 +38,13 @@ export {
 } from "./printers/index.js";
 export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";
 export {
+  addShopStaffSchema,
+  type AddShopStaffInput,
+  changeShopStaffRoleSchema,
+  type ChangeShopStaffRoleInput,
+  SHOP_STAFF_ASSIGNABLE_ROLES,
+} from "./shop-staff/index.js";
+export {
   registerAgentSchema,
   type RegisterAgentInput,
   authenticateChallengeSchema,
