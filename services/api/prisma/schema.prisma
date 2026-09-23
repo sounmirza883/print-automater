@@ -138,8 +138,59 @@ model Shop {
   printerAgents     PrinterAgent[]
   agentPairingCodes AgentPairingCode[]
   customers         Customer[]
+  products          Product[]
 
   @@map("shops")
+}
+
+// §13/17.1: a shop's own named product catalog (e.g. "Business Cards",
+// "A4 Handout Booklet") -- distinct from PricingRule, which prices raw
+// page/copy/color inputs generically. A Product is a shop-defined,
+// named thing a customer or counter staff can pick, carrying its own
+// descriptive/tax/requirement metadata; nothing here prices anything
+// by itself yet (that's still PricingRule's job, extended in 17.2) --
+// wiring a specific OrderItem to a specific Product is explicitly
+// deferred to Phase 18 (§64's multi-item explosion), which is why this
+// model has no relation to Order/OrderItem at all yet, only to Shop.
+// Deliberately no assumption of a 1:1 with any one order: a Product
+// outlives any single order and is reused across many.
+//
+// `printerRequirements` mirrors `Printer.capabilities`'s own
+// {color, duplex, a4, a3} JSON shape (§18/§49) rather than inventing a
+// new one -- "what this product needs a printer to support" is the
+// same vocabulary as "what a printer supports". `paperRequirements`
+// mirrors `PrintConfiguration`'s own paperSize/paperType fields
+// (15.1/§64) for the same reason -- "what paper this product needs" is
+// the same closed vocabulary a print job's own configuration already
+// uses, not a freeform new shape.
+model Product {
+  id                    String   @id @default(uuid())
+  shopId                String   @map("shop_id")
+  name                  String
+  description           String?
+  // Free text, not a closed enum -- a shop's own product categories
+  // ("Stationery", "Marketing Material", ...) are shop-specific
+  // vocabulary, the same reasoning Printer.model/location/
+  // connectionType already established for free-text profile fields.
+  category              String?
+  // e.g. "per page", "per copy", "per item" -- free text for the same
+  // reason as category; nothing in this sub-phase's scope prices off
+  // this field yet (17.2/17.3 extend PricingRule directly).
+  unit                  String?
+  // Matches PricingRule's own basis-points convention (17.2) rather
+  // than a float percentage -- never floating point for anything
+  // money- or rate-adjacent in this schema.
+  taxRateBasisPoints    Int?     @map("tax_rate_basis_points")
+  printerRequirements   Json?    @map("printer_requirements")
+  paperRequirements     Json?    @map("paper_requirements")
+  available             Boolean  @default(true)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@map("products")
 }
 
 // 15.5/§33. A shop's OWN customer record -- distinct from `User`
