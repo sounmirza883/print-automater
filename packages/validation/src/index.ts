@@ -45,6 +45,12 @@ export {
   SHOP_STAFF_ASSIGNABLE_ROLES,
 } from "./shop-staff/index.js";
 export {
+  adminListQuerySchema,
+  type AdminListQueryInput,
+  adminAuditQuerySchema,
+  type AdminAuditQueryInput,
+} from "./admin/index.js";
+export {
   registerAgentSchema,
   type RegisterAgentInput,
   authenticateChallengeSchema,

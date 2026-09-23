@@ -23,6 +23,7 @@ import { ShopStaffModule } from "./shop-staff/shop-staff.module.js";
 import { ShopAgentsModule } from "./shop-agents/shop-agents.module.js";
 import { AgentsModule } from "./agents/agents.module.js";
 import { PaymentReconciliationModule } from "./payment-reconciliation/payment-reconciliation.module.js";
+import { AdminModule } from "./admin/admin.module.js";
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { PaymentReconciliationModule } from "./payment-reconciliation/payment-re
     ShopAgentsModule,
     AgentsModule,
     PaymentReconciliationModule,
+    AdminModule,
   ],
 })
 export class AppModule {}
