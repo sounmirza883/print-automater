@@ -8,5 +8,5 @@ export const PERMISSION_KEY = "requiredPermission";
  * Checked by PermissionsGuard against the EFFECTIVE role (16.1's
  * `ShopStaff.role` when in shop context, else the account-level
  * `User.role`) via `ROLE_PERMISSIONS`. */
-export const RequirePermission = (permission: Permission): MethodDecorator =>
+export const RequirePermission = (permission: Permission): MethodDecorator & ClassDecorator =>
   SetMetadata(PERMISSION_KEY, permission);

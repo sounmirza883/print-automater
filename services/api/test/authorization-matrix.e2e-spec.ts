@@ -516,8 +516,8 @@ describe("Authorization matrix (12.1, e2e)", () => {
   // Shop-staff resources: printers
   // ---------------------------------------------------------------
   describe("printers (shop-staff routes)", () => {
-    it("own-shop x printer: list/register/update/delete all succeed", async () => {
-      const token = staffTokens.A![UserRole.SHOP_COUNTER]!;
+    it("own-shop x printer: list/register/update/delete all succeed (SHOP_OWNER -- has MANAGE_PRINTERS)", async () => {
+      const token = staffTokens.A![UserRole.SHOP_OWNER]!;
       const list = await request(app.getHttpServer())
         .get(`/v1/shop/printers?shopId=${shopA.id}`)
         .set("Authorization", `Bearer ${token}`);
@@ -544,6 +544,33 @@ describe("Authorization matrix (12.1, e2e)", () => {
 
     it("other-shop x printer: list/register/update/delete all 403", async () => {
       const token = staffTokens.B![UserRole.SHOP_COUNTER]!;
+      const list = await request(app.getHttpServer())
+        .get(`/v1/shop/printers?shopId=${shopA.id}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(list.status).toBe(403);
+
+      const registered = await request(app.getHttpServer())
+        .post("/v1/shop/printers")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ shopId: shopA.id, name: "Should not register" });
+      expect(registered.status).toBe(403);
+
+      const updated = await request(app.getHttpServer())
+        .patch(`/v1/shop/printers/${printerA.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "Should not rename" });
+      expect(updated.status).toBe(403);
+
+      const deleted = await request(app.getHttpServer())
+        .delete(`/v1/shop/printers/${printerA.id}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(deleted.status).toBe(403);
+    });
+
+    /** §47/16.3's own Done-when: same shop, lower-privilege role
+     * blocked from what SHOP_OWNER (above) can do. */
+    it("own-shop x printer, SHOP_COUNTER: list/register/update/delete all 403 (lacks MANAGE_PRINTERS)", async () => {
+      const token = staffTokens.A![UserRole.SHOP_COUNTER]!;
       const list = await request(app.getHttpServer())
         .get(`/v1/shop/printers?shopId=${shopA.id}`)
         .set("Authorization", `Bearer ${token}`);

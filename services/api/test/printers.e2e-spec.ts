@@ -26,10 +26,17 @@ describe("Printers CRUD API (8.4, e2e)", () => {
 
   let shopA: { id: string };
   let shopB: { id: string };
+  // §47/16.3: MANAGE_PRINTERS is granted to SHOP_MANAGER/SHOP_OWNER/
+  // PRINTER_MANAGER, not SHOP_COUNTER -- this fixture's account-level
+  // User.role stays SHOP_COUNTER (16.1: it's ShopStaff.role at shop A
+  // that's authoritative here, and it's SHOP_MANAGER) so every test
+  // below doubles as end-to-end proof of both 16.1 and 16.3 together.
   let counterAtShopA: { id: string; role: UserRole };
   let counterAtShopB: { id: string; role: UserRole };
+  let counterOnlyAtShopA: { id: string; role: UserRole };
   let counterAToken: string;
   let counterBToken: string;
+  let counterOnlyToken: string;
 
   const printerIds: string[] = [];
 
@@ -69,6 +76,23 @@ describe("Printers CRUD API (8.4, e2e)", () => {
       data: {
         shopId: shopA.id,
         userId: counterAtShopA.id,
+        role: UserRole.SHOP_MANAGER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+
+    counterOnlyAtShopA = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_COUNTER,
+        name: "Printers E2E Counter-only A",
+        email: `printers-e2e-counter-only-a-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    await prisma.shopStaff.create({
+      data: {
+        shopId: shopA.id,
+        userId: counterOnlyAtShopA.id,
         role: UserRole.SHOP_COUNTER,
         status: ShopStaffStatus.ACTIVE,
       },
@@ -93,15 +117,18 @@ describe("Printers CRUD API (8.4, e2e)", () => {
 
     counterAToken = tokenService.issueAccessToken(counterAtShopA);
     counterBToken = tokenService.issueAccessToken(counterAtShopB);
+    counterOnlyToken = tokenService.issueAccessToken(counterOnlyAtShopA);
   });
 
   afterAll(async () => {
     await prisma.printJob.deleteMany({ where: { printerId: { in: printerIds } } });
     await prisma.printer.deleteMany({ where: { id: { in: printerIds } } });
     await prisma.shopStaff.deleteMany({
-      where: { userId: { in: [counterAtShopA.id, counterAtShopB.id] } },
+      where: { userId: { in: [counterAtShopA.id, counterAtShopB.id, counterOnlyAtShopA.id] } },
     });
-    await prisma.user.deleteMany({ where: { id: { in: [counterAtShopA.id, counterAtShopB.id] } } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [counterAtShopA.id, counterAtShopB.id, counterOnlyAtShopA.id] } },
+    });
     await prisma.shop.deleteMany({ where: { id: { in: [shopA.id, shopB.id] } } });
     await app.close();
   });
@@ -130,6 +157,36 @@ describe("Printers CRUD API (8.4, e2e)", () => {
     expect(res.status).toBe(201);
     expect(res.body.capabilities).toBeNull();
     printerIds.push(res.body.id);
+  });
+
+  /** §47/16.3's own Done-when: a lower-privilege role (SHOP_COUNTER,
+   * lacking MANAGE_PRINTERS) is blocked from an action a higher-
+   * privilege role (SHOP_MANAGER, above) can do AT THE SAME SHOP. */
+  it("register/list/update/delete all 403 for a SHOP_COUNTER at the same shop that a SHOP_MANAGER can act on", async () => {
+    const registered = await request(app.getHttpServer())
+      .post("/v1/shop/printers")
+      .set("Authorization", `Bearer ${counterOnlyToken}`)
+      .send({ shopId: shopA.id, name: "Should not register" });
+    expect(registered.status).toBe(403);
+
+    const list = await request(app.getHttpServer())
+      .get(`/v1/shop/printers?shopId=${shopA.id}`)
+      .set("Authorization", `Bearer ${counterOnlyToken}`);
+    expect(list.status).toBe(403);
+
+    const printer = await prisma.printer.create({ data: { shopId: shopA.id, name: "Guarded 2" } });
+    printerIds.push(printer.id);
+
+    const updated = await request(app.getHttpServer())
+      .patch(`/v1/shop/printers/${printer.id}`)
+      .set("Authorization", `Bearer ${counterOnlyToken}`)
+      .send({ name: "Should not rename" });
+    expect(updated.status).toBe(403);
+
+    const deleted = await request(app.getHttpServer())
+      .delete(`/v1/shop/printers/${printer.id}`)
+      .set("Authorization", `Bearer ${counterOnlyToken}`);
+    expect(deleted.status).toBe(403);
   });
 
   it("register returns 403 for a shopId the caller doesn't staff", async () => {

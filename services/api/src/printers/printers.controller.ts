@@ -13,24 +13,35 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
+import { Permission } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
+import { PermissionsGuard } from "../auth/permissions.guard.js";
+import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
-import { ShopScoped } from "../auth/shop-scoped.decorator.js";
+import { ShopScoped, ShopScopedField } from "../auth/shop-scoped.decorator.js";
 import { ListPrintersQueryDto } from "./dto/list-printers-query.dto.js";
 import { RegisterPrinterDto } from "./dto/register-printer.dto.js";
 import { UpdatePrinterDto } from "./dto/update-printer.dto.js";
 import { PrinterShopResolver } from "./printer-shop.resolver.js";
 import { PrintersService, type PrinterResponse } from "./printers.service.js";
 
+/** §47/16.3: the printer fleet is a MANAGE_PRINTERS-gated resource --
+ * counter staff can no longer list, register, update or delete
+ * printers (they still handle orders fine; printers.e2e-spec.ts and
+ * authorization-matrix.e2e-spec.ts assert the new SHOP_COUNTER 403
+ * directly). PRINTER_MANAGER is the one non-owner/manager role that
+ * DOES get this permission (role-permissions.ts). */
 @Controller("shop/printers")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.SHOP_COUNTER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles(UserRole.SHOP_COUNTER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER, UserRole.PRINTER_MANAGER)
+@RequirePermission(Permission.MANAGE_PRINTERS)
 export class PrintersController {
   constructor(private readonly printersService: PrintersService) {}
 
   @Get()
+  @ShopScopedField("query", "shopId")
   list(
     @Req() req: RequestWithUser,
     @Query() query: ListPrintersQueryDto,
@@ -39,6 +50,7 @@ export class PrintersController {
   }
 
   @Post()
+  @ShopScopedField("body", "shopId")
   register(@Req() req: RequestWithUser, @Body() dto: RegisterPrinterDto): Promise<PrinterResponse> {
     return this.printersService.register(req.user!.id, dto);
   }

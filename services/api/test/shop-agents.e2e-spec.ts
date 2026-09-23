@@ -20,8 +20,14 @@ describe("Pairing code issuance & redemption (9.2, e2e)", () => {
 
   let shopA: { id: string };
   let shopB: { id: string };
+  // §47/16.3: issuing a pairing code needs MANAGE_PRINTERS, granted to
+  // SHOP_MANAGER/SHOP_OWNER/PRINTER_MANAGER, not SHOP_COUNTER --
+  // account-level role stays SHOP_COUNTER (16.1: ShopStaff.role at
+  // this shop, SHOP_MANAGER, is what's authoritative).
   let counterAtShopA: { id: string; role: UserRole };
+  let counterOnlyAtShopA: { id: string; role: UserRole };
   let counterAToken: string;
+  let counterOnlyToken: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -60,18 +66,40 @@ describe("Pairing code issuance & redemption (9.2, e2e)", () => {
       data: {
         shopId: shopA.id,
         userId: counterAtShopA.id,
+        role: UserRole.SHOP_MANAGER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+
+    counterOnlyAtShopA = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_COUNTER,
+        name: "Shop Agents E2E Counter-only",
+        email: `shop-agents-e2e-counter-only-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    await prisma.shopStaff.create({
+      data: {
+        shopId: shopA.id,
+        userId: counterOnlyAtShopA.id,
         role: UserRole.SHOP_COUNTER,
         status: ShopStaffStatus.ACTIVE,
       },
     });
 
     counterAToken = tokenService.issueAccessToken(counterAtShopA);
+    counterOnlyToken = tokenService.issueAccessToken(counterOnlyAtShopA);
   });
 
   afterAll(async () => {
     await prisma.agentPairingCode.deleteMany({ where: { shopId: { in: [shopA.id, shopB.id] } } });
-    await prisma.shopStaff.deleteMany({ where: { userId: counterAtShopA.id } });
-    await prisma.user.deleteMany({ where: { id: counterAtShopA.id } });
+    await prisma.shopStaff.deleteMany({
+      where: { userId: { in: [counterAtShopA.id, counterOnlyAtShopA.id] } },
+    });
+    await prisma.user.deleteMany({
+      where: { id: { in: [counterAtShopA.id, counterOnlyAtShopA.id] } },
+    });
     await prisma.shop.deleteMany({ where: { id: { in: [shopA.id, shopB.id] } } });
     await app.close();
   });
@@ -102,6 +130,17 @@ describe("Pairing code issuance & redemption (9.2, e2e)", () => {
       .post("/v1/shop/agents/pairing-code")
       .set("Authorization", `Bearer ${counterAToken}`)
       .send({ shopId: shopB.id });
+    expect(res.status).toBe(403);
+  });
+
+  /** §47/16.3: a SHOP_COUNTER at this same shop lacks MANAGE_PRINTERS
+   * -- the exact role a SHOP_MANAGER at the same shop can do this with,
+   * proven by the very first test in this file. */
+  it("returns 403 for a SHOP_COUNTER at the shop it does staff (lacks MANAGE_PRINTERS)", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/v1/shop/agents/pairing-code")
+      .set("Authorization", `Bearer ${counterOnlyToken}`)
+      .send({ shopId: shopA.id });
     expect(res.status).toBe(403);
   });
 
