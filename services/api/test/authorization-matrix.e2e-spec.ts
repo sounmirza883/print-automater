@@ -568,14 +568,16 @@ describe("Authorization matrix (12.1, e2e)", () => {
     });
 
     /** §47/16.3's own Done-when: same shop, lower-privilege role
-     * blocked from what SHOP_OWNER (above) can do. */
-    it("own-shop x printer, SHOP_COUNTER: list/register/update/delete all 403 (lacks MANAGE_PRINTERS)", async () => {
+     * blocked from what SHOP_OWNER (above) can do -- for
+     * register/update/delete, which genuinely change the fleet. `list`
+     * is a read, deliberately excluded from MANAGE_PRINTERS (fixed
+     * post-Phase-17, see printers.controller.ts's own comment): a
+     * SHOP_COUNTER needs to read the printer list to use the "Change
+     * Printer" picker on an order they can already retry
+     * (EDIT_ORDERS), so it gets its own 200 assertion below instead of
+     * being lumped in with the writes. */
+    it("own-shop x printer, SHOP_COUNTER: register/update/delete all 403 (lacks MANAGE_PRINTERS)", async () => {
       const token = staffTokens.A![UserRole.SHOP_COUNTER]!;
-      const list = await request(app.getHttpServer())
-        .get(`/v1/shop/printers?shopId=${shopA.id}`)
-        .set("Authorization", `Bearer ${token}`);
-      expect(list.status).toBe(403);
-
       const registered = await request(app.getHttpServer())
         .post("/v1/shop/printers")
         .set("Authorization", `Bearer ${token}`)
@@ -592,6 +594,14 @@ describe("Authorization matrix (12.1, e2e)", () => {
         .delete(`/v1/shop/printers/${printerA.id}`)
         .set("Authorization", `Bearer ${token}`);
       expect(deleted.status).toBe(403);
+    });
+
+    it("own-shop x printer, SHOP_COUNTER: list succeeds (200) -- reading is not a MANAGE_PRINTERS action", async () => {
+      const token = staffTokens.A![UserRole.SHOP_COUNTER]!;
+      const list = await request(app.getHttpServer())
+        .get(`/v1/shop/printers?shopId=${shopA.id}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(list.status).toBe(200);
     });
   });
 

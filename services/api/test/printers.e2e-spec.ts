@@ -161,18 +161,19 @@ describe("Printers CRUD API (8.4, e2e)", () => {
 
   /** §47/16.3's own Done-when: a lower-privilege role (SHOP_COUNTER,
    * lacking MANAGE_PRINTERS) is blocked from an action a higher-
-   * privilege role (SHOP_MANAGER, above) can do AT THE SAME SHOP. */
-  it("register/list/update/delete all 403 for a SHOP_COUNTER at the same shop that a SHOP_MANAGER can act on", async () => {
+   * privilege role (SHOP_MANAGER, above) can do AT THE SAME SHOP --
+   * for register/update/delete, which genuinely change the printer
+   * fleet. list is deliberately excluded from this permission (fixed
+   * post-Phase-17, see printers.controller.ts's own comment):
+   * SHOP_COUNTER needs to READ the printer list to use the "Change
+   * Printer" picker on an order they're otherwise fully permitted to
+   * retry (EDIT_ORDERS), so MANAGE_PRINTERS only gates writes. */
+  it("register/update/delete all 403 for a SHOP_COUNTER at the same shop that a SHOP_MANAGER can act on", async () => {
     const registered = await request(app.getHttpServer())
       .post("/v1/shop/printers")
       .set("Authorization", `Bearer ${counterOnlyToken}`)
       .send({ shopId: shopA.id, name: "Should not register" });
     expect(registered.status).toBe(403);
-
-    const list = await request(app.getHttpServer())
-      .get(`/v1/shop/printers?shopId=${shopA.id}`)
-      .set("Authorization", `Bearer ${counterOnlyToken}`);
-    expect(list.status).toBe(403);
 
     const printer = await prisma.printer.create({ data: { shopId: shopA.id, name: "Guarded 2" } });
     printerIds.push(printer.id);
@@ -187,6 +188,14 @@ describe("Printers CRUD API (8.4, e2e)", () => {
       .delete(`/v1/shop/printers/${printer.id}`)
       .set("Authorization", `Bearer ${counterOnlyToken}`);
     expect(deleted.status).toBe(403);
+  });
+
+  it("list succeeds (200) for a SHOP_COUNTER at their own shop -- reading is not a MANAGE_PRINTERS action", async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/v1/shop/printers?shopId=${shopA.id}`)
+      .set("Authorization", `Bearer ${counterOnlyToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
   });
 
   it("register returns 403 for a shopId the caller doesn't staff", async () => {
