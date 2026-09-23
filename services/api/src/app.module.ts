@@ -26,6 +26,7 @@ import { PaymentReconciliationModule } from "./payment-reconciliation/payment-re
 import { AdminModule } from "./admin/admin.module.js";
 import { ProductsModule } from "./products/products.module.js";
 import { PricingRulesModule } from "./pricing-rules/pricing-rules.module.js";
+import { CustomersModule } from "./customers/customers.module.js";
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { PricingRulesModule } from "./pricing-rules/pricing-rules.module.js";
     AdminModule,
     ProductsModule,
     PricingRulesModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}

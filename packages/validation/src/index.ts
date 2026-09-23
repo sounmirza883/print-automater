@@ -51,6 +51,14 @@ export {
   type AdminAuditQueryInput,
 } from "./admin/index.js";
 export {
+  createCustomerSchema,
+  type CreateCustomerInput,
+  updateCustomerSchema,
+  type UpdateCustomerInput,
+  listCustomersQuerySchema,
+  type ListCustomersQueryInput,
+} from "./customers/index.js";
+export {
   createProductSchema,
   type CreateProductInput,
   updateProductSchema,
