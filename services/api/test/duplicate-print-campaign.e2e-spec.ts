@@ -14,8 +14,9 @@ import {
 } from "@prisma/client";
 import {
   AppException,
-  OrderEvent,
   OrderStateMachine,
+  PrintJobEvent,
+  PrintJobStateMachine,
   PrismaService,
 } from "@print-automated/backend-shared";
 import request from "supertest";
@@ -64,6 +65,7 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
   let pairingCodeService: AgentPairingCodeService;
   let tokenService: TokenService;
   let stateMachine: OrderStateMachine;
+  let jobStateMachine: PrintJobStateMachine;
   let mockProvider: MockPaymentProvider;
 
   let customer: { id: string; role: UserRole };
@@ -162,6 +164,7 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
     pairingCodeService = app.get(AgentPairingCodeService);
     tokenService = app.get(TokenService);
     stateMachine = app.get(OrderStateMachine);
+    jobStateMachine = app.get(PrintJobStateMachine);
     mockProvider = app.get(MockPaymentProvider);
 
     customer = await prisma.user.create({
@@ -235,28 +238,24 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
     const printer = await createPrinterForAgent(deviceId);
     const jobId = await seedJob(printer.id, orderId, PrintJobStatus.CLAIMED);
 
-    // Two racing "recovery attempts" -- e.g. two overlapping 10.5 sweep
+    // Two racing "recovery attempts" -- e.g. two overlapping 19.5 sweep
     // ticks, or a sweep tick racing a staff-initiated failure -- both
-    // driving the exact same FAIL_PRINT event + TIMEOUT sideEffect
-    // 10.5's own processor uses, run truly concurrently.
+    // driving the exact same job-machine TIMEOUT event
+    // print-timeout.processor.ts itself now uses, run truly
+    // concurrently. PrintJobStateMachine's own orders-row-first lock is
+    // what serializes these two against each other: one locks the job
+    // row and wins (QUEUED/CLAIMED -> TIMEOUT is legal), the other
+    // blocks until the first commits, then finds the row already
+    // TIMEOUT and gets ILLEGAL_JOB_TRANSITION.
     const attempt = () =>
-      stateMachine
-        .transition(
-          orderId,
-          OrderEvent.FAIL_PRINT,
-          { id: null },
-          {
-            metadata: { reason: "timeout" },
-            sideEffect: async (tx) => {
-              await tx.printJob.update({
-                where: { id: jobId },
-                data: { status: PrintJobStatus.TIMEOUT },
-              });
-            },
-          },
-        )
+      jobStateMachine
+        .transition(jobId, PrintJobEvent.TIMEOUT, { id: null }, { metadata: { reason: "timeout" } })
+        .then(async () => {
+          await stateMachine.syncFromJobs(orderId, { id: null });
+          return "ok" as const;
+        })
         .catch((error: unknown) => {
-          if (error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION") {
+          if (error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION") {
             return "illegal" as const;
           }
           throw error;
@@ -422,13 +421,17 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
     const job = await prisma.printJob.findUniqueOrThrow({ where: { id: jobId } });
     expect(job.status).toBe(PrintJobStatus.PRINTED);
 
-    const startAudits = await prisma.auditLog.count({
-      where: { resourceType: "order", resourceId: orderId, action: "ORDER_START_PRINT" },
+    // 18.1/18.2: the IdempotencyInterceptor replays 4 of the 5 HTTP
+    // calls without re-executing the handler at all, so the underlying
+    // job-machine PRINTED transition and its order-level SYNC_JOBS
+    // follow-up each genuinely run exactly once.
+    const jobPrintedAudits = await prisma.auditLog.count({
+      where: { resourceType: "print_job", resourceId: jobId, action: "PRINT_JOB_PRINTED" },
     });
-    expect(startAudits).toBe(1);
-    const finishAudits = await prisma.auditLog.count({
-      where: { resourceType: "order", resourceId: orderId, action: "ORDER_FINISH_PRINT" },
+    expect(jobPrintedAudits).toBe(1);
+    const syncAudits = await prisma.auditLog.count({
+      where: { resourceType: "order", resourceId: orderId, action: "ORDER_SYNC_JOBS" },
     });
-    expect(finishAudits).toBe(1);
+    expect(syncAudits).toBe(1);
   });
 });

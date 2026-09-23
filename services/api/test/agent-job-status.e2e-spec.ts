@@ -321,10 +321,17 @@ describe("Agent job status reporting (9.12, e2e)", () => {
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(order.orderStatus).toBe(OrderStatus.PRINTING);
 
-    const transitions = await prisma.auditLog.count({
-      where: { resourceType: "order", resourceId: orderId, action: "ORDER_START_PRINT" },
+    // 18.1/18.2: STARTED_PRINT no longer exists as an order-machine
+    // event -- the job-level PRINT_JOB_START event (PrintJobStateMachine)
+    // plus the order-level ORDER_SYNC_JOBS follow-up are what replace it.
+    const jobTransitions = await prisma.auditLog.count({
+      where: { resourceType: "print_job", resourceId: jobId, action: "PRINT_JOB_START" },
     });
-    expect(transitions).toBe(1);
+    expect(jobTransitions).toBe(1);
+    const orderSyncs = await prisma.auditLog.count({
+      where: { resourceType: "order", resourceId: orderId, action: "ORDER_SYNC_JOBS" },
+    });
+    expect(orderSyncs).toBe(1);
   });
 
   it("returns 404 for a job belonging to a different agent's printer", async () => {

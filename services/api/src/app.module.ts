@@ -7,6 +7,7 @@ import {
   CryptoModule,
   AuditModule,
   OrderStateMachineModule,
+  PrintJobStateMachineModule,
   DocumentDeletionModule,
 } from "@print-automated/backend-shared";
 import { AppConfigModule, apiEnv } from "./config/config.module.js";
@@ -59,6 +60,7 @@ import { CustomersModule } from "./customers/customers.module.js";
     QueuesModule,
     AuditModule,
     OrderStateMachineModule,
+    PrintJobStateMachineModule,
     DocumentDeletionModule,
     HealthModule,
     AuthModule,

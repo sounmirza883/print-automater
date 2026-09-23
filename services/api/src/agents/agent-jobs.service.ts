@@ -1,12 +1,14 @@
 import { HttpStatus, Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
+import { NotFoundException } from "@nestjs/common";
 import type Redis from "ioredis";
 import { PrintJobStatus } from "@prisma/client";
 import type { PrintConfiguration } from "@print-automated/types";
 import type { ReportJobStatusInput } from "@print-automated/validation";
 import {
   AppException,
-  OrderEvent,
   OrderStateMachine,
+  PrintJobEvent,
+  PrintJobStateMachine,
   PrismaService,
   REDIS_CLIENT,
 } from "@print-automated/backend-shared";
@@ -30,13 +32,12 @@ function signalKey(deviceId: string): string {
   return `agent-job-signal:${deviceId}`;
 }
 
-const REPORTED_STATUS_TO_PRINT_JOB_STATUS: Record<ReportJobStatusInput["status"], PrintJobStatus> =
-  {
-    PRINTING: PrintJobStatus.PRINTING,
-    PRINTED: PrintJobStatus.PRINTED,
-    FAILED: PrintJobStatus.FAILED,
-    UNKNOWN: PrintJobStatus.UNKNOWN,
-  };
+const REPORTED_STATUS_TO_JOB_EVENT: Record<ReportJobStatusInput["status"], PrintJobEvent> = {
+  PRINTING: PrintJobEvent.START,
+  PRINTED: PrintJobEvent.PRINTED,
+  FAILED: PrintJobEvent.FAIL,
+  UNKNOWN: PrintJobEvent.LOSE,
+};
 
 /** §9.7. `GET /agents/jobs?wait=N` is a long-poll: check the database
  * for an already-QUEUED job first (covers a job that was queued while
@@ -61,6 +62,7 @@ export class AgentJobsService implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orderStateMachine: OrderStateMachine,
+    private readonly jobStateMachine: PrintJobStateMachine,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.blockingRedis = redis.duplicate();
@@ -95,26 +97,60 @@ export class AgentJobsService implements OnModuleDestroy {
   }
 
   /** §9.7's own Done-when: two agents racing the same job, exactly one
-   * wins. `updateMany`'s WHERE clause is the entire mechanism -- a
-   * plain read-then-write would let both callers see `status: QUEUED`
-   * and both "succeed"; only the database's own row-level atomicity
-   * across two concurrent UPDATEs guarantees a single winner. The
-   * `printer: { agent: { deviceId } }` relation filter is what makes
-   * this agent-scoped without a separate lookup: an agent can only
-   * ever claim a job queued for one of ITS OWN printers, never another
-   * shop's (or even the same shop's *other* agent's) job by guessing
-   * an id. */
+   * wins. 18.1 moved the actual write behind PrintJobStateMachine (the
+   * sole writer of `print_jobs.status`) -- the race-winner GUARANTEE
+   * survives unchanged: the machine locks the job row (`SELECT ... FOR
+   * UPDATE`, inside a transaction that locked this job's ORDER row
+   * first, per its own structural invariant) before checking legality,
+   * so the second of two concurrent claims simply blocks until the
+   * first commits, then finds the row already CLAIMED and gets a
+   * legality error, translated to JOB_ALREADY_CLAIMED below -- the same
+   * single-winner outcome the old bare `updateMany` WHERE-clause idiom
+   * produced, just serialized through the machine's row lock instead of
+   * relying on UPDATE's own atomicity alone.
+   *
+   * `guard` (evaluated under the job row's own lock, so there is no
+   * TOCTOU gap between checking device ownership and committing the
+   * claim) is what makes this agent-scoped without the job machine
+   * itself ever needing to know what an "agent" or "device" is: an
+   * agent can only ever claim a job queued for one of ITS OWN printers,
+   * never another shop's (or even the same shop's *other* agent's) job
+   * by guessing an id. */
   async claim(jobId: string, deviceId: string): Promise<PrintJobSummary> {
-    const claimed = await this.prisma.printJob.updateMany({
-      where: { id: jobId, status: PrintJobStatus.QUEUED, printer: { agent: { deviceId } } },
-      data: { status: PrintJobStatus.CLAIMED, claimedAt: new Date() },
-    });
-
-    if (claimed.count === 0) {
-      const existing = await this.prisma.printJob.findFirst({
-        where: { id: jobId, printer: { agent: { deviceId } } },
-      });
-      if (!existing) {
+    try {
+      await this.jobStateMachine.transition(
+        jobId,
+        PrintJobEvent.CLAIM,
+        { id: null },
+        {
+          guard: async (tx, job) => {
+            const printer = job.printerId
+              ? await tx.printer.findFirst({
+                  where: { id: job.printerId, agent: { deviceId } },
+                  select: { id: true },
+                })
+              : null;
+            if (!printer) {
+              throw new AppException(
+                HttpStatus.NOT_FOUND,
+                "JOB_NOT_FOUND",
+                "No such print job for this agent.",
+                false,
+              );
+            }
+          },
+        },
+      );
+    } catch (err) {
+      if (err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION") {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "JOB_ALREADY_CLAIMED",
+          "Another agent already claimed this job.",
+          false,
+        );
+      }
+      if (err instanceof NotFoundException) {
         throw new AppException(
           HttpStatus.NOT_FOUND,
           "JOB_NOT_FOUND",
@@ -122,14 +158,14 @@ export class AgentJobsService implements OnModuleDestroy {
           false,
         );
       }
-      throw new AppException(
-        HttpStatus.CONFLICT,
-        "JOB_ALREADY_CLAIMED",
-        "Another agent already claimed this job.",
-        false,
-      );
+      throw err;
     }
 
+    // 18.1 deliberately does NOT sync the order here -- under the old
+    // explicit-event system, claiming a job never moved the order's own
+    // status either (only an agent's later PRINTING/PRINTED/FAILED/
+    // UNKNOWN *report* did); preserving that exact boundary is what
+    // keeps single-job-equivalence.e2e-spec.ts (18.10) green.
     const job = await this.prisma.printJob.findUniqueOrThrow({
       where: { id: jobId },
       include: { printer: true, order: { select: { printConfiguration: true } } },
@@ -138,22 +174,23 @@ export class AgentJobsService implements OnModuleDestroy {
   }
 
   /** §9.12. Maps the agent's own narrower report onto both the print
-   * job row and the order's own state machine -- `PrintJobStatus` is
-   * the record of what the agent said happened; `OrderStatus` is what
-   * that means for the order the customer and shop actually see.
+   * job row (via PrintJobStateMachine, 18.1's sole writer of
+   * `print_jobs.status`) and, once that write is durable, the order's
+   * own derived status (via `OrderStateMachine.syncFromJobs()`, 18.2).
    *
-   * Always attempts `START_PRINT` first, even when reporting a
-   * terminal outcome: an agent's own "PRINTING" report can be lost or
-   * arrive out of order behind a "PRINTED"/"FAILED"/"UNKNOWN" report
-   * that made it through first (9.12's own "retried with backoff
-   * while offline" means delivery order across two separate calls is
-   * never guaranteed), and `QUEUED_FOR_PRINT` has no direct transition
-   * to any terminal print state -- only `PRINTING` does. Both
-   * transitions ignore ILLEGAL_ORDER_TRANSITION (the same self-healing
-   * "already done" pattern 6.6/8.3 use): a legitimate retry of the
-   * same idempotency key never even reaches here (the interceptor
-   * replays), so an illegal transition here means the order simply
-   * already reflects this report from an earlier, successful attempt. */
+   * 18.1's own JOB_TRANSITIONS table is what replaces the old "always
+   * retry START_PRINT first" workaround: QUEUED now has direct legal
+   * transitions straight to PRINTED/FAILED/UNKNOWN, not only through
+   * CLAIMED/PRINTING, so an agent's retried-with-backoff reports
+   * arriving out of order (9.12's own "offline retry" scenario) no
+   * longer needs a synthetic intermediate event to stay legal --
+   * whichever report actually arrives is legal from wherever the job
+   * currently sits. `syncFromJobs` swallows ILLEGAL_ORDER_TRANSITION
+   * (the same self-healing "already done" pattern 6.6/8.3 use): a
+   * legitimate retry of the same idempotency key never even reaches
+   * here (the interceptor replays), so an illegal order transition here
+   * means the order simply already reflects an earlier, successful
+   * report of this same outcome. */
   async reportStatus(jobId: string, deviceId: string, input: ReportJobStatusInput): Promise<void> {
     const job = await this.prisma.printJob.findFirst({
       where: { id: jobId, printer: { agent: { deviceId } } },
@@ -167,30 +204,36 @@ export class AgentJobsService implements OnModuleDestroy {
       );
     }
 
-    await this.prisma.printJob.update({
-      where: { id: job.id },
-      data: {
-        status: REPORTED_STATUS_TO_PRINT_JOB_STATUS[input.status],
-        ...(input.osJobId ? { osJobId: input.osJobId } : {}),
-      },
-    });
+    const event = REPORTED_STATUS_TO_JOB_EVENT[input.status];
+    try {
+      await this.jobStateMachine.transition(
+        job.id,
+        event,
+        { id: null },
+        { osJobId: input.osJobId },
+      );
+    } catch (err) {
+      // Same self-healing reasoning as the order side: a replayed or
+      // out-of-order-but-already-applied report finds the job already
+      // sitting at (or past) the reported outcome -- not a real error.
+      if (!(err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION")) {
+        throw err;
+      }
+    }
 
-    await this.transitionIgnoringIllegal(job.orderId, OrderEvent.START_PRINT);
+    await this.syncOrderIgnoringIllegal(job.orderId);
 
     if (input.status === "PRINTED") {
-      await this.transitionIgnoringIllegal(job.orderId, OrderEvent.FINISH_PRINT);
       this.logger.log(
         { metric: "print.succeeded", jobId: job.id, orderId: job.orderId },
         "Print job succeeded.",
       );
     } else if (input.status === "FAILED") {
-      await this.transitionIgnoringIllegal(job.orderId, OrderEvent.FAIL_PRINT);
       this.logger.warn(
         { metric: "print.failed", jobId: job.id, orderId: job.orderId },
         "Print job failed.",
       );
     } else if (input.status === "UNKNOWN") {
-      await this.transitionIgnoringIllegal(job.orderId, OrderEvent.LOSE_PRINT_STATUS);
       this.logger.warn(
         { metric: "print.status_unknown", jobId: job.id, orderId: job.orderId },
         "Print job status unknown.",
@@ -198,9 +241,9 @@ export class AgentJobsService implements OnModuleDestroy {
     }
   }
 
-  private async transitionIgnoringIllegal(orderId: string, event: OrderEvent): Promise<void> {
+  private async syncOrderIgnoringIllegal(orderId: string): Promise<void> {
     try {
-      await this.orderStateMachine.transition(orderId, event, { id: null });
+      await this.orderStateMachine.syncFromJobs(orderId, { id: null });
     } catch (err) {
       if (!(err instanceof AppException && err.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
         throw err;
@@ -220,13 +263,24 @@ export class AgentJobsService implements OnModuleDestroy {
   private toSummary(job: {
     id: string;
     orderId: string;
-    printerId: string;
+    // 18.6: printerId is nullable at the schema level now (a blocked,
+    // unallocated job has none) -- but every job this method is ever
+    // called with (an already-QUEUED job an agent is about to claim, or
+    // one it just successfully claimed) is, by construction, already
+    // allocated. A null here would mean allocatePrinter()/the job
+    // machine let a QUEUED/CLAIMED job through without a printer, which
+    // is itself the real bug worth surfacing loudly rather than masking
+    // with a silent fallback.
+    printerId: string | null;
     status: PrintJobStatus;
     claimedAt: Date | null;
     createdAt: Date;
-    printer: { name: string };
+    printer: { name: string } | null;
     order: { printConfiguration: unknown };
   }): PrintJobSummary {
+    if (!job.printerId || !job.printer) {
+      throw new Error(`Print job ${job.id} is QUEUED/CLAIMED but has no printer allocated.`);
+    }
     return {
       id: job.id,
       orderId: job.orderId,

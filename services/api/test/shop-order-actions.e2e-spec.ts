@@ -755,11 +755,16 @@ describe("Shop order actions API (8.3, e2e)", () => {
     const updatedJob = await prisma.printJob.findUniqueOrThrow({ where: { id: job.id } });
     expect(updatedJob.status).toBe("PRINTED");
 
+    // 18.1/18.2: RESOLVE_UNKNOWN_PRINTED no longer exists as an
+    // order-machine event -- the audit trail for this action now lives
+    // on the print_job row itself (PrintJobStateMachine's own
+    // RESOLVE_PRINTED event), which is what actually carries the acting
+    // staff member's id.
     const audit = await prisma.auditLog.findFirst({
       where: {
-        resourceType: "order",
-        resourceId: orderId,
-        action: "ORDER_RESOLVE_UNKNOWN_PRINTED",
+        resourceType: "print_job",
+        resourceId: job.id,
+        action: "PRINT_JOB_RESOLVE_PRINTED",
       },
     });
     expect(audit?.actorId).toBe(counterAtShopA.id);

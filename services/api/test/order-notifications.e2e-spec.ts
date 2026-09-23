@@ -7,6 +7,7 @@ import {
   DocumentStatus,
   type NotificationType,
   OrderStatus,
+  PrintJobStatus,
   ShopStatus,
   UserRole,
 } from "@prisma/client";
@@ -83,6 +84,7 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
   });
 
   afterAll(async () => {
+    await prisma.printJob.deleteMany({ where: { shopId } });
     await prisma.notification.deleteMany({ where: { userId: customerId } });
     await prisma.order.deleteMany({ where: { shopId } });
     await prisma.document.delete({ where: { id: documentId } });
@@ -105,24 +107,58 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
     return order.id;
   }
 
-  const cases: Array<{ from: OrderStatus; event: OrderEvent; type: NotificationType }> = [
+  // 18.2: START_PRINT/FAIL_PRINT/FINISH_PRINT no longer exist -- the
+  // same three notification outcomes are now reached via SYNC_JOBS,
+  // whose target is *computed* from a real print_jobs row rather than
+  // fixed per event, so these three cases seed one before transitioning.
+  const cases: Array<{
+    from: OrderStatus;
+    event: OrderEvent;
+    type: NotificationType;
+    seedJobStatus?: PrintJobStatus;
+  }> = [
     {
       from: OrderStatus.PAYMENT_PENDING,
       event: OrderEvent.CONFIRM_PAYMENT,
       type: "PAYMENT_CONFIRMED",
     },
     { from: OrderStatus.WAITING_FOR_SHOP, event: OrderEvent.SHOP_ACCEPT, type: "ORDER_ACCEPTED" },
-    { from: OrderStatus.QUEUED_FOR_PRINT, event: OrderEvent.START_PRINT, type: "PRINT_STARTED" },
-    { from: OrderStatus.PRINTING, event: OrderEvent.FAIL_PRINT, type: "PRINT_FAILED" },
-    { from: OrderStatus.PRINTING, event: OrderEvent.FINISH_PRINT, type: "PRINT_COMPLETED" },
+    {
+      from: OrderStatus.QUEUED_FOR_PRINT,
+      event: OrderEvent.SYNC_JOBS,
+      type: "PRINT_STARTED",
+      seedJobStatus: PrintJobStatus.PRINTING,
+    },
+    {
+      from: OrderStatus.PRINTING,
+      event: OrderEvent.SYNC_JOBS,
+      type: "PRINT_FAILED",
+      seedJobStatus: PrintJobStatus.FAILED,
+    },
+    {
+      from: OrderStatus.PRINTING,
+      event: OrderEvent.SYNC_JOBS,
+      type: "PRINT_COMPLETED",
+      seedJobStatus: PrintJobStatus.PRINTED,
+    },
     { from: OrderStatus.PRINTED, event: OrderEvent.MARK_READY, type: "READY_FOR_COLLECTION" },
     { from: OrderStatus.READY_FOR_COLLECTION, event: OrderEvent.COMPLETE, type: "ORDER_COMPLETED" },
   ];
 
   it.each(cases)(
     "$event produces exactly one APP + one EMAIL notification of type $type, with no internal terminology, and enqueues the email",
-    async ({ from, event, type }) => {
+    async ({ from, event, type, seedJobStatus }) => {
       const orderId = await createOrderIn(from);
+      if (seedJobStatus) {
+        await prisma.printJob.create({
+          data: {
+            orderId,
+            shopId,
+            status: seedJobStatus,
+            idempotencyToken: randomUUID(),
+          },
+        });
+      }
 
       await stateMachine.transition(orderId, event, { id: null });
 

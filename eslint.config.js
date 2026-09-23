@@ -80,6 +80,35 @@ export default tseslint.config(
     },
   },
   {
+    // 18.1's own Done-when, mirroring the orderStatus rule immediately
+    // above exactly (same server-package scoping, same single-file
+    // `ignores` mechanism): a direct `print_jobs.status` write outside
+    // PrintJobStateMachine bypasses its legality check, its structural
+    // orders-row-then-job-row lock ordering, and its own audit trail.
+    // Scoped specifically to `<anything>.printJob.update`/`updateMany`
+    // calls -- `status` alone is far too generic a property name
+    // (Printer.status, Document.status, Payment.status, User.status,
+    // PrinterAgent.status all exist in this same schema) to match on
+    // its own without flooding every one of those with false positives.
+    files: [
+      "services/api/src/**/*.ts",
+      "services/worker/src/**/*.ts",
+      "packages/backend-shared/src/**/*.ts",
+    ],
+    ignores: ["packages/backend-shared/src/print-jobs/print-job-state-machine.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.object.property.name='printJob'][callee.property.name=/^(update|updateMany)$/] Property[key.name='status']",
+          message:
+            "print_jobs.status may only be written by PrintJobStateMachine (packages/backend-shared/src/print-jobs/print-job-state-machine.ts) -- a direct write here bypasses the legality check, the mandatory orders-row-first lock ordering, and the audit trail.",
+        },
+      ],
+    },
+  },
+  {
     // React 19's automatic JSX runtime needs no `import React` in scope
     // (jsx-runtime disables the two rules that would otherwise demand
     // one), so this is react.configs.flat.recommended plus that override,

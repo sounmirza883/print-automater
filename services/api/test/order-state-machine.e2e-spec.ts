@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
-import { DocumentStatus, OrderStatus } from "@prisma/client";
+import { DocumentStatus, OrderStatus, PrintJobStatus } from "@prisma/client";
 import {
   AppException,
   OrderEvent,
@@ -16,9 +16,14 @@ import { AppModule } from "../src/app.module.js";
  * from it -- so a typo in the real table (a missing entry, a wrong
  * target) shows up as a matrix mismatch rather than the test silently
  * checking the implementation against itself. The §79 cancellation
- * scope and full-terminality of the six terminal states are asserted
+ * scope and full-terminality of the terminal states are asserted
  * again, separately, below: the two places a wrong `EXPECTED` entry
- * would most plausibly slip through unnoticed. */
+ * would most plausibly slip through unnoticed.
+ *
+ * 18.2 deliberately excludes SYNC_JOBS from this fixed-target matrix --
+ * its target is *computed* from a real print_jobs row set, not looked
+ * up per (state, event), so a fixed EXPECTED table can't express it.
+ * SYNC_JOBS gets its own dedicated describe block below instead. */
 const EXPECTED: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>> = {
   [OrderStatus.DRAFT]: {
     [OrderEvent.CONFIRM_UPLOAD]: OrderStatus.UPLOADED,
@@ -43,15 +48,8 @@ const EXPECTED: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>> = 
   [OrderStatus.SHOP_ACCEPTED]: {
     [OrderEvent.QUEUE_PRINT]: OrderStatus.QUEUED_FOR_PRINT,
   },
-  [OrderStatus.QUEUED_FOR_PRINT]: {
-    [OrderEvent.START_PRINT]: OrderStatus.PRINTING,
-    [OrderEvent.FAIL_PRINT]: OrderStatus.PRINT_FAILED,
-  },
-  [OrderStatus.PRINTING]: {
-    [OrderEvent.FINISH_PRINT]: OrderStatus.PRINTED,
-    [OrderEvent.FAIL_PRINT]: OrderStatus.PRINT_FAILED,
-    [OrderEvent.LOSE_PRINT_STATUS]: OrderStatus.PRINT_STATUS_UNKNOWN,
-  },
+  [OrderStatus.QUEUED_FOR_PRINT]: {},
+  [OrderStatus.PRINTING]: {},
   [OrderStatus.PRINTED]: {
     [OrderEvent.MARK_READY]: OrderStatus.READY_FOR_COLLECTION,
   },
@@ -61,19 +59,26 @@ const EXPECTED: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>> = 
   [OrderStatus.COMPLETED]: {},
   [OrderStatus.PAYMENT_FAILED]: {},
   [OrderStatus.SHOP_REJECTED]: {},
-  [OrderStatus.PRINT_FAILED]: {
-    [OrderEvent.RETRY_PRINT]: OrderStatus.QUEUED_FOR_PRINT,
-  },
-  [OrderStatus.PRINT_STATUS_UNKNOWN]: {
-    [OrderEvent.RESOLVE_UNKNOWN_PRINTED]: OrderStatus.PRINTED,
-    [OrderEvent.RESOLVE_UNKNOWN_RETRY]: OrderStatus.QUEUED_FOR_PRINT,
-    [OrderEvent.RESOLVE_UNKNOWN_FAILED]: OrderStatus.PRINT_FAILED,
-  },
+  [OrderStatus.PRINT_FAILED]: {},
+  [OrderStatus.PRINT_STATUS_UNKNOWN]: {},
   [OrderStatus.CANCELLED]: {},
   [OrderStatus.EXPIRED]: {},
+  [OrderStatus.PREPARING]: {},
+  [OrderStatus.ASSIGNED]: {},
+  [OrderStatus.PAUSED]: {},
+  [OrderStatus.QUALITY_CHECK]: {
+    [OrderEvent.QC_PASS]: OrderStatus.READY_FOR_COLLECTION,
+    [OrderEvent.QC_FAIL]: OrderStatus.PRINT_FAILED,
+    [OrderEvent.QC_REPRINT]: OrderStatus.QUEUED_FOR_PRINT,
+  },
 };
 
-describe("OrderStateMachine (5.4, e2e)", () => {
+// Every event EXCEPT SYNC_JOBS -- see the matrix's own comment above.
+const FIXED_TARGET_EVENTS = Object.values(OrderEvent).filter(
+  (event) => event !== OrderEvent.SYNC_JOBS,
+);
+
+describe("OrderStateMachine (5.4/18.2, e2e)", () => {
   let prisma: PrismaService;
   let stateMachine: OrderStateMachine;
   let customerId: string;
@@ -112,6 +117,7 @@ describe("OrderStateMachine (5.4, e2e)", () => {
     // SHOP_ACCEPT, ...) now create notifications rows referencing
     // these orders -- delete those first, or the FK blocks the order
     // delete below.
+    await prisma.printJob.deleteMany({ where: { orderId: { in: createdOrderIds } } });
     await prisma.notification.deleteMany({ where: { orderId: { in: createdOrderIds } } });
     await prisma.order.deleteMany({ where: { id: { in: createdOrderIds } } });
     await prisma.document.delete({ where: { id: documentId } });
@@ -133,13 +139,12 @@ describe("OrderStateMachine (5.4, e2e)", () => {
     return order.id;
   }
 
-  it("every (state, event) pair: legal moves succeed to the expected target, illegal ones throw a 409 and leave the row untouched", async () => {
+  it("every (state, event) pair for every FIXED-target event: legal moves succeed to the expected target, illegal ones throw a 409 and leave the row untouched", async () => {
     const states = Object.values(OrderStatus);
-    const events = Object.values(OrderEvent);
 
     const results = await Promise.all(
       states.flatMap((state) =>
-        events.map(async (event) => {
+        FIXED_TARGET_EVENTS.map(async (event) => {
           const orderId = await createOrderIn(state);
           const expected = EXPECTED[state][event];
           if (expected === undefined) {
@@ -159,10 +164,75 @@ describe("OrderStateMachine (5.4, e2e)", () => {
       ),
     );
 
-    // The matrix itself actually ran every cell -- 17 states x 20
-    // events -- not a subset that happened to pass.
-    expect(results).toHaveLength(states.length * events.length);
+    expect(results).toHaveLength(states.length * FIXED_TARGET_EVENTS.length);
   }, 60_000);
+
+  describe("SYNC_JOBS (18.2)", () => {
+    it("is legal only from the nine DERIVED statuses -- illegal (409, no write) everywhere else", async () => {
+      const derived = new Set<OrderStatus>([
+        OrderStatus.QUEUED_FOR_PRINT,
+        OrderStatus.PRINTING,
+        OrderStatus.PRINTED,
+        OrderStatus.PRINT_FAILED,
+        OrderStatus.PRINT_STATUS_UNKNOWN,
+        OrderStatus.PREPARING,
+        OrderStatus.ASSIGNED,
+        OrderStatus.PAUSED,
+        OrderStatus.QUALITY_CHECK,
+      ]);
+      const notDerived = Object.values(OrderStatus).filter((s) => !derived.has(s));
+
+      for (const state of notDerived) {
+        const orderId = await createOrderIn(state);
+        await expect(
+          stateMachine.transition(orderId, OrderEvent.SYNC_JOBS, { id: null }),
+        ).rejects.toThrow(AppException);
+        const row = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+        expect(row.orderStatus).toBe(state);
+      }
+    });
+
+    it("computes its target from the order's own non-superseded print_jobs (a single PRINTING job moves QUEUED_FOR_PRINT -> PRINTING)", async () => {
+      const orderId = await createOrderIn(OrderStatus.QUEUED_FOR_PRINT);
+      await prisma.printJob.create({
+        data: {
+          orderId,
+          shopId,
+          status: PrintJobStatus.PRINTING,
+          idempotencyToken: randomUUID(),
+        },
+      });
+
+      const result = await stateMachine.transition(orderId, OrderEvent.SYNC_JOBS, { id: null });
+      expect(result).toBe(OrderStatus.PRINTING);
+    });
+
+    it("a target equal to the current status is a genuine no-op: no write, no audit row, no notification", async () => {
+      const orderId = await createOrderIn(OrderStatus.PRINTING);
+      await prisma.printJob.create({
+        data: {
+          orderId,
+          shopId,
+          status: PrintJobStatus.PRINTING,
+          idempotencyToken: randomUUID(),
+        },
+      });
+
+      const before = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+      const result = await stateMachine.transition(orderId, OrderEvent.SYNC_JOBS, { id: null });
+      expect(result).toBe(OrderStatus.PRINTING);
+
+      const after = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+      expect(after.updatedAt).toEqual(before.updatedAt);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { resourceType: "order", resourceId: orderId, action: "ORDER_SYNC_JOBS" },
+      });
+      expect(audit).toBeNull();
+      const notifications = await prisma.notification.findMany({ where: { orderId } });
+      expect(notifications).toHaveLength(0);
+    });
+  });
 
   it("§56: reaching COMPLETED sets completed_at exactly once; no other transition ever touches it", async () => {
     const orderId = await createOrderIn(OrderStatus.READY_FOR_COLLECTION);
@@ -175,7 +245,15 @@ describe("OrderStateMachine (5.4, e2e)", () => {
     expect(after.completedAt).not.toBeNull();
 
     const printingOrderId = await createOrderIn(OrderStatus.PRINTING);
-    await stateMachine.transition(printingOrderId, OrderEvent.FINISH_PRINT, { id: null });
+    await prisma.printJob.create({
+      data: {
+        orderId: printingOrderId,
+        shopId,
+        status: PrintJobStatus.PRINTED,
+        idempotencyToken: randomUUID(),
+      },
+    });
+    await stateMachine.transition(printingOrderId, OrderEvent.SYNC_JOBS, { id: null });
     const printed = await prisma.order.findUniqueOrThrow({ where: { id: printingOrderId } });
     expect(printed.completedAt).toBeNull();
   });
@@ -200,7 +278,7 @@ describe("OrderStateMachine (5.4, e2e)", () => {
     }
   });
 
-  it("the six terminal states accept no event at all", async () => {
+  it("the five purely-terminal statuses accept no fixed-target event at all", async () => {
     const terminal = [
       OrderStatus.COMPLETED,
       OrderStatus.PAYMENT_FAILED,
@@ -211,7 +289,7 @@ describe("OrderStateMachine (5.4, e2e)", () => {
 
     for (const state of terminal) {
       const orderId = await createOrderIn(state);
-      for (const event of Object.values(OrderEvent)) {
+      for (const event of FIXED_TARGET_EVENTS) {
         await expect(stateMachine.transition(orderId, event, { id: null })).rejects.toThrow(
           AppException,
         );

@@ -9,6 +9,7 @@ import {
   CryptoModule,
   AuditModule,
   OrderStateMachineModule,
+  PrintJobStateMachineModule,
   DocumentDeletionModule,
   EmailModule,
   type EmailModuleOptions,
@@ -88,6 +89,7 @@ function buildEmailOptions(): EmailModuleOptions {
     CryptoModule,
     AuditModule,
     OrderStateMachineModule,
+    PrintJobStateMachineModule,
     DocumentDeletionModule,
     EmailModule.forRoot(buildEmailOptions()),
     BullModule.forRootAsync({

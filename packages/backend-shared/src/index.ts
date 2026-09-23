@@ -54,6 +54,20 @@ export {
   type TransitionContext,
 } from "./orders/order-state-machine.js";
 export { OrderStateMachineModule } from "./orders/order-state-machine.module.js";
+export {
+  aggregateOrderStatus,
+  type AggregateOrderStatusOptions,
+} from "./orders/aggregate-order-status.js";
+
+export {
+  PrintJobEvent,
+  PrintJobStateMachine,
+  type JobTransitionActor,
+  type JobTransitionContext,
+  type JobTransitionResult,
+  type LockedPrintJobRow,
+} from "./print-jobs/print-job-state-machine.js";
+export { PrintJobStateMachineModule } from "./print-jobs/print-job-state-machine.module.js";
 
 export {
   EMAIL_TRANSPORT,

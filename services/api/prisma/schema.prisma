@@ -54,6 +54,9 @@ model User {
   notifications       Notification[]
   createdPairingCodes AgentPairingCode[]
   refundsActedOn      Refund[]             @relation("RefundActor")
+  // 18.9: jobs this user (role OPERATOR) is manually or automatically
+  // assigned to run.
+  printJobsAsOperator PrintJob[]           @relation("PrintJobOperator")
 
   @@map("users")
 }
@@ -495,6 +498,20 @@ enum OrderStatus {
   PRINT_STATUS_UNKNOWN
   CANCELLED
   EXPIRED
+  // 18.2: four new order-level statuses, all reachable only via the
+  // derived SYNC_JOBS path (aggregate-order-status.ts) except
+  // QUALITY_CHECK's own QC_PASS/QC_FAIL/QC_REPRINT exits -- additive,
+  // Postgres `ALTER TYPE ... ADD VALUE`, never a rename. PREPARING: an
+  // order has been queued but its job(s) are not yet all allocated to
+  // a printer (18.6's WAITING/blocked case). ASSIGNED: at least one job
+  // has been claimed by an agent but none is actively printing yet.
+  // PAUSED: every active job is paused (21.1). QUALITY_CHECK: every
+  // required job printed and the shop's qualityCheckEnabled toggle is
+  // on (21.3 builds the real staff workflow on top of this).
+  PREPARING
+  ASSIGNED
+  PAUSED
+  QUALITY_CHECK
 }
 
 // 5.2: PA-YYYYMMDD-NNNNNN order numbers, generated via
@@ -793,9 +810,17 @@ model Printer {
 model PrintJob {
   id               String         @id @default(uuid())
   orderId          String         @map("order_id")
-  printerId        String         @map("printer_id")
+  // 18.6: nullable as of this phase -- a job that allocatePrinter()
+  // couldn't place anywhere (WAITING, blockedReason set) has no
+  // printer yet. Every job that DOES have a printerId still means
+  // exactly what it always has; nothing here changes for an allocated
+  // job.
+  printerId        String?        @map("printer_id")
   shopId           String         @map("shop_id")
-  status           PrintJobStatus @default(QUEUED)
+  // 18.1: CREATED is the new default -- a freshly-exploded job starts
+  // unallocated; dispatch (18.5) moves it to QUEUED (allocated) or
+  // WAITING (blocked) via the job state machine, never by construction.
+  status           PrintJobStatus @default(CREATED)
   idempotencyToken String         @unique @map("idempotency_token")
   claimedAt        DateTime?      @map("claimed_at")
   osJobId          String?        @map("os_job_id")
@@ -814,17 +839,24 @@ model PrintJob {
   pausedAt         DateTime?      @map("paused_at")
   attempt          Int            @default(1)
   priority         Int            @default(0)
+  // 18.9: manual (and, gated by its own toggle, automatic) assignment
+  // of a job to a specific OPERATOR user. Nullable -- most jobs today
+  // have no operator assigned at all; SetNull so removing a staff
+  // member's account never takes job history down with it.
+  operatorId       String?        @map("operator_id")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   order     Order      @relation(fields: [orderId], references: [id])
-  printer   Printer    @relation(fields: [printerId], references: [id])
+  printer   Printer?   @relation(fields: [printerId], references: [id])
   orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  operator  User?      @relation("PrintJobOperator", fields: [operatorId], references: [id], onDelete: SetNull)
 
   @@index([shopId])
   @@index([orderId])
   @@index([printerId])
   @@index([orderItemId])
+  @@index([operatorId])
   @@map("print_jobs")
 }
 
@@ -870,10 +902,23 @@ model OrderItem {
 }
 
 enum PrintJobStatus {
+  // 18.1: additive only. CLAIMED/PRINTED keep their exact names -- both
+  // strings cross the agent wire (15.6 froze that contract). CREATED:
+  // a job exploded from an order item but not yet allocated to a
+  // printer. WAITING: allocation was attempted and failed (18.6's
+  // blockedReason explains why) -- a job re-enters WAITING, never
+  // CREATED, on every subsequent failed allocation retry. PAUSED:
+  // operator-paused (21.1). REASSIGNED: superseded by a manual
+  // reassignment (18.7) -- the terminal status of the OLD job row, not
+  // the new one, which starts its own lifecycle at CREATED/QUEUED.
+  CREATED
+  WAITING
   QUEUED
   CLAIMED
   PRINTING
   PRINTED
+  PAUSED
+  REASSIGNED
   FAILED
   UNKNOWN
   TIMEOUT

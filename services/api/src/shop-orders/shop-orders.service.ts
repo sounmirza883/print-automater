@@ -28,6 +28,8 @@ import {
   AppException,
   OrderEvent,
   OrderStateMachine,
+  PrintJobEvent,
+  PrintJobStateMachine,
   PrismaService,
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
@@ -119,6 +121,7 @@ export class ShopOrdersService {
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
     private readonly orderStateMachine: OrderStateMachine,
+    private readonly jobStateMachine: PrintJobStateMachine,
     private readonly agentJobsService: AgentJobsService,
     private readonly refundService: RefundService,
     private readonly ordersService: OrdersService,
@@ -381,6 +384,16 @@ export class ShopOrdersService {
         printerId: printer.id,
         shopId: freshOrder.shopId,
         idempotencyToken: randomUUID(),
+        // 18.1: print_jobs now defaults to CREATED (unallocated) --
+        // this pre-18.5 dispatch path allocates synchronously right
+        // here (the printer lookup above already succeeded), so it
+        // still creates the job as QUEUED directly, exactly like
+        // before `status` had a CREATED/WAITING distinction at all.
+        // `create()` isn't covered by the print_jobs.status
+        // ESLint rule, the same "setting an initial value is not a
+        // transition" precedent order_status's own creation already
+        // established.
+        status: PrintJobStatus.QUEUED,
       },
     });
     // A printer staff registered by hand (8.4) before any agent ever
@@ -473,39 +486,78 @@ export class ShopOrdersService {
     return printer;
   }
 
+  /** 18.2: RETRY_PRINT/RESOLVE_UNKNOWN_* no longer exist as order-
+   * machine events -- PRINT_FAILED/PRINT_STATUS_UNKNOWN are now DERIVED
+   * (SYNC_JOBS), so "is this order still in the state this action
+   * expects" is no longer a question the order machine's own legality
+   * table answers for free. This locks the order row (mirroring
+   * OrderStateMachine.applyLocked()'s own first step exactly) and
+   * returns its current status so retry/change-printer/resolve-unknown
+   * can each re-implement the same "double-tap finds it already moved
+   * on, no-op rather than error" idempotency the deleted events used to
+   * give them, still under a real row lock (no TOCTOU gap between the
+   * check and the job rows this transaction goes on to touch). */
+  private async lockOrderStatus(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<OrderStatus> {
+    const rows = await tx.$queryRaw<Array<{ order_status: OrderStatus }>>`
+      SELECT order_status FROM orders WHERE id = ${orderId} FOR UPDATE
+    `;
+    const status = rows[0]?.order_status;
+    if (status === undefined) {
+      throw new NotFoundException("Order not found.");
+    }
+    return status;
+  }
+
+  /** Every currently-active (non-superseded) job for this order is
+   * superseded before a retry/reassignment attempt creates its
+   * replacement -- what makes SHOP_ORDER_INCLUDE's own `supersededAt:
+   * null` filter (18.5) mean "the current attempt" and what keeps
+   * aggregateOrderStatus() from ever seeing a stale FAILED job
+   * alongside the fresh QUEUED one it's about to derive PRINT_FAILED
+   * from all over again. */
+  private async supersedeActiveJobs(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+    await tx.printJob.updateMany({
+      where: { orderId, supersededAt: null },
+      data: { supersededAt: new Date() },
+    });
+  }
+
+  private async syncOrderIgnoringIllegal(orderId: string, actorId: string): Promise<void> {
+    try {
+      await this.orderStateMachine.syncFromJobs(orderId, { id: actorId });
+    } catch (error) {
+      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
+        throw error;
+      }
+    }
+  }
+
   /** §49/10.4: staff's own "Change Printer" choice, resolving a
    * PRINT_FAILED order by naming a *specific* replacement rather than
-   * letting dispatchToPrinter() auto-select "any available printer" --
-   * RETRY_PRINT is the same event 10.1's own plain retry uses (its own
-   * comment already noted it covers both cases), just with a
-   * requestedPrinterId this time. */
+   * letting dispatchToPrinter() auto-select "any available printer." */
   async changePrinter(
     orderId: string,
     actorId: string,
     printerId: string,
   ): Promise<ShopOrderResponse> {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) {
-      throw new NotFoundException("Order not found.");
-    }
-
     let notifyDeviceId: string | null = null;
-    try {
-      await this.orderStateMachine.transition(
-        orderId,
-        OrderEvent.RETRY_PRINT,
-        { id: actorId },
-        {
-          metadata: { changedToPrinterId: printerId },
-          sideEffect: async (tx) => {
-            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceId;
-          },
-        },
-      );
-    } catch (error) {
-      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
-        throw error;
+    let retried = false;
+
+    await this.prisma.$transaction(async (tx) => {
+      const status = await this.lockOrderStatus(tx, orderId);
+      if (status !== OrderStatus.PRINT_FAILED) {
+        return;
       }
+      await this.supersedeActiveJobs(tx, orderId);
+      notifyDeviceId = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceId;
+      retried = true;
+    });
+
+    if (retried) {
+      await this.syncOrderIgnoringIllegal(orderId, actorId);
     }
     if (notifyDeviceId) {
       await this.agentJobsService.notify(notifyDeviceId);
@@ -513,60 +565,42 @@ export class ShopOrdersService {
     return this.getOrder(orderId);
   }
 
-  /** §48/10.1: staff's own "Retry" choice on a PRINT_FAILED order --
-   * RETRY_PRINT lands the order straight back in QUEUED_FOR_PRINT (no
-   * SHOP_ACCEPT/QUEUE_PRINT chain needed, unlike acceptOrder(), since
-   * the order never left the "shop already accepted this" side of the
-   * machine). Idempotent the same way acceptOrder() is: a genuine
-   * double-tap finds the order already past PRINT_FAILED on its second
-   * attempt, and ILLEGAL_ORDER_TRANSITION is swallowed rather than
-   * surfaced as an error. */
+  /** §48/10.1: staff's own "Retry" choice on a PRINT_FAILED order.
+   * Idempotent the same way acceptOrder() is: a genuine double-tap
+   * finds the order no longer PRINT_FAILED by the time this locks the
+   * row, and is a no-op rather than an error. */
   async retryPrint(orderId: string, actorId: string): Promise<ShopOrderResponse> {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) {
-      throw new NotFoundException("Order not found.");
-    }
-
     let notifyDeviceId: string | null = null;
+    let retried = false;
 
-    try {
-      await this.orderStateMachine.transition(
-        orderId,
-        OrderEvent.RETRY_PRINT,
-        { id: actorId },
-        {
-          sideEffect: async (tx) => {
-            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
-          },
-        },
-      );
-    } catch (error) {
-      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
-        throw error;
+    await this.prisma.$transaction(async (tx) => {
+      const status = await this.lockOrderStatus(tx, orderId);
+      if (status !== OrderStatus.PRINT_FAILED) {
+        return;
       }
-    }
+      await this.supersedeActiveJobs(tx, orderId);
+      notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+      retried = true;
+    });
 
+    if (retried) {
+      await this.syncOrderIgnoringIllegal(orderId, actorId);
+    }
     if (notifyDeviceId) {
       await this.agentJobsService.notify(notifyDeviceId);
     }
-
     return this.getOrder(orderId);
   }
 
   /** §47/10.3: PRINT_STATUS_UNKNOWN is a first-class UI flow, not an
    * error toast -- a human staff member looks at the physical printer
-   * and tells the system what actually happened. All three
-   * resolutions were already legal transitions in order-state-
-   * machine.ts's own table (RESOLVE_UNKNOWN_PRINTED/RETRY/FAILED) --
-   * this is the endpoint that finally lets staff reach them. "Every
-   * resolution is audited with the acting staff member" needs no
-   * extra code here: `transition()` already writes `actor.id` into
-   * every audit row it creates, and this call always passes the real
-   * staff id, never null. RETRY re-dispatches through the same
-   * dispatchToPrinter() gate as 10.1's own retryPrint(); the other two
-   * resolutions only need the print_job row's own status brought in
-   * line with what staff just confirmed, since nothing else about
-   * dispatch applies to a terminal outcome. */
+   * and tells the system what actually happened. RETRY re-dispatches
+   * through the same supersede-then-dispatch-then-sync shape as 10.1's
+   * own retryPrint(); the other two resolutions instead resolve the
+   * specific UNKNOWN job (via PrintJobStateMachine's own
+   * RESOLVE_PRINTED/RESOLVE_FAILED events -- illegal, and therefore
+   * harmlessly skipped, if it's no longer UNKNOWN) and then let
+   * `syncFromJobs` re-derive the order from that. */
   async resolveUnknownPrint(
     orderId: string,
     actorId: string,
@@ -576,53 +610,65 @@ export class ShopOrdersService {
     if (!order) {
       throw new NotFoundException("Order not found.");
     }
+    // §47/10.3: all three resolutions were only ever legal from
+    // PRINT_STATUS_UNKNOWN under the old RESOLVE_UNKNOWN_* events --
+    // now that they're plain application logic rather than order-
+    // machine table entries, this endpoint has to enforce that
+    // precondition itself, up front, the same 409 either way.
+    if (order.orderStatus !== OrderStatus.PRINT_STATUS_UNKNOWN) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "ILLEGAL_ORDER_TRANSITION",
+        `Cannot resolve an unknown print outcome for an order in ${order.orderStatus}.`,
+        false,
+      );
+    }
 
     if (resolution === "RETRY") {
       let notifyDeviceId: string | null = null;
-      await this.orderStateMachine.transition(
-        orderId,
-        OrderEvent.RESOLVE_UNKNOWN_RETRY,
-        { id: actorId },
-        {
-          metadata: { resolution },
-          sideEffect: async (tx) => {
-            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
-          },
-        },
-      );
+      let retried = false;
+      await this.prisma.$transaction(async (tx) => {
+        const status = await this.lockOrderStatus(tx, orderId);
+        if (status !== OrderStatus.PRINT_STATUS_UNKNOWN) {
+          return;
+        }
+        await this.supersedeActiveJobs(tx, orderId);
+        notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+        retried = true;
+      });
+      if (retried) {
+        await this.syncOrderIgnoringIllegal(orderId, actorId);
+      }
       if (notifyDeviceId) {
         await this.agentJobsService.notify(notifyDeviceId);
       }
       return this.getOrder(orderId);
     }
 
-    const event =
+    const jobEvent =
       resolution === "CONFIRMED_PRINTED"
-        ? OrderEvent.RESOLVE_UNKNOWN_PRINTED
-        : OrderEvent.RESOLVE_UNKNOWN_FAILED;
-    const printJobStatus =
-      resolution === "CONFIRMED_PRINTED" ? PrintJobStatus.PRINTED : PrintJobStatus.FAILED;
+        ? PrintJobEvent.RESOLVE_PRINTED
+        : PrintJobEvent.RESOLVE_FAILED;
 
-    await this.orderStateMachine.transition(
-      orderId,
-      event,
-      { id: actorId },
-      {
-        metadata: { resolution },
-        sideEffect: async (tx) => {
-          const latestJob = await tx.printJob.findFirst({
-            where: { orderId },
-            orderBy: { createdAt: "desc" },
-          });
-          if (latestJob) {
-            await tx.printJob.update({
-              where: { id: latestJob.id },
-              data: { status: printJobStatus },
-            });
-          }
-        },
-      },
-    );
+    const unknownJob = await this.prisma.printJob.findFirst({
+      where: { orderId, status: PrintJobStatus.UNKNOWN, supersededAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    if (unknownJob) {
+      try {
+        await this.jobStateMachine.transition(
+          unknownJob.id,
+          jobEvent,
+          { id: actorId },
+          { metadata: { resolution } },
+        );
+      } catch (error) {
+        if (!(error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION")) {
+          throw error;
+        }
+      }
+    }
+    await this.syncOrderIgnoringIllegal(orderId, actorId);
     return this.getOrder(orderId);
   }
 
@@ -701,7 +747,7 @@ export class ShopOrdersService {
       paymentStatus: order.paymentStatus,
       orderStatus: order.orderStatus,
       createdAt: order.createdAt,
-      printerName: order.printJobs[0]?.printer.name ?? null,
+      printerName: order.printJobs[0]?.printer?.name ?? null,
     };
   }
 }

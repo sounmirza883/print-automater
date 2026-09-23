@@ -92,11 +92,17 @@ describe("Print timeout sweep (10.5, e2e)", () => {
     await app.close();
   });
 
+  // 18.1/19.5: the sweep now queries `print_jobs.updated_at` (a job's
+  // own age), not the order's -- an order can hold several jobs, only
+  // some of which might be stuck, so "how long has THIS job sat here"
+  // has to be the job row's own timestamp. `jobAgeMinutes` backdates
+  // the print_job itself; the order is created fresh and, unless
+  // `jobStatus` is omitted entirely, left for the sweep to derive.
   async function createOrder(
     status: OrderStatus,
-    ageMinutes: number,
+    jobAgeMinutes: number,
     jobStatus?: PrintJobStatus,
-  ): Promise<string> {
+  ): Promise<{ orderId: string; jobId: string | null }> {
     const order = await prisma.order.create({
       data: {
         publicOrderNumber: `TEST-TIMEOUT-${randomUUID()}`,
@@ -109,15 +115,9 @@ describe("Print timeout sweep (10.5, e2e)", () => {
         paymentStatus: PaymentStatus.PAID,
       },
     });
-    // Same test-only backdating as 5.6's own fixture -- orders only
-    // ever change via OrderStateMachine.transition() in real code,
-    // which is what makes updated_at a reliable "how long in this
-    // status" proxy to simulate without an actual wait.
-    await prisma.$executeRaw`
-      UPDATE orders SET updated_at = NOW() - (${ageMinutes} * INTERVAL '1 minute') WHERE id = ${order.id}
-    `;
+    let jobId: string | null = null;
     if (jobStatus) {
-      await prisma.printJob.create({
+      const job = await prisma.printJob.create({
         data: {
           orderId: order.id,
           printerId,
@@ -126,43 +126,55 @@ describe("Print timeout sweep (10.5, e2e)", () => {
           idempotencyToken: randomUUID(),
         },
       });
+      jobId = job.id;
+      // Same test-only backdating as 5.6's own fixture -- print_jobs
+      // only ever change via PrintJobStateMachine in real code, which
+      // is what makes updated_at a reliable "how long in this status"
+      // proxy to simulate without an actual wait.
+      await prisma.$executeRaw`
+        UPDATE print_jobs SET updated_at = NOW() - (${jobAgeMinutes} * INTERVAL '1 minute') WHERE id = ${job.id}
+      `;
     }
-    return order.id;
+    return { orderId: order.id, jobId };
   }
 
-  it("§109: a QUEUED_FOR_PRINT order past the timeout fails to PRINT_FAILED and its job is marked TIMEOUT; a recent one and a different-status one are untouched", async () => {
-    const staleId = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.QUEUED);
-    const freshId = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 1, PrintJobStatus.QUEUED);
-    const differentStatusId = await createOrder(OrderStatus.SHOP_ACCEPTED, 999);
+  it("§109: a QUEUED_FOR_PRINT order whose job is past the timeout fails to PRINT_FAILED and its job is marked TIMEOUT; a recent one and a different-status one are untouched", async () => {
+    const stale = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.QUEUED);
+    const fresh = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 1, PrintJobStatus.QUEUED);
+    const differentStatus = await createOrder(OrderStatus.SHOP_ACCEPTED, 999);
 
     await processor.process(fakeJob);
 
-    const [stale, fresh, differentStatus] = await Promise.all([
-      prisma.order.findUniqueOrThrow({ where: { id: staleId } }),
-      prisma.order.findUniqueOrThrow({ where: { id: freshId } }),
-      prisma.order.findUniqueOrThrow({ where: { id: differentStatusId } }),
+    const [staleOrder, freshOrder, differentStatusOrder] = await Promise.all([
+      prisma.order.findUniqueOrThrow({ where: { id: stale.orderId } }),
+      prisma.order.findUniqueOrThrow({ where: { id: fresh.orderId } }),
+      prisma.order.findUniqueOrThrow({ where: { id: differentStatus.orderId } }),
     ]);
-    expect(stale.orderStatus).toBe(OrderStatus.PRINT_FAILED);
-    expect(fresh.orderStatus).toBe(OrderStatus.QUEUED_FOR_PRINT);
-    expect(differentStatus.orderStatus).toBe(OrderStatus.SHOP_ACCEPTED);
+    expect(staleOrder.orderStatus).toBe(OrderStatus.PRINT_FAILED);
+    expect(freshOrder.orderStatus).toBe(OrderStatus.QUEUED_FOR_PRINT);
+    expect(differentStatusOrder.orderStatus).toBe(OrderStatus.SHOP_ACCEPTED);
 
-    const staleJob = await prisma.printJob.findFirstOrThrow({ where: { orderId: staleId } });
+    const staleJob = await prisma.printJob.findUniqueOrThrow({ where: { id: stale.jobId! } });
     expect(staleJob.status).toBe(PrintJobStatus.TIMEOUT);
   });
 
   it("§109: a job an agent claimed but never reported on also times out (not just an unclaimed one)", async () => {
-    const claimedId = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.CLAIMED);
+    const claimed = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.CLAIMED);
 
     await processor.process(fakeJob);
 
-    const order = await prisma.order.findUniqueOrThrow({ where: { id: claimedId } });
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: claimed.orderId } });
     expect(order.orderStatus).toBe(OrderStatus.PRINT_FAILED);
-    const job = await prisma.printJob.findFirstOrThrow({ where: { orderId: claimedId } });
+    const job = await prisma.printJob.findUniqueOrThrow({ where: { id: claimed.jobId! } });
     expect(job.status).toBe(PrintJobStatus.TIMEOUT);
   });
 
-  it("§109's own Done-when: a time-travelled order times out exactly once and is not double-processed on the next tick", async () => {
-    const orderId = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.QUEUED);
+  it("§109's own Done-when: a time-travelled job times out exactly once and is not double-processed on the next tick", async () => {
+    const { orderId, jobId } = await createOrder(
+      OrderStatus.QUEUED_FOR_PRINT,
+      999,
+      PrintJobStatus.QUEUED,
+    );
 
     const first = await processor.process(fakeJob);
     expect(first.timedOutCount).toBeGreaterThanOrEqual(1);
@@ -173,14 +185,18 @@ describe("Print timeout sweep (10.5, e2e)", () => {
     const second = await processor.process(fakeJob);
     expect(second.timedOutCount).toBe(0);
 
-    const failAudits = await prisma.auditLog.count({
-      where: { resourceType: "order", resourceId: orderId, action: "ORDER_FAIL_PRINT" },
+    const timeoutAudits = await prisma.auditLog.count({
+      where: { resourceType: "print_job", resourceId: jobId!, action: "PRINT_JOB_TIMEOUT" },
     });
-    expect(failAudits).toBe(1);
+    expect(timeoutAudits).toBe(1);
   });
 
-  it("§109: two overlapping ticks racing the same stale order still time it out exactly once", async () => {
-    const orderId = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.QUEUED);
+  it("§109: two overlapping ticks racing the same stale job still time it out exactly once", async () => {
+    const { orderId, jobId } = await createOrder(
+      OrderStatus.QUEUED_FOR_PRINT,
+      999,
+      PrintJobStatus.QUEUED,
+    );
 
     const [a, b] = await Promise.all([processor.process(fakeJob), processor.process(fakeJob)]);
     expect(a.timedOutCount + b.timedOutCount).toBe(1);
@@ -188,9 +204,9 @@ describe("Print timeout sweep (10.5, e2e)", () => {
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(order.orderStatus).toBe(OrderStatus.PRINT_FAILED);
 
-    const failAudits = await prisma.auditLog.count({
-      where: { resourceType: "order", resourceId: orderId, action: "ORDER_FAIL_PRINT" },
+    const timeoutAudits = await prisma.auditLog.count({
+      where: { resourceType: "print_job", resourceId: jobId!, action: "PRINT_JOB_TIMEOUT" },
     });
-    expect(failAudits).toBe(1);
+    expect(timeoutAudits).toBe(1);
   });
 });
