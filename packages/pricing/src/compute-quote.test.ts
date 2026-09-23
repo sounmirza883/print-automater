@@ -1,7 +1,9 @@
 import {
   ColorMode,
+  Finishing,
   Orientation,
   PaperSize,
+  PaperType,
   Sides,
   type PrintConfiguration,
 } from "@print-automated/types";
@@ -167,5 +169,174 @@ describe("computeQuote", () => {
 
   it("rejects a negative platform fee", () => {
     expect(() => computeQuote(config(), 10, BASE_RULE, -1)).toThrow(InvalidQuoteInputError);
+  });
+
+  it("every quote carries a taxMinor field, defaulting to 0 when no rate is configured", () => {
+    const quote = computeQuote(config(), 10, BASE_RULE, PLATFORM_FEE);
+    expect(quote.taxMinor).toBe(0);
+    expect(quote.totalMinor).toBe(quote.subtotalMinor + PLATFORM_FEE);
+  });
+});
+
+describe("computeQuote -- 17.2 paper size surcharge", () => {
+  const ruleWithA3Surcharge: PricingRule = {
+    ...BASE_RULE,
+    paperSizeSurchargePerPageMinor: { [PaperSize.A3]: 200 },
+  };
+
+  it("A3 costs more than A4 for an otherwise identical job", () => {
+    const a4Quote = computeQuote(
+      config({ paperSize: PaperSize.A4 }),
+      10,
+      ruleWithA3Surcharge,
+      PLATFORM_FEE,
+    );
+    const a3Quote = computeQuote(
+      config({ paperSize: PaperSize.A3 }),
+      10,
+      ruleWithA3Surcharge,
+      PLATFORM_FEE,
+    );
+    expect(a3Quote.totalMinor).toBeGreaterThan(a4Quote.totalMinor);
+    expect(a3Quote.lineItems).toContainEqual({
+      label: "Paper size surcharge (A3)",
+      amountMinor: 200 * 10, // units = pages(10) x copies(1)
+    });
+  });
+
+  it("a size with no configured surcharge changes nothing", () => {
+    const withRule = computeQuote(
+      config({ paperSize: PaperSize.A4 }),
+      10,
+      ruleWithA3Surcharge,
+      PLATFORM_FEE,
+    );
+    const withoutRule = computeQuote(
+      config({ paperSize: PaperSize.A4 }),
+      10,
+      BASE_RULE,
+      PLATFORM_FEE,
+    );
+    expect(withRule).toEqual(withoutRule);
+  });
+});
+
+describe("computeQuote -- 17.2 paper type surcharge", () => {
+  const ruleWithPhotoSurcharge: PricingRule = {
+    ...BASE_RULE,
+    paperTypeSurchargePerPageMinor: { [PaperType.PHOTO]: 150 },
+  };
+
+  it("PHOTO paper costs more than the STANDARD default for an otherwise identical job", () => {
+    const standard = computeQuote(config(), 10, ruleWithPhotoSurcharge, PLATFORM_FEE);
+    const photo = computeQuote(
+      config({ paperType: PaperType.PHOTO }),
+      10,
+      ruleWithPhotoSurcharge,
+      PLATFORM_FEE,
+    );
+    expect(photo.totalMinor).toBeGreaterThan(standard.totalMinor);
+    expect(photo.lineItems).toContainEqual({
+      label: "Paper type surcharge (PHOTO)",
+      amountMinor: 150 * 10,
+    });
+  });
+
+  it("an absent paperType (today's implicit 'standard') adds no surcharge even when one is configured for PHOTO", () => {
+    const quote = computeQuote(config(), 10, ruleWithPhotoSurcharge, PLATFORM_FEE);
+    expect(quote.lineItems.some((item) => item.label.startsWith("Paper type surcharge"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("computeQuote -- 17.2 finishing charges", () => {
+  const ruleWithFinishing: PricingRule = {
+    ...BASE_RULE,
+    finishingChargeMinor: { [Finishing.BINDING]: 5000, [Finishing.LAMINATION]: 3000 },
+  };
+
+  it("each selected finishing option adds its own FLAT line item, not multiplied by copies", () => {
+    const quote = computeQuote(
+      config({ copies: 5, finishing: [Finishing.BINDING] }),
+      10,
+      ruleWithFinishing,
+      PLATFORM_FEE,
+    );
+    expect(quote.lineItems).toContainEqual({ label: "Finishing: BINDING", amountMinor: 5000 });
+    // Not 5000 * 5 copies -- finishing is per job, not per unit.
+    expect(quote.lineItems.filter((item) => item.label === "Finishing: BINDING")).toHaveLength(1);
+  });
+
+  it("multiple finishing options each contribute their own line item", () => {
+    const quote = computeQuote(
+      config({ finishing: [Finishing.BINDING, Finishing.LAMINATION] }),
+      10,
+      ruleWithFinishing,
+      PLATFORM_FEE,
+    );
+    expect(quote.lineItems).toContainEqual({ label: "Finishing: BINDING", amountMinor: 5000 });
+    expect(quote.lineItems).toContainEqual({ label: "Finishing: LAMINATION", amountMinor: 3000 });
+  });
+
+  it("Finishing.NONE never itself carries a charge, even if a caller lists it", () => {
+    const ruleWithNoneCharge: PricingRule = {
+      ...BASE_RULE,
+      finishingChargeMinor: { [Finishing.NONE]: 999 },
+    };
+    const quote = computeQuote(
+      config({ finishing: [Finishing.NONE] }),
+      10,
+      ruleWithNoneCharge,
+      PLATFORM_FEE,
+    );
+    expect(quote.lineItems.some((item) => item.label.startsWith("Finishing:"))).toBe(false);
+  });
+
+  it("an empty/absent finishing selection adds nothing, even when charges are configured", () => {
+    const withEmpty = computeQuote(config({ finishing: [] }), 10, ruleWithFinishing, PLATFORM_FEE);
+    const withUndefined = computeQuote(config(), 10, ruleWithFinishing, PLATFORM_FEE);
+    expect(withEmpty).toEqual(withUndefined);
+    expect(withEmpty.lineItems.some((item) => item.label.startsWith("Finishing:"))).toBe(false);
+  });
+});
+
+describe("computeQuote -- 17.2 tax", () => {
+  const ruleWithTax: PricingRule = { ...BASE_RULE, taxRateBasisPoints: 1700 }; // 17%
+
+  it("adds a taxMinor computed from the post-minimum-charge subtotal, on top of the platform fee", () => {
+    // 20 pages x 1 copy x Rs 5.00 = Rs 100.00 (10000), above the Rs 30.00 minimum.
+    const quote = computeQuote(config(), 20, ruleWithTax, PLATFORM_FEE);
+    const expectedSubtotal = BASE_RULE.pricePerPageMinor * 20;
+    const expectedTax = Math.round((expectedSubtotal * 1700) / 10_000);
+
+    expect(quote.subtotalMinor).toBe(expectedSubtotal);
+    expect(quote.taxMinor).toBe(expectedTax);
+    expect(quote.taxMinor).toBeGreaterThan(0);
+    expect(quote.totalMinor).toBe(expectedSubtotal + expectedTax + PLATFORM_FEE);
+    // Tax is never one of the visible line items -- lineItems still
+    // sums to exactly subtotalMinor, the pre-existing invariant.
+    const lineItemSum = quote.lineItems.reduce((sum, item) => sum + item.amountMinor, 0);
+    expect(lineItemSum).toBe(quote.subtotalMinor);
+  });
+
+  it("taxes the minimum-charge-adjusted subtotal, not the smaller raw one", () => {
+    // 1 page x 1 copy = Rs 5.00 (500), well under the Rs 30.00 (3000) minimum.
+    const quote = computeQuote(config(), 1, ruleWithTax, PLATFORM_FEE);
+    expect(quote.subtotalMinor).toBe(BASE_RULE.minimumChargeMinor);
+    expect(quote.taxMinor).toBe(Math.round((BASE_RULE.minimumChargeMinor * 1700) / 10_000));
+  });
+});
+
+describe("computeQuote -- 17.2 discounts via existing otherCharges mechanism", () => {
+  it("a negative-amount otherCharges line item reduces the subtotal, no new field needed", () => {
+    const ruleWithDiscount: PricingRule = {
+      ...BASE_RULE,
+      otherCharges: [{ label: "Loyalty discount", amountMinor: -500 }],
+    };
+    // 20 pages x 1 copy x Rs 5.00 = Rs 100.00 (10000), well above the minimum.
+    const quote = computeQuote(config(), 20, ruleWithDiscount, PLATFORM_FEE);
+    expect(quote.lineItems).toContainEqual({ label: "Loyalty discount", amountMinor: -500 });
+    expect(quote.subtotalMinor).toBe(BASE_RULE.pricePerPageMinor * 20 - 500);
   });
 });
