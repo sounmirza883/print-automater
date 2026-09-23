@@ -113,36 +113,57 @@ export async function discoverPrinters(logger: pino.Logger): Promise<DiscoveredP
 
 export type HeartbeatPrinter = HeartbeatInput["printers"][number];
 
-/** Only includes `capabilities` for a printer when this process's own
+/** Per-printer-name memory of the last state this process actually put
+ * on the wire, one field per independently-changing thing 15.6 tracks
+ * (driverName/portName can each change without the other, and neither
+ * has anything to do with capabilities changing). */
+export interface LastReportedPrinterState {
+  capabilities: DiscoveredPrinter["capabilities"];
+  driverName: string;
+  portName: string;
+}
+
+/** Only includes a field for a printer when this process's own
  * last-reported snapshot for that name differs from what it just
- * discovered -- the backend's own merge rule (`reported.capabilities
- * ?? existing.capabilities`, agent-heartbeat.service.ts) keeps
- * whatever it already has when a beat omits the field. Reporting
- * unchanged capabilities on every single beat would silently re-clobber
- * a staff-made manual override (updatePrinterSchema) within seconds of
- * it being set; omitting them once nothing has changed lets an
- * override actually stick for the rest of this process's run. */
+ * discovered -- the backend's own merge rule (`reported.<field> ??
+ * existing.<column>`, agent-heartbeat.service.ts) keeps whatever it
+ * already has when a beat omits the field. Reporting an unchanged
+ * value on every single beat would silently re-clobber a staff-made
+ * manual override (updatePrinterSchema, and -- once wired up --
+ * whatever future staff-editable model/connectionType fields build on
+ * top of it) within seconds of it being set; omitting a field once
+ * nothing has changed lets an override actually stick for the rest of
+ * this process's run. 15.6 extends this same rule from just
+ * `capabilities` (15.2) to `driverName`/`portName` -- each field is
+ * compared and omitted independently, so e.g. a port change alone
+ * doesn't force a redundant driverName resend. */
 export function toHeartbeatPrinters(
   discovered: DiscoveredPrinter[],
-  lastReported: Map<string, DiscoveredPrinter["capabilities"]>,
+  lastReported: Map<string, LastReportedPrinterState>,
 ): HeartbeatPrinter[] {
   return discovered.map((printer) => {
     const previous = lastReported.get(printer.name);
-    const changed =
+    const capabilitiesChanged =
       previous === undefined ||
-      previous.color !== printer.capabilities.color ||
-      previous.duplex !== printer.capabilities.duplex ||
-      previous.a4 !== printer.capabilities.a4 ||
-      previous.a3 !== printer.capabilities.a3;
+      previous.capabilities.color !== printer.capabilities.color ||
+      previous.capabilities.duplex !== printer.capabilities.duplex ||
+      previous.capabilities.a4 !== printer.capabilities.a4 ||
+      previous.capabilities.a3 !== printer.capabilities.a3;
+    const driverNameChanged = previous === undefined || previous.driverName !== printer.driverName;
+    const portNameChanged = previous === undefined || previous.portName !== printer.portName;
 
-    if (changed) {
-      lastReported.set(printer.name, printer.capabilities);
-    }
+    lastReported.set(printer.name, {
+      capabilities: printer.capabilities,
+      driverName: printer.driverName,
+      portName: printer.portName,
+    });
 
     return {
       name: printer.name,
       status: printer.status,
-      ...(changed ? { capabilities: printer.capabilities } : {}),
+      ...(capabilitiesChanged ? { capabilities: printer.capabilities } : {}),
+      ...(driverNameChanged ? { driverName: printer.driverName } : {}),
+      ...(portNameChanged ? { portName: printer.portName } : {}),
     };
   });
 }

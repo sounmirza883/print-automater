@@ -168,6 +168,108 @@ describe("POST /agents/heartbeat (9.4, e2e)", () => {
     expect(updated.agentId).toBe(agent.id);
   });
 
+  it("round-trips driverName/portName onto model/connectionType, both on create and on update", async () => {
+    const { accessToken } = await registerAndAuthenticate();
+    const printerName = `Heartbeat Profile Printer ${randomUUID()}`;
+
+    await request(app.getHttpServer())
+      .post("/v1/agents/heartbeat")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        printers: [
+          {
+            name: printerName,
+            status: "ONLINE",
+            driverName: "HP LaserJet Pro M404-M405 PCL-6",
+            portName: "USB001",
+          },
+        ],
+      })
+      .expect(200);
+
+    const created = await prisma.printer.findFirstOrThrow({
+      where: { shopId: shop.id, name: printerName },
+    });
+    printerIds.push(created.id);
+    expect(created.model).toBe("HP LaserJet Pro M404-M405 PCL-6");
+    expect(created.connectionType).toBe("USB001");
+
+    await request(app.getHttpServer())
+      .post("/v1/agents/heartbeat")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        printers: [
+          {
+            name: printerName,
+            status: "ONLINE",
+            driverName: "HP LaserJet Pro M404-M405 PCL-6",
+            portName: "USB002",
+          },
+        ],
+      })
+      .expect(200);
+
+    const updated = await prisma.printer.findUniqueOrThrow({ where: { id: created.id } });
+    expect(updated.model).toBe("HP LaserJet Pro M404-M405 PCL-6");
+    expect(updated.connectionType).toBe("USB002");
+  });
+
+  it("a heartbeat omitting driverName/portName (an old/unupdated agent) never nulls out previously reported model/connectionType", async () => {
+    const existing = await prisma.printer.create({
+      data: {
+        shopId: shop.id,
+        name: `Legacy-Beat Printer ${randomUUID()}`,
+        status: PrinterStatus.OFFLINE,
+        model: "HP LaserJet Pro M404-M405 PCL-6",
+        connectionType: "USB001",
+      },
+    });
+    printerIds.push(existing.id);
+    const { accessToken } = await registerAndAuthenticate();
+
+    await request(app.getHttpServer())
+      .post("/v1/agents/heartbeat")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ printers: [{ name: existing.name, status: "ONLINE" }] })
+      .expect(200);
+
+    const updated = await prisma.printer.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(updated.status).toBe(PrinterStatus.ONLINE);
+    expect(updated.model).toBe("HP LaserJet Pro M404-M405 PCL-6");
+    expect(updated.connectionType).toBe("USB001");
+  });
+
+  it("never writes location from a heartbeat -- staff-set only, forever (15.3)", async () => {
+    const existing = await prisma.printer.create({
+      data: {
+        shopId: shop.id,
+        name: `Located Printer ${randomUUID()}`,
+        status: PrinterStatus.OFFLINE,
+        location: "Front counter, staff-set",
+      },
+    });
+    printerIds.push(existing.id);
+    const { accessToken } = await registerAndAuthenticate();
+
+    await request(app.getHttpServer())
+      .post("/v1/agents/heartbeat")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        printers: [
+          {
+            name: existing.name,
+            status: "ONLINE",
+            driverName: "Some Driver",
+            portName: "USB003",
+          },
+        ],
+      })
+      .expect(200);
+
+    const updated = await prisma.printer.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(updated.location).toBe("Front counter, staff-set");
+  });
+
   it("returns 401 with no agent token, and 401 for a human user's own JWT (a different secret entirely)", async () => {
     const noToken = await request(app.getHttpServer())
       .post("/v1/agents/heartbeat")

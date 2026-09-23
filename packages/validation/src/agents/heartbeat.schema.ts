@@ -15,6 +15,30 @@ export const heartbeatSchema = z.object({
       name: z.string().min(1),
       status: z.enum(["ONLINE", "ERROR"]),
       capabilities: printerCapabilitiesSchema.optional(),
+      // 15.6/§16. `Get-Printer`/`Get-PrintConfiguration`
+      // (apps/printer-agent/src/printers/discovery.ts) already
+      // discover these two -- this is the wire contract catching up
+      // to data the agent was silently dropping, not new hardware
+      // access. Both optional for two independent reasons: an agent
+      // built before 15.6 sends neither at all (must not be treated
+      // as "clear the value"), and the agent itself omits either one
+      // on a given beat when it's unchanged since the last beat it
+      // sent, the same "don't resend/reclobber what hasn't moved"
+      // rule 15.2 established for `capabilities`.
+      //
+      // Deliberately NOT added here: page counters or consumable
+      // (toner/ink) state. Neither `Get-Printer` nor
+      // `Get-PrintConfiguration` -- the only two calls
+      // discovery.ts actually makes -- exposes either one; a
+      // driver-specific WMI class (e.g. `Win32_Printer`'s own
+      // counters are unreliable/driver-dependent, and toner level
+      // has no standard WMI/PowerShell surface at all) would be
+      // needed, and none is wired up. Adding fields for data the
+      // agent can't actually produce would freeze a wire contract
+      // (this sub-phase's whole point) around a lie every future
+      // beat would silently satisfy with an absent/empty value.
+      driverName: z.string().min(1).optional(),
+      portName: z.string().min(1).optional(),
     }),
   ),
 });

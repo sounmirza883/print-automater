@@ -19,7 +19,7 @@ import { LoopbackServer, type AgentStatus } from "./server/loopback-server.js";
 import {
   discoverPrinters,
   toHeartbeatPrinters,
-  type DiscoveredPrinter,
+  type LastReportedPrinterState,
 } from "./printers/discovery.js";
 import { SumatraPrinterDriver } from "./printers/driver/sumatra-driver.js";
 import { processNextJob } from "./printers/job-processor.js";
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
   let lastError: string | null = null;
   let lastHeartbeatAt: string | null = null;
   let cachedAccessToken: { token: string; expiresAt: number } | null = null;
-  const lastReportedCapabilities = new Map<string, DiscoveredPrinter["capabilities"]>();
+  const lastReportedPrinterState = new Map<string, LastReportedPrinterState>();
   let shuttingDown = false;
 
   const tray = createTray(logger);
@@ -204,7 +204,7 @@ async function main(): Promise<void> {
     try {
       const token = await getAccessToken();
       const discovered = await discoverPrinters(logger);
-      const printers = toHeartbeatPrinters(discovered, lastReportedCapabilities);
+      const printers = toHeartbeatPrinters(discovered, lastReportedPrinterState);
       await backendClient.sendHeartbeat(token, printers);
       lastHeartbeatAt = new Date().toISOString();
       lastError = null;

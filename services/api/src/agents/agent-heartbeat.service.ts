@@ -41,6 +41,16 @@ export class AgentHeartbeatService {
             name: reported.name,
             status: reported.status,
             capabilities: reported.capabilities as unknown as Prisma.InputJsonValue | undefined,
+            // 15.6: `driverName`/`portName` map onto the 15.3 printer
+            // profile's `model`/`connectionType` -- both plain free
+            // text with no other writer yet (updatePrinterSchema
+            // doesn't expose either), so there's nothing for a fresh
+            // heartbeat to clobber here. `location` is deliberately
+            // never set from a heartbeat at all (15.3's own schema
+            // comment: staff-set only, forever) -- the wire schema
+            // doesn't even carry it.
+            model: reported.driverName,
+            connectionType: reported.portName,
           },
         });
         continue;
@@ -80,6 +90,17 @@ export class AgentHeartbeatService {
           status: reported.status,
           capabilities: (reported.capabilities ?? existing.capabilities) as unknown as
             Prisma.InputJsonValue | undefined,
+          // 15.6: same "reported field, or keep whatever's already
+          // there" fallback as capabilities just above -- an agent
+          // that omits driverName/portName (an old/unupdated agent
+          // that's never sent them, or this run's own "unchanged
+          // since last beat" omission, discovery.ts's
+          // toHeartbeatPrinters) must never null out a previously
+          // reported (or, once a future PATCH endpoint exposes these
+          // for editing, staff-set) value. `location` is never part
+          // of this update at all -- staff-set only, per 15.3.
+          model: reported.driverName ?? existing.model,
+          connectionType: reported.portName ?? existing.connectionType,
         },
       });
     }
