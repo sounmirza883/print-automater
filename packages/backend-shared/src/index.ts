@@ -68,6 +68,17 @@ export {
   type LockedPrintJobRow,
 } from "./print-jobs/print-job-state-machine.js";
 export { PrintJobStateMachineModule } from "./print-jobs/print-job-state-machine.module.js";
+export {
+  explodeOrderItems,
+  type OrderItemLike,
+  type PrintJobDraft,
+} from "./print-jobs/explode-order-items.js";
+export {
+  allocatePrinter,
+  type AllocationRequest,
+  type AllocationResult,
+  type PrinterCandidate,
+} from "./print-jobs/allocate-printer.js";
 
 export {
   EMAIL_TRANSPORT,

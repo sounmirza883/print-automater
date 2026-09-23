@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   ForbiddenException,
   HttpStatus,
@@ -9,28 +8,28 @@ import {
 import {
   DocumentStatus,
   OrderCreationSource,
+  OrderItemType,
   OrderStatus,
   PaymentStatus,
   Prisma,
   PrintJobStatus,
-  PrinterStatus,
 } from "@prisma/client";
-import type {
-  PrintConfiguration,
-  PrinterCapabilities,
-  ShopRejectionReason,
-} from "@print-automated/types";
+import type { PrintConfiguration, ShopRejectionReason } from "@print-automated/types";
 import type {
   CreateCounterOrderInput,
   ResolveUnknownPrintInput,
 } from "@print-automated/validation";
 import {
+  allocatePrinter,
   AppException,
+  explodeOrderItems,
   OrderEvent,
   OrderStateMachine,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
+  type AllocationResult,
+  type PrinterCandidate,
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
@@ -50,18 +49,38 @@ const SHOP_ORDER_INCLUDE = {
   // customerRecord at all, so its own `customer.name` is unaffected.
   customerRecord: { select: { name: true } },
   document: { select: { filename: true } },
-  // §37's own printing screen needs a printer name to show -- the
-  // most recently created job is "the" job for MVP purposes (nothing
-  // before 10.4's own "change printer" ever creates a second one for
-  // the same order).
+  // §37's own printing screen needs a printer name to show. 18.5:
+  // `supersededAt: null` (not `take: 1, orderBy: createdAt desc`) is
+  // what "the current job(s)" means once an order can hold more than
+  // one live job at a time (multiItemEnabled) -- every job a retry/
+  // reassignment superseded is explicitly excluded here, rather than
+  // relying on it happening to be older than the replacement. For
+  // every pre-18.5 single-job order these two filters pick out the
+  // exact same one row (there is only ever one non-superseded job),
+  // which is what proves this change is behaviour-preserving.
   printJobs: {
+    where: { supersededAt: null },
     orderBy: { createdAt: "desc" },
-    take: 1,
-    select: { status: true, printer: { select: { name: true } } },
+    select: {
+      id: true,
+      status: true,
+      blockedReason: true,
+      printer: { select: { name: true } },
+    },
   },
 } satisfies Prisma.OrderInclude;
 
 type ShopOrderWithRelations = Prisma.OrderGetPayload<{ include: typeof SHOP_ORDER_INCLUDE }>;
+
+// 18.6's own Done-when: a blocked job's reason must be "visible via the
+// shop-orders API response," not just a database column nothing ever
+// surfaces.
+export interface ShopOrderJobSummary {
+  id: string;
+  status: string;
+  printerName: string | null;
+  blockedReason: string | null;
+}
 
 export interface ShopOrderResponse {
   id: string;
@@ -75,8 +94,11 @@ export interface ShopOrderResponse {
   createdAt: Date;
   // §37: null until a print_job exists (i.e. before SHOP_ACCEPT) --
   // the printing screen has nothing to show a printer name for yet at
-  // that point anyway.
+  // that point anyway. For a multi-item order this is the most
+  // recently created job's own printer -- a per-job breakdown lives in
+  // `printJobs` below.
   printerName: string | null;
+  printJobs: ShopOrderJobSummary[];
 }
 
 export interface ShopOrdersGrouped {
@@ -282,11 +304,11 @@ export class ShopOrdersService {
     }
 
     // Set inside the transaction's sideEffect (the only place the
-    // winning printer -- and its agent, if any -- is known) but only
-    // acted on after that transaction actually commits: Redis isn't
-    // part of the Postgres transaction, so notifying from inside the
-    // callback could announce a job that a later rollback undoes.
-    let notifyDeviceId: string | null = null;
+    // winning printer(s) -- and their agents, if any -- are known) but
+    // only acted on after that transaction actually commits: Redis
+    // isn't part of the Postgres transaction, so notifying from inside
+    // the callback could announce a job that a later rollback undoes.
+    let notifyDeviceIds: string[] = [];
 
     try {
       await this.orderStateMachine.transition(
@@ -295,7 +317,7 @@ export class ShopOrdersService {
         { id: actorId },
         {
           sideEffect: async (tx) => {
-            notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+            notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
           },
         },
       );
@@ -305,31 +327,53 @@ export class ShopOrdersService {
       }
     }
 
-    if (notifyDeviceId) {
-      await this.agentJobsService.notify(notifyDeviceId);
-    }
+    await this.notifyDevices(notifyDeviceIds);
 
     await this.queuePrintIfStillAccepted(orderId, actorId);
     return this.getOrder(orderId);
   }
 
+  private async notifyDevices(deviceIds: string[]): Promise<void> {
+    await Promise.all(deviceIds.map((deviceId) => this.agentJobsService.notify(deviceId)));
+  }
+
   /** §44's own gate, re-checked fresh through `tx` rather than trusted
    * from however the caller got here -- shared by acceptOrder() and
-   * 10.1's retryPrint(), since a retry is itself a fresh dispatch
-   * attempt, not a resume of the one that failed, and deserves the
-   * exact same four-condition check. Always creates a NEW print_job
-   * row rather than reusing/flipping an old FAILED one: each row is
-   * one attempt, preserving "attempt 1 failed, attempt 2 succeeded"
-   * as real history instead of overwriting it -- the same shape
-   * 10.4's own eventual change-printer reassignment needs anyway. */
+   * 10.1's retryPrint()/10.4's changePrinter()/10.3's resolveUnknownPrint().
+   *
+   * 18.3/18.4/18.5: explodes the order's own OrderItem rows (creating
+   * exactly one synthetic PRINT item first, matching the 15.4 backfill's
+   * own shape, if none exist yet -- true for every order today, since
+   * nothing before Phase 18 ever creates one at order-creation time)
+   * and allocates each through `allocatePrinter()`. `idempotencyToken`
+   * is `${orderItemId}:${attempt}` -- a real database uniqueness
+   * guarantee (the column is still `@unique`) that one-dispatch-per-
+   * item-per-attempt actually holds, not just a convention.
+   *
+   * `shop.multiItemEnabled` gates the two behaviours the plan requires
+   * kept strictly apart: disabled (the default, and every shop until
+   * 18.10 proves this safe) means a per-item allocation failure throws
+   * the exact same NO_PRINTER_AVAILABLE/PRINTER_NOT_AVAILABLE/
+   * PRINTER_CAPABILITY_MISMATCH AppException the old findAutoPrinter()/
+   * findRequestedPrinter() threw, and creates no job row at all --
+   * byte-for-byte the pre-18.5 behaviour. Enabled means a blocked item
+   * instead becomes a real WAITING print_job with a blockedReason
+   * (18.6) and dispatch simply continues to the next item, never
+   * throwing on a partial allocation. */
   private async dispatchToPrinter(
     tx: Prisma.TransactionClient,
     orderId: string,
     requestedPrinterId?: string,
-  ): Promise<{ notifyDeviceId: string | null }> {
+  ): Promise<{ notifyDeviceIds: string[] }> {
     const freshOrder = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
-      select: { shopId: true, paymentStatus: true, documentId: true, printConfiguration: true },
+      select: {
+        shopId: true,
+        paymentStatus: true,
+        documentId: true,
+        printConfiguration: true,
+        shop: { select: { multiItemEnabled: true } },
+      },
     });
 
     if (freshOrder.paymentStatus !== PaymentStatus.PAID) {
@@ -354,136 +398,207 @@ export class ShopOrdersService {
       );
     }
 
-    // §49/10.4: a staff-requested printer is an explicit, deliberate
-    // choice (not auto-selected "any available printer"), so it gets
-    // its own lookup and its own capability check against exactly what
-    // this order needs.
-    const printer = requestedPrinterId
-      ? await this.findRequestedPrinter(
-          tx,
+    let items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { sequence: "asc" } });
+    if (items.length === 0) {
+      const config = freshOrder.printConfiguration as unknown as PrintConfiguration;
+      const synthetic = await tx.orderItem.create({
+        data: {
+          orderId,
+          documentId: freshOrder.documentId,
+          printConfiguration: freshOrder.printConfiguration as Prisma.InputJsonValue,
+          quantity: config.copies ?? 1,
+          itemType: OrderItemType.PRINT,
+          required: true,
+          sequence: 0,
+        },
+      });
+      items = [synthetic];
+    }
+
+    const drafts = explodeOrderItems(
+      items.map((item) => ({
+        id: item.id,
+        documentId: item.documentId,
+        printConfiguration: item.printConfiguration as unknown as PrintConfiguration,
+        required: item.required,
+      })),
+    );
+
+    const { candidates, deviceIdsByPrinterId } = await this.buildPrinterCandidates(
+      tx,
+      freshOrder.shopId,
+    );
+    const notifyDeviceIds = new Set<string>();
+
+    for (const draft of drafts) {
+      const document = await tx.document.findUnique({
+        where: { id: draft.documentId },
+        select: { pageCount: true },
+      });
+      const pageCount = document?.pageCount ?? 1;
+      const attempt = await tx.printJob.count({ where: { orderItemId: draft.orderItemId } });
+      const idempotencyToken = `${draft.orderItemId}:${attempt + 1}`;
+
+      const allocation = allocatePrinter(
+        {
+          printConfiguration: draft.printConfiguration,
+          pageCount,
+          allowUnknownCapabilities: requestedPrinterId !== undefined,
           requestedPrinterId,
-          freshOrder.shopId,
-          freshOrder.printConfiguration as unknown as PrintConfiguration,
-        )
-      : await this.findAutoPrinter(
-          tx,
-          freshOrder.shopId,
-          freshOrder.printConfiguration as unknown as PrintConfiguration,
+        },
+        candidates,
+      );
+
+      if (allocation.outcome === "ALLOCATED") {
+        const printer = candidates.find((c) => c.id === allocation.printerId);
+        await tx.printJob.create({
+          data: {
+            orderId,
+            shopId: freshOrder.shopId,
+            orderItemId: draft.orderItemId,
+            printerId: allocation.printerId,
+            attempt: attempt + 1,
+            idempotencyToken,
+            status: PrintJobStatus.QUEUED,
+          },
+        });
+        if (printer) {
+          // Keep this dispatch call's own candidate load current so a
+          // second item exploded in the SAME call sees an accurate
+          // queue depth for tie-breaking, rather than every item in one
+          // multi-item order racing to the same "least loaded" printer.
+          printer.queuedJobs += 1;
+          printer.queuedPages += pageCount;
+          const deviceId = deviceIdsByPrinterId.get(printer.id);
+          if (deviceId) {
+            notifyDeviceIds.add(deviceId);
+          }
+        }
+      } else if (freshOrder.shop.multiItemEnabled) {
+        await tx.printJob.create({
+          data: {
+            orderId,
+            shopId: freshOrder.shopId,
+            orderItemId: draft.orderItemId,
+            printerId: null,
+            attempt: attempt + 1,
+            idempotencyToken,
+            status: PrintJobStatus.WAITING,
+            blockedReason: allocation.blockedReason,
+          },
+        });
+      } else {
+        const requestedCandidateExists =
+          requestedPrinterId !== undefined && candidates.some((c) => c.id === requestedPrinterId);
+        throw this.blockedReasonToLegacyException(
+          allocation,
+          requestedPrinterId !== undefined,
+          requestedCandidateExists,
         );
-    if (!printer) {
-      throw new AppException(
+      }
+    }
+
+    return { notifyDeviceIds: [...notifyDeviceIds] };
+  }
+
+  /** Local to one dispatchToPrinter() call -- deliberately NOT an
+   * instance field, since ShopOrdersService is a singleton and two
+   * concurrent accepts (different orders, or even different agents'
+   * printers on the same shop) dispatching at once would otherwise race
+   * on shared mutable state and could notify the wrong device entirely.
+   * `deviceIdsByPrinterId` is a plain lookup from printerId to the
+   * owning agent's deviceId, since PrinterCandidate itself (18.4, pure,
+   * zero-Prisma) deliberately carries no agent/device concept. */
+  private async buildPrinterCandidates(
+    tx: Prisma.TransactionClient,
+    shopId: string,
+  ): Promise<{ candidates: PrinterCandidate[]; deviceIdsByPrinterId: Map<string, string> }> {
+    const printers = await tx.printer.findMany({
+      where: { shopId },
+      include: { agent: { select: { deviceId: true } } },
+    });
+    const deviceIdsByPrinterId = new Map(
+      printers.filter((p) => p.agent).map((p) => [p.id, p.agent!.deviceId]),
+    );
+
+    const activeJobs = await tx.printJob.findMany({
+      where: {
+        shopId,
+        printerId: { not: null },
+        status: { in: [PrintJobStatus.QUEUED, PrintJobStatus.CLAIMED, PrintJobStatus.PRINTING] },
+      },
+      select: {
+        printerId: true,
+        orderItem: { select: { quantity: true, document: { select: { pageCount: true } } } },
+        order: { select: { document: { select: { pageCount: true } } } },
+      },
+    });
+    const load = new Map<string, { pages: number; jobs: number }>();
+    for (const job of activeJobs) {
+      const pages =
+        (job.orderItem?.document.pageCount ?? job.order.document.pageCount ?? 1) *
+        (job.orderItem?.quantity ?? 1);
+      const entry = load.get(job.printerId!) ?? { pages: 0, jobs: 0 };
+      entry.pages += pages;
+      entry.jobs += 1;
+      load.set(job.printerId!, entry);
+    }
+
+    const candidates = printers.map((printer) => ({
+      id: printer.id,
+      status: printer.status,
+      hasAgent: printer.agentId !== null,
+      capabilities: printer.capabilities as PrinterCandidate["capabilities"],
+      supportedSizes: printer.supportedSizes,
+      supportedPaperTypes: printer.supportedPaperTypes,
+      maxJobPages: printer.maxJobPages,
+      queuedPages: load.get(printer.id)?.pages ?? 0,
+      queuedJobs: load.get(printer.id)?.jobs ?? 0,
+      registeredAt: printer.createdAt.getTime(),
+    }));
+    return { candidates, deviceIdsByPrinterId };
+  }
+
+  /** Preserves the exact pre-18.5 error contract for
+   * `multiItemEnabled: false` orders -- the equivalence this phase
+   * gates on. `candidateExists` distinguishes 10.4's own two manual-
+   * path outcomes: PRINTER_NOT_AVAILABLE covers "doesn't exist / wrong
+   * shop / disabled" (findRequestedPrinter()'s old WHERE clause
+   * excluded all three, so `allocatePrinter()` never even sees them as
+   * a real candidate -- or sees one whose own status is
+   * OFFLINE/DISABLED), PRINTER_CAPABILITY_MISMATCH covers "exists, but
+   * can't do this job." */
+  private blockedReasonToLegacyException(
+    allocation: Extract<AllocationResult, { outcome: "BLOCKED" }>,
+    manual: boolean,
+    candidateExists: boolean,
+  ): AppException {
+    if (!manual) {
+      return new AppException(
         HttpStatus.CONFLICT,
         "NO_PRINTER_AVAILABLE",
         "No printer is available to accept this order.",
         true,
       );
     }
-    await tx.printJob.create({
-      data: {
-        orderId,
-        printerId: printer.id,
-        shopId: freshOrder.shopId,
-        idempotencyToken: randomUUID(),
-        // 18.1: print_jobs now defaults to CREATED (unallocated) --
-        // this pre-18.5 dispatch path allocates synchronously right
-        // here (the printer lookup above already succeeded), so it
-        // still creates the job as QUEUED directly, exactly like
-        // before `status` had a CREATED/WAITING distinction at all.
-        // `create()` isn't covered by the print_jobs.status
-        // ESLint rule, the same "setting an initial value is not a
-        // transition" precedent order_status's own creation already
-        // established.
-        status: PrintJobStatus.QUEUED,
-      },
-    });
-    // A printer staff registered by hand (8.4) before any agent ever
-    // heartbeated it has no agent yet -- nothing to wake. findAutoPrinter()
-    // never returns one of these (15.2 requires an attached agent on
-    // the auto path), so this is now only reachable via the manual
-    // findRequestedPrinter() path, which still allows it.
-    return { notifyDeviceId: printer.agent?.deviceId ?? null };
-  }
-
-  /** 15.2 hotfix. The auto-dispatch path used to be a bare
-   * `findFirst({ status: { not: DISABLED } })` -- no capability check
-   * at all, ONLINE/OFFLINE/ERROR all equally eligible, and no explicit
-   * ordering (so which of several matching printers won was whatever
-   * Postgres felt like returning that day). A COLOR/DOUBLE order could
-   * silently land on a mono/simplex printer, or on a printer with no
-   * agent attached to ever claim the job.
-   *
-   * Fixed here to require ONLINE (not merely "not DISABLED" -- OFFLINE
-   * and ERROR are excluded too, §16's "never assume a printer is
-   * available" applied literally), an attached agent (nothing else
-   * could ever claim the job), and printerSupportsConfiguration().
-   * Deliberately the OPPOSITE null-handling from the manual path's
-   * findRequestedPrinter(): there, a human is naming this exact
-   * printer, so unknown (null) capabilities defer to that informed
-   * choice. Here, nothing human is involved -- the system is guessing
-   * on the customer/order's behalf -- so a printer whose capabilities
-   * were never probed is excluded rather than guessed as compatible.
-   * `orderBy: [{ createdAt: "asc" }, { id: "asc" }]` makes candidate
-   * selection deterministic and reproducible; real tie-breaking
-   * (fewest queued pages, etc.) is Phase 18's allocation engine, not
-   * this hotfix's job. */
-  private async findAutoPrinter(
-    tx: Prisma.TransactionClient,
-    shopId: string,
-    printConfiguration: PrintConfiguration,
-  ) {
-    const candidates = await tx.printer.findMany({
-      where: { shopId, status: PrinterStatus.ONLINE, agent: { isNot: null } },
-      include: { agent: { select: { deviceId: true } } },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    });
-    return (
-      candidates.find(
-        (candidate) =>
-          candidate.capabilities !== null &&
-          printerSupportsConfiguration(
-            candidate.capabilities as unknown as PrinterCapabilities,
-            printConfiguration,
-          ),
-      ) ?? null
-    );
-  }
-
-  /** §49/10.4. Distinguishes "doesn't exist / wrong shop / disabled"
-   * (PRINTER_NOT_AVAILABLE) from "exists, but can't do this job"
-   * (PRINTER_CAPABILITY_MISMATCH) -- a readable, specific reason
-   * either way, never a generic refusal. */
-  private async findRequestedPrinter(
-    tx: Prisma.TransactionClient,
-    printerId: string,
-    shopId: string,
-    printConfiguration: PrintConfiguration,
-  ) {
-    const printer = await tx.printer.findFirst({
-      where: { id: printerId, shopId, status: { not: PrinterStatus.DISABLED } },
-      include: { agent: { select: { deviceId: true } } },
-    });
-    if (!printer) {
-      throw new AppException(
+    if (
+      !candidateExists ||
+      allocation.blockedReason === "PRINTER_OFFLINE" ||
+      allocation.blockedReason === "PRINTER_DISABLED"
+    ) {
+      return new AppException(
         HttpStatus.CONFLICT,
         "PRINTER_NOT_AVAILABLE",
         "That printer is not available for this shop.",
         true,
       );
     }
-    if (
-      !printerSupportsConfiguration(
-        printer.capabilities as unknown as PrinterCapabilities | null,
-        printConfiguration,
-      )
-    ) {
-      throw new AppException(
-        HttpStatus.CONFLICT,
-        "PRINTER_CAPABILITY_MISMATCH",
-        "That printer cannot fulfil this order's configuration.",
-        false,
-      );
-    }
-    return printer;
+    return new AppException(
+      HttpStatus.CONFLICT,
+      "PRINTER_CAPABILITY_MISMATCH",
+      "That printer cannot fulfil this order's configuration.",
+      false,
+    );
   }
 
   /** 18.2: RETRY_PRINT/RESOLVE_UNKNOWN_* no longer exist as order-
@@ -543,7 +658,7 @@ export class ShopOrdersService {
     actorId: string,
     printerId: string,
   ): Promise<ShopOrderResponse> {
-    let notifyDeviceId: string | null = null;
+    let notifyDeviceIds: string[] = [];
     let retried = false;
 
     await this.prisma.$transaction(async (tx) => {
@@ -552,16 +667,14 @@ export class ShopOrdersService {
         return;
       }
       await this.supersedeActiveJobs(tx, orderId);
-      notifyDeviceId = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceId;
+      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceIds;
       retried = true;
     });
 
     if (retried) {
       await this.syncOrderIgnoringIllegal(orderId, actorId);
     }
-    if (notifyDeviceId) {
-      await this.agentJobsService.notify(notifyDeviceId);
-    }
+    await this.notifyDevices(notifyDeviceIds);
     return this.getOrder(orderId);
   }
 
@@ -570,7 +683,7 @@ export class ShopOrdersService {
    * finds the order no longer PRINT_FAILED by the time this locks the
    * row, and is a no-op rather than an error. */
   async retryPrint(orderId: string, actorId: string): Promise<ShopOrderResponse> {
-    let notifyDeviceId: string | null = null;
+    let notifyDeviceIds: string[] = [];
     let retried = false;
 
     await this.prisma.$transaction(async (tx) => {
@@ -579,16 +692,14 @@ export class ShopOrdersService {
         return;
       }
       await this.supersedeActiveJobs(tx, orderId);
-      notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
       retried = true;
     });
 
     if (retried) {
       await this.syncOrderIgnoringIllegal(orderId, actorId);
     }
-    if (notifyDeviceId) {
-      await this.agentJobsService.notify(notifyDeviceId);
-    }
+    await this.notifyDevices(notifyDeviceIds);
     return this.getOrder(orderId);
   }
 
@@ -625,7 +736,7 @@ export class ShopOrdersService {
     }
 
     if (resolution === "RETRY") {
-      let notifyDeviceId: string | null = null;
+      let notifyDeviceIds: string[] = [];
       let retried = false;
       await this.prisma.$transaction(async (tx) => {
         const status = await this.lockOrderStatus(tx, orderId);
@@ -633,15 +744,13 @@ export class ShopOrdersService {
           return;
         }
         await this.supersedeActiveJobs(tx, orderId);
-        notifyDeviceId = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceId;
+        notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
         retried = true;
       });
       if (retried) {
         await this.syncOrderIgnoringIllegal(orderId, actorId);
       }
-      if (notifyDeviceId) {
-        await this.agentJobsService.notify(notifyDeviceId);
-      }
+      await this.notifyDevices(notifyDeviceIds);
       return this.getOrder(orderId);
     }
 
@@ -748,41 +857,12 @@ export class ShopOrdersService {
       orderStatus: order.orderStatus,
       createdAt: order.createdAt,
       printerName: order.printJobs[0]?.printer?.name ?? null,
+      printJobs: order.printJobs.map((job) => ({
+        id: job.id,
+        status: job.status,
+        printerName: job.printer?.name ?? null,
+        blockedReason: job.blockedReason,
+      })),
     };
   }
-}
-
-/** §49/10.4. Deliberately the *opposite* null-handling from orders.
- * service.ts's own shopCanFulfil(): a shop's own capabilities being
- * null there means "never configured, refuse by default" (a system-
- * wide filter applied with no human involved). Here, a printer's
- * capabilities being null means "not yet probed by an agent heartbeat"
- * (9.4's own established meaning) -- and staff naming THIS printer by
- * id is itself a deliberate, informed choice, not a blind filter, so
- * unknown capabilities don't block it. A capability the system
- * actually knows is missing still refuses, unconditionally.
- *
- * This function's own null handling ("null capabilities pass") is
- * therefore correct for findRequestedPrinter() (the manual path,
- * "trust the human") but wrong for auto-selection -- 15.2's
- * findAutoPrinter() excludes null-capability candidates itself,
- * *before* ever calling this function, rather than changing this
- * function's contract for both callers. */
-function printerSupportsConfiguration(
-  capabilities: PrinterCapabilities | null,
-  config: PrintConfiguration,
-): boolean {
-  if (capabilities === null) {
-    return true;
-  }
-  if (config.color === "COLOR" && !capabilities.color) {
-    return false;
-  }
-  if (config.sides === "DOUBLE" && !capabilities.duplex) {
-    return false;
-  }
-  if (config.paperSize === "A4" && !capabilities.a4) {
-    return false;
-  }
-  return true;
 }
