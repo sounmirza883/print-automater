@@ -25,6 +25,7 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@prisma/client": "^6.2.1",
+    "@print-automated/types": "workspace:*",
     "bullmq": "^5.34.5",
     "ioredis": "^5.4.2",
     "nodemailer": "^10.0.10",

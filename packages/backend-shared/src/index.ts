@@ -33,6 +33,8 @@ export {
   type EncryptedStream,
 } from "./crypto/crypto.service.js";
 
+export { ROLE_PERMISSIONS } from "./auth/role-permissions.js";
+
 export { AuditModule } from "./audit/audit.module.js";
 export { AuditService, type RecordAuditEntryInput } from "./audit/audit.service.js";
 export { redactMetadata } from "./audit/redact-metadata.js";

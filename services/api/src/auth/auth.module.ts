@@ -6,6 +6,7 @@ import { AuthService } from "./auth.service.js";
 import { AuthController } from "./auth.controller.js";
 import { JwtAuthGuard } from "./jwt-auth.guard.js";
 import { RolesGuard } from "./roles.guard.js";
+import { PermissionsGuard } from "./permissions.guard.js";
 import { ShopScopeGuard } from "./shop-scope.guard.js";
 import { ShopMembershipService } from "./shop-membership.service.js";
 
@@ -18,6 +19,7 @@ import { ShopMembershipService } from "./shop-membership.service.js";
     AuthService,
     JwtAuthGuard,
     RolesGuard,
+    PermissionsGuard,
     ShopScopeGuard,
     ShopMembershipService,
   ],
@@ -26,6 +28,7 @@ import { ShopMembershipService } from "./shop-membership.service.js";
     TokenService,
     JwtAuthGuard,
     RolesGuard,
+    PermissionsGuard,
     ShopScopeGuard,
     ShopMembershipService,
   ],

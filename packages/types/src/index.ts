@@ -3,6 +3,7 @@ export {
   PaymentStatus,
   PrintJobStatus,
   UserRole,
+  Permission,
   ShopStatus,
   PrinterStatus,
   PaperSize,
