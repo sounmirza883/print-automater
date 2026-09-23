@@ -51,6 +51,23 @@ export {
   type AdminAuditQueryInput,
 } from "./admin/index.js";
 export {
+  createProductSchema,
+  type CreateProductInput,
+  updateProductSchema,
+  type UpdateProductInput,
+  listProductsQuerySchema,
+  type ListProductsQueryInput,
+  productPrinterRequirementsSchema,
+  productPaperRequirementsSchema,
+  type ProductPaperRequirementsInput,
+} from "./products/index.js";
+export {
+  createPricingRuleSchema,
+  type CreatePricingRuleInput,
+  listPricingRulesQuerySchema,
+  type ListPricingRulesQueryInput,
+} from "./pricing-rules/index.js";
+export {
   registerAgentSchema,
   type RegisterAgentInput,
   authenticateChallengeSchema,

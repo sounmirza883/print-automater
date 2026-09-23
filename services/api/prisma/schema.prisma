@@ -240,6 +240,19 @@ model PricingRule {
   colorSurchargePerPageMinor Int      @map("color_surcharge_per_page_minor")
   otherCharges               Json     @map("other_charges")
   minimumChargeMinor         Int      @map("minimum_charge_minor")
+  // §14/17.2/17.3: packages/pricing's own PricingRule type additions,
+  // persisted here so 17.3's new writer can actually store them. All
+  // nullable -- every row created before this migration (including
+  // every seed.ts row) has none of these set, which computeQuote()
+  // already treats as "no surcharge/no tax configured," its own
+  // pre-17.2 behaviour exactly. Json maps are keyed by the closed
+  // PaperSize/PaperType/Finishing enums (packages/pricing's own type
+  // comment explains why these are real typed columns, not another
+  // otherCharges-style freeform entry).
+  paperSizeSurchargePerPageMinor  Json? @map("paper_size_surcharge_per_page_minor")
+  paperTypeSurchargePerPageMinor  Json? @map("paper_type_surcharge_per_page_minor")
+  finishingChargeMinor            Json? @map("finishing_charge_minor")
+  taxRateBasisPoints              Int?  @map("tax_rate_basis_points")
   createdAt                  DateTime @default(now()) @map("created_at")
 
   shop Shop @relation(fields: [shopId], references: [id])

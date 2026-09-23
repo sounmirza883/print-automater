@@ -1,0 +1,12 @@
+import { Module } from "@nestjs/common";
+import { AuthModule } from "../auth/auth.module.js";
+import { ProductShopResolver } from "./product-shop.resolver.js";
+import { ProductsController } from "./products.controller.js";
+import { ProductsService } from "./products.service.js";
+
+@Module({
+  imports: [AuthModule],
+  controllers: [ProductsController],
+  providers: [ProductsService, ProductShopResolver],
+})
+export class ProductsModule {}
