@@ -7,11 +7,14 @@ import {
   Param,
   Post,
   Req,
+  Res,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.js";
+import { InvoicesService } from "../invoices/invoices.service.js";
 import { CreateOrderDto } from "./dto/create-order.dto.js";
 import { CreateQuoteDto } from "./dto/create-quote.dto.js";
 import { OrdersService, type OrderResponse, type QuoteResponse } from "./orders.service.js";
@@ -19,7 +22,10 @@ import { OrdersService, type OrderResponse, type QuoteResponse } from "./orders.
 @Controller("orders")
 @UseGuards(JwtAuthGuard)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly invoicesService: InvoicesService,
+  ) {}
 
   // A quote is a computed preview, not a persisted resource -- 200, not
   // NestJS's POST default of 201 Created.
@@ -52,5 +58,28 @@ export class OrdersController {
   @HttpCode(HttpStatus.OK)
   cancelOrder(@Req() req: RequestWithUser, @Param("id") id: string): Promise<OrderResponse> {
     return this.ordersService.cancelOrder(req.user!.id, id);
+  }
+
+  /** §36/17.7: the customer's own order invoice/receipt. Reuses
+   * getOwnedOrder()'s exact ownership check (404 for "doesn't exist,"
+   * 403 for "exists but isn't yours") rather than inventing a new
+   * authorization path for this one endpoint -- the same rule
+   * DocumentsService.download() already follows for the same reason. */
+  @Get(":id/invoice")
+  async downloadInvoice(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    await this.ordersService.getOwnedOrder(req.user!.id, id);
+    const { buffer, filename } = await this.invoicesService.generateForOrder(id, req.user!.id);
+    res
+      .status(HttpStatus.OK)
+      .set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${encodeURIComponent(filename)}"`,
+        "Content-Length": String(buffer.length),
+      })
+      .send(buffer);
   }
 }

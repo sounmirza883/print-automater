@@ -8,8 +8,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { UserRole } from "@prisma/client";
 import { Permission } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
@@ -19,6 +21,7 @@ import { PermissionsGuard } from "../auth/permissions.guard.js";
 import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped, ShopScopedField } from "../auth/shop-scoped.decorator.js";
+import { InvoicesService } from "../invoices/invoices.service.js";
 import type { OrderResponse } from "../orders/orders.service.js";
 import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
@@ -62,7 +65,10 @@ import {
   UserRole.PRINTER_MANAGER,
 )
 export class ShopOrdersController {
-  constructor(private readonly shopOrdersService: ShopOrdersService) {}
+  constructor(
+    private readonly shopOrdersService: ShopOrdersService,
+    private readonly invoicesService: InvoicesService,
+  ) {}
 
   @Get()
   @RequirePermission(Permission.VIEW_ORDERS)
@@ -94,6 +100,31 @@ export class ShopOrdersController {
   @ShopScoped("id", OrderShopResolver)
   getOrder(@Param("id") id: string): Promise<ShopOrderResponse> {
     return this.shopOrdersService.getOrder(id);
+  }
+
+  /** §36/17.7: shop staff's own access to any order at their shop.
+   * Reuses this controller's own existing ShopScopeGuard/
+   * OrderShopResolver chain -- the exact same authorization every
+   * other :id route here already has -- rather than inventing new
+   * access-control logic for this one endpoint. */
+  @Get(":id/invoice")
+  @RequirePermission(Permission.VIEW_ORDERS)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  async downloadInvoice(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.invoicesService.generateForOrder(id, req.user!.id);
+    res
+      .status(HttpStatus.OK)
+      .set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${encodeURIComponent(filename)}"`,
+        "Content-Length": String(buffer.length),
+      })
+      .send(buffer);
   }
 
   @Post(":id/accept")
