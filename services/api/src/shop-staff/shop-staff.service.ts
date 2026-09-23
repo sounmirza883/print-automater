@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { ShopStaffStatus, UserRole, type ShopStaff } from "@prisma/client";
+import { ShopStaffStatus, UserRole, type Prisma, type ShopStaff } from "@prisma/client";
 import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
 import type { AddShopStaffInput } from "@print-automated/validation";
 import { AuditAction } from "../audit/audit-action.js";
@@ -70,6 +70,7 @@ export class ShopStaffService {
    * already established for this codebase. */
   async addStaff(actorId: string, input: AddShopStaffInput): Promise<ShopStaffMemberResponse> {
     await this.assertMember(input.shopId, actorId);
+    await this.assertCanGrantRole(input.shopId, actorId, input.role);
 
     const targetUser = await this.prisma.user.findUnique({ where: { id: input.userId } });
     if (!targetUser) {
@@ -102,20 +103,34 @@ export class ShopStaffService {
   /** Soft delete (§54's own `ShopStaffStatus.REMOVED`), never a hard
    * delete -- the row is the audit trail's own subject in 16.6. Blocks
    * removing a shop's last active SHOP_OWNER so a shop can never be
-   * left with nobody able to manage it. */
+   * left with nobody able to manage it.
+   *
+   * Code review finding (16.6 review): the last-owner check and the
+   * write that acts on it must happen under the SAME lock, not as a
+   * separate `count()` read followed by an unguarded `update()` --
+   * otherwise two concurrent removals of two different owners at the
+   * same shop can each read "the other owner still exists", both pass,
+   * and both commit, leaving zero owners. Fixed the same way
+   * order-state-machine.ts's own `SELECT ... FOR UPDATE` prevents the
+   * identical class of race on order_status: lock every active
+   * SHOP_OWNER row at this shop first, inside a transaction, so a
+   * second concurrent removal/demotion at the same shop blocks until
+   * the first one commits and re-reads the post-commit state. */
   async removeStaff(shopStaffId: string, actorId: string | null): Promise<void> {
     const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
     if (!membership) {
       throw new NotFoundException("No such shop staff membership.");
     }
 
-    if (membership.role === UserRole.SHOP_OWNER && membership.status === ShopStaffStatus.ACTIVE) {
-      await this.assertNotLastOwner(membership.shopId, membership.id);
-    }
+    await this.prisma.$transaction(async (tx) => {
+      if (membership.role === UserRole.SHOP_OWNER && membership.status === ShopStaffStatus.ACTIVE) {
+        await this.assertNotLastOwnerLocked(tx, membership.shopId, membership.id);
+      }
 
-    await this.prisma.shopStaff.update({
-      where: { id: shopStaffId },
-      data: { status: ShopStaffStatus.REMOVED },
+      await tx.shopStaff.update({
+        where: { id: shopStaffId },
+        data: { status: ShopStaffStatus.REMOVED },
+      });
     });
 
     await this.audit.record({
@@ -127,9 +142,9 @@ export class ShopStaffService {
     });
   }
 
-  /** Same last-owner safety net as `removeStaff` -- demoting the last
-   * SHOP_OWNER away from SHOP_OWNER is exactly as dangerous as removing
-   * them outright. */
+  /** Same last-owner safety net as `removeStaff` (same locked-transaction
+   * fix -- see its own comment), plus the same "granting SHOP_OWNER
+   * requires already being SHOP_OWNER" check `addStaff` applies. */
   async changeRole(
     shopStaffId: string,
     newRole: UserRole,
@@ -139,18 +154,21 @@ export class ShopStaffService {
     if (!membership) {
       throw new NotFoundException("No such shop staff membership.");
     }
+    await this.assertCanGrantRole(membership.shopId, actorId, newRole);
 
-    if (
-      membership.role === UserRole.SHOP_OWNER &&
-      newRole !== UserRole.SHOP_OWNER &&
-      membership.status === ShopStaffStatus.ACTIVE
-    ) {
-      await this.assertNotLastOwner(membership.shopId, membership.id);
-    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (
+        membership.role === UserRole.SHOP_OWNER &&
+        newRole !== UserRole.SHOP_OWNER &&
+        membership.status === ShopStaffStatus.ACTIVE
+      ) {
+        await this.assertNotLastOwnerLocked(tx, membership.shopId, membership.id);
+      }
 
-    const updated = await this.prisma.shopStaff.update({
-      where: { id: shopStaffId },
-      data: { role: newRole },
+      return tx.shopStaff.update({
+        where: { id: shopStaffId },
+        data: { role: newRole },
+      });
     });
 
     await this.audit.record({
@@ -176,15 +194,53 @@ export class ShopStaffService {
     }
   }
 
-  private async assertNotLastOwner(shopId: string, excludingShopStaffId: string): Promise<void> {
-    const remainingOwners = await this.prisma.shopStaff.count({
-      where: {
-        shopId,
-        role: UserRole.SHOP_OWNER,
-        status: ShopStaffStatus.ACTIVE,
-        id: { not: excludingShopStaffId },
-      },
-    });
+  /** Code review finding (16.6 review): `MANAGE_USERS` (held by both
+   * SHOP_MANAGER and SHOP_OWNER) let a SHOP_MANAGER -- who deliberately
+   * lacks MANAGE_SETTINGS -- grant themselves or anyone else SHOP_OWNER
+   * via `addStaff`/`changeRole`, bypassing the owner/manager boundary
+   * entirely. Granting or changing a membership TO SHOP_OWNER now
+   * additionally requires the ACTOR to already be an active SHOP_OWNER
+   * at this same shop -- a permission alone (MANAGE_USERS) is not
+   * enough to hand out the platform's highest per-shop role; only an
+   * existing holder of that role can extend it. actorId is nullable on
+   * the shared type (system-driven calls elsewhere in this codebase
+   * pass null), but every real caller of addStaff/changeRole is an
+   * authenticated controller route, so a null actor here can never
+   * legitimately claim to already be an owner. */
+  private async assertCanGrantRole(
+    shopId: string,
+    actorId: string | null,
+    targetRole: UserRole,
+  ): Promise<void> {
+    if (targetRole !== UserRole.SHOP_OWNER) {
+      return;
+    }
+    const actorRole = actorId ? await this.shopMembership.getEffectiveRole(shopId, actorId) : null;
+    if (actorRole !== UserRole.SHOP_OWNER) {
+      throw new ForbiddenException("Only an existing owner can grant the SHOP_OWNER role.");
+    }
+  }
+
+  /** Must run inside the SAME transaction as the write it's guarding --
+   * see removeStaff/changeRole's own comments. Locks every active
+   * SHOP_OWNER row at this shop (not just the one being acted on) so
+   * two concurrent calls targeting two DIFFERENT owner rows at the same
+   * shop still serialize against each other: whichever transaction's
+   * `FOR UPDATE` runs first holds the lock until it commits, and the
+   * second one blocks until then and re-reads the true post-commit
+   * count, rather than both reading a stale "someone else is still an
+   * owner" snapshot concurrently. */
+  private async assertNotLastOwnerLocked(
+    tx: Prisma.TransactionClient,
+    shopId: string,
+    excludingShopStaffId: string,
+  ): Promise<void> {
+    const lockedOwnerRows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM shop_staff
+      WHERE shop_id = ${shopId} AND role = 'SHOP_OWNER' AND status = 'ACTIVE'
+      FOR UPDATE
+    `;
+    const remainingOwners = lockedOwnerRows.filter((row) => row.id !== excludingShopStaffId).length;
     if (remainingOwners === 0) {
       throw new AppException(
         HttpStatus.CONFLICT,

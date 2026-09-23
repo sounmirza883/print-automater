@@ -28,6 +28,8 @@ describe("Shop staff management API (§54, 16.4, e2e)", () => {
   let counterToken: string;
   let ownerAtShopB: { id: string; role: UserRole };
   let ownerBToken: string;
+  let managerAtShopA: { id: string; role: UserRole };
+  let managerToken: string;
 
   const userIds: string[] = [];
   const shopIds: string[] = [];
@@ -113,6 +115,25 @@ describe("Shop staff management API (§54, 16.4, e2e)", () => {
       },
     });
     ownerBToken = tokenService.issueAccessToken(ownerAtShopB);
+
+    managerAtShopA = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_COUNTER,
+        name: "Staff Mgmt E2E Manager A",
+        email: `staff-mgmt-e2e-manager-a-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    userIds.push(managerAtShopA.id);
+    await prisma.shopStaff.create({
+      data: {
+        shopId: shopA.id,
+        userId: managerAtShopA.id,
+        role: UserRole.SHOP_MANAGER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+    managerToken = tokenService.issueAccessToken(managerAtShopA);
   });
 
   afterAll(async () => {
@@ -341,5 +362,156 @@ describe("Shop staff management API (§54, 16.4, e2e)", () => {
       .delete(`/v1/shop/staff/${secondOwnerMembership.id}`)
       .set("Authorization", `Bearer ${ownerToken}`);
     expect(res.status).toBe(204);
+  });
+
+  // Code review finding (16.6 review, critical): MANAGE_USERS alone let a
+  // SHOP_MANAGER -- who deliberately lacks MANAGE_SETTINGS -- grant
+  // themselves or anyone else SHOP_OWNER, bypassing the owner/manager
+  // boundary entirely. assertCanGrantRole now requires the ACTOR to
+  // already be an active SHOP_OWNER at this shop before either endpoint
+  // will hand out SHOP_OWNER.
+  it("add returns 403 when a SHOP_MANAGER (not an owner) tries to grant SHOP_OWNER", async () => {
+    const target = await prisma.user.create({
+      data: {
+        role: UserRole.CUSTOMER,
+        name: "Staff Mgmt E2E Escalation Target",
+        email: `staff-mgmt-e2e-escalation-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    userIds.push(target.id);
+
+    const res = await request(app.getHttpServer())
+      .post("/v1/shop/staff")
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({ shopId: shopA.id, userId: target.id, role: "SHOP_OWNER" });
+    expect(res.status).toBe(403);
+
+    const stored = await prisma.shopStaff.findUnique({
+      where: { shopId_userId: { shopId: shopA.id, userId: target.id } },
+    });
+    expect(stored).toBeNull();
+  });
+
+  it("add still succeeds for a real SHOP_OWNER granting SHOP_OWNER (the fix isn't a blanket ban)", async () => {
+    const target = await prisma.user.create({
+      data: {
+        role: UserRole.CUSTOMER,
+        name: "Staff Mgmt E2E Legit New Owner",
+        email: `staff-mgmt-e2e-legit-owner-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    userIds.push(target.id);
+
+    const res = await request(app.getHttpServer())
+      .post("/v1/shop/staff")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ shopId: shopA.id, userId: target.id, role: "SHOP_OWNER" });
+    expect(res.status).toBe(201);
+    expect(res.body.role).toBe("SHOP_OWNER");
+
+    // Clean up back to a non-owner so it doesn't interfere with any
+    // other test in this file relying on shopA's owner count.
+    await prisma.shopStaff.update({
+      where: { shopId_userId: { shopId: shopA.id, userId: target.id } },
+      data: { role: UserRole.SHOP_COUNTER },
+    });
+  });
+
+  it("changeRole returns 403 when a SHOP_MANAGER tries to promote someone to SHOP_OWNER", async () => {
+    const res = await request(app.getHttpServer())
+      .patch(
+        `/v1/shop/staff/${(await prisma.shopStaff.findFirstOrThrow({ where: { shopId: shopA.id, userId: counterAtShopA.id } })).id}/role`,
+      )
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({ role: "SHOP_OWNER" });
+    expect(res.status).toBe(403);
+
+    const unchanged = await prisma.shopStaff.findFirstOrThrow({
+      where: { shopId: shopA.id, userId: counterAtShopA.id },
+    });
+    expect(unchanged.role).toBe("SHOP_COUNTER");
+  });
+
+  // Code review finding (16.6 review, critical): assertNotLastOwner was a
+  // plain count() followed by a separate update() with no lock, so two
+  // concurrent removals of two different owners at the same shop could
+  // both read "the other owner still exists" and both commit, leaving
+  // zero owners. Fixed with a `SELECT ... FOR UPDATE` inside the same
+  // transaction as the write. This test fires both removals genuinely
+  // concurrently (Promise.all, not sequential awaits) against a shop
+  // with exactly two active owners and asserts the invariant holds no
+  // matter which one wins the race.
+  it("concurrent removal of two different owners at the same shop never leaves zero owners", async () => {
+    const concurrencyShop = await prisma.shop.create({
+      data: {
+        name: `Staff Mgmt E2E Concurrency Shop ${randomUUID()}`,
+        address: "3",
+        status: ShopStatus.OPEN,
+      },
+    });
+    shopIds.push(concurrencyShop.id);
+
+    const ownerOne = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_OWNER,
+        name: "Staff Mgmt E2E Concurrency Owner 1",
+        email: `staff-mgmt-e2e-race-owner-1-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    userIds.push(ownerOne.id);
+    const ownerOneMembership = await prisma.shopStaff.create({
+      data: {
+        shopId: concurrencyShop.id,
+        userId: ownerOne.id,
+        role: UserRole.SHOP_OWNER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+    const ownerOneToken = tokenService.issueAccessToken(ownerOne);
+
+    const ownerTwo = await prisma.user.create({
+      data: {
+        role: UserRole.SHOP_OWNER,
+        name: "Staff Mgmt E2E Concurrency Owner 2",
+        email: `staff-mgmt-e2e-race-owner-2-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    userIds.push(ownerTwo.id);
+    const ownerTwoMembership = await prisma.shopStaff.create({
+      data: {
+        shopId: concurrencyShop.id,
+        userId: ownerTwo.id,
+        role: UserRole.SHOP_OWNER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+    const ownerTwoToken = tokenService.issueAccessToken(ownerTwo);
+
+    const [resOne, resTwo] = await Promise.all([
+      request(app.getHttpServer())
+        .delete(`/v1/shop/staff/${ownerOneMembership.id}`)
+        .set("Authorization", `Bearer ${ownerOneToken}`),
+      request(app.getHttpServer())
+        .delete(`/v1/shop/staff/${ownerTwoMembership.id}`)
+        .set("Authorization", `Bearer ${ownerTwoToken}`),
+    ]);
+
+    const statuses = [resOne.status, resTwo.status].sort();
+    // Exactly one wins (204) and one is correctly refused (409) -- never
+    // both 204s, which is the exact scenario that would leave zero owners.
+    expect(statuses).toEqual([204, 409]);
+
+    const remainingActiveOwners = await prisma.shopStaff.count({
+      where: {
+        shopId: concurrencyShop.id,
+        role: UserRole.SHOP_OWNER,
+        status: ShopStaffStatus.ACTIVE,
+      },
+    });
+    expect(remainingActiveOwners).toBe(1);
   });
 });
