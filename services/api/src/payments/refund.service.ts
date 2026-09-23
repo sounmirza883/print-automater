@@ -1,6 +1,7 @@
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import { PaymentStatus, type Refund } from "@prisma/client";
-import { AppException, PrismaService } from "@print-automated/backend-shared";
+import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
+import { AuditAction } from "../audit/audit-action.js";
 import { OrderLockService } from "./order-lock.service.js";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "./payment-provider.interface.js";
 
@@ -37,6 +38,7 @@ export class RefundService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orderLock: OrderLockService,
+    private readonly audit: AuditService,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
   ) {}
 
@@ -85,19 +87,28 @@ export class RefundService {
 
       try {
         const result = await this.provider.refund({ providerPaymentId }, refund.amountMinor);
-        return this.finalizeRefund(refund.id, payment.id, payment.orderId, {
-          status: PaymentStatus.REFUNDED,
-          providerRefundId: result.providerRefundId,
-        });
+        return this.finalizeRefund(
+          refund.id,
+          payment.id,
+          payment.orderId,
+          { status: PaymentStatus.REFUNDED, providerRefundId: result.providerRefundId },
+          actorId,
+          reason,
+        );
       } catch {
         // A failed refund is represented as data (REFUND_FAILED), not a
         // thrown error that would abort whatever wider operation (e.g.
         // 11.3's own shop-rejection flow) triggered this refund -- the
         // same "failure is a terminal-ish state, not an exception"
         // shape PRINT_FAILED already established for the print side.
-        return this.finalizeRefund(refund.id, payment.id, payment.orderId, {
-          status: PaymentStatus.REFUND_FAILED,
-        });
+        return this.finalizeRefund(
+          refund.id,
+          payment.id,
+          payment.orderId,
+          { status: PaymentStatus.REFUND_FAILED },
+          actorId,
+          reason,
+        );
       }
     });
   }
@@ -149,6 +160,8 @@ export class RefundService {
     paymentId: string,
     orderId: string,
     outcome: { status: PaymentStatus; providerRefundId?: string },
+    actorId: string | null,
+    reason: string,
   ): Promise<Refund> {
     const [updatedRefund] = await this.prisma.$transaction([
       this.prisma.refund.update({
@@ -161,6 +174,19 @@ export class RefundService {
       this.prisma.payment.update({ where: { id: paymentId }, data: { status: outcome.status } }),
       this.prisma.order.update({ where: { id: orderId }, data: { paymentStatus: outcome.status } }),
     ]);
+
+    // §45/16.6: RefundService previously wrote no audit row at all.
+    await this.audit.record({
+      actorId,
+      action:
+        outcome.status === PaymentStatus.REFUNDED
+          ? AuditAction.REFUND_SUCCEEDED
+          : AuditAction.REFUND_FAILED,
+      resourceType: "refund",
+      resourceId: refundId,
+      metadata: { paymentId, orderId, reason, amountMinor: updatedRefund.amountMinor },
+    });
+
     return updatedRefund;
   }
 }

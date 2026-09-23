@@ -62,8 +62,8 @@ export class ShopStaffController {
   @RequirePermission(Permission.MANAGE_USERS)
   @UseGuards(ShopScopeGuard)
   @ShopScoped("id", ShopStaffShopResolver)
-  remove(@Param("id") id: string): Promise<void> {
-    return this.shopStaffService.removeStaff(id);
+  remove(@Req() req: RequestWithUser, @Param("id") id: string): Promise<void> {
+    return this.shopStaffService.removeStaff(id, req.user!.id);
   }
 
   @Patch(":id/role")
@@ -71,9 +71,10 @@ export class ShopStaffController {
   @UseGuards(ShopScopeGuard)
   @ShopScoped("id", ShopStaffShopResolver)
   changeRole(
+    @Req() req: RequestWithUser,
     @Param("id") id: string,
     @Body() dto: ChangeShopStaffRoleDto,
   ): Promise<ShopStaffMemberResponse> {
-    return this.shopStaffService.changeRole(id, dto.role);
+    return this.shopStaffService.changeRole(id, dto.role, req.user!.id);
   }
 }

@@ -2,10 +2,12 @@ import { HttpStatus, Injectable, Logger, UnprocessableEntityException } from "@n
 import { PaymentStatus } from "@prisma/client";
 import {
   AppException,
+  AuditService,
   OrderEvent,
   OrderStateMachine,
   PrismaService,
 } from "@print-automated/backend-shared";
+import { AuditAction } from "../audit/audit-action.js";
 import { OrderLockService } from "./order-lock.service.js";
 import type { ProviderPaymentOutcome, ProviderWebhookEvent } from "./payment-provider.interface.js";
 
@@ -49,6 +51,7 @@ export class WebhooksService {
     private readonly prisma: PrismaService,
     private readonly orderStateMachine: OrderStateMachine,
     private readonly orderLock: OrderLockService,
+    private readonly audit: AuditService,
   ) {}
 
   /** §76/§92. The `payment_events` row is created only as part of the
@@ -130,6 +133,26 @@ export class WebhooksService {
           },
         },
       );
+
+      // §45/16.6: payment status changes previously wrote no dedicated
+      // (resourceType: "payment") audit row -- OrderStateMachine's own
+      // ORDER_${event} row already covers the order-status side of
+      // this, but not one filterable by `resourceType=payment`. Written
+      // right after the transition, not inside its own transaction
+      // (AuditService has no tx-aware overload) -- a crash between the
+      // two leaves the atomic order-side audit row intact regardless.
+      await this.audit.record({
+        actorId: null,
+        action: AuditAction.PAYMENT_STATUS_CHANGED,
+        resourceType: "payment",
+        resourceId: payment.id,
+        metadata: {
+          orderId: payment.orderId,
+          status: paymentStatus,
+          provider: payment.provider,
+          providerEventId: event.providerEventId,
+        },
+      });
 
       // §6.6: a successful payment doesn't just leave the order sitting
       // at PAID -- it also routes to the shop queue, in the same locked

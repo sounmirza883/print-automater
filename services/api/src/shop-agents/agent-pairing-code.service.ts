@@ -1,5 +1,6 @@
 import { ForbiddenException, HttpStatus, Injectable } from "@nestjs/common";
-import { AppException, PrismaService } from "@print-automated/backend-shared";
+import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
+import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { hashToken } from "../common/crypto.util.js";
 import { generatePairingCode } from "./pairing-code.util.js";
@@ -20,6 +21,7 @@ export class AgentPairingCodeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
+    private readonly audit: AuditService,
   ) {}
 
   async issue(shopId: string, actorId: string): Promise<PairingCodeIssueResult> {
@@ -30,9 +32,20 @@ export class AgentPairingCodeService {
 
     const code = generatePairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_CODE_TTL_MS);
-    await this.prisma.agentPairingCode.create({
+    const record = await this.prisma.agentPairingCode.create({
       data: { codeHash: hashToken(code), shopId, createdBy: actorId, expiresAt },
     });
+
+    // §45/16.6: pairing-code issue/redemption previously wrote no audit
+    // row at all.
+    await this.audit.record({
+      actorId,
+      action: AuditAction.PAIRING_CODE_ISSUED,
+      resourceType: "agent_pairing_code",
+      resourceId: record.id,
+      metadata: { shopId, expiresAt },
+    });
+
     return { code, expiresAt };
   }
 
@@ -84,6 +97,18 @@ export class AgentPairingCodeService {
         false,
       );
     }
+
+    // §83: no authenticated human actor exists in this flow (the
+    // printer agent redeeming the code has no staff JWT) -- actorId
+    // null is the documented "system-initiated" shape, same as an
+    // expiration worker.
+    await this.audit.record({
+      actorId: null,
+      action: AuditAction.PAIRING_CODE_REDEEMED,
+      resourceType: "agent_pairing_code",
+      resourceId: record.id,
+      metadata: { shopId: record.shopId },
+    });
 
     return { shopId: record.shopId };
   }

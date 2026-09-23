@@ -1,7 +1,8 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import { ShopStaffStatus, UserRole, type ShopStaff } from "@prisma/client";
-import { AppException, PrismaService } from "@print-automated/backend-shared";
+import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
 import type { AddShopStaffInput } from "@print-automated/validation";
+import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 
 export interface MyShopMembership {
@@ -46,6 +47,7 @@ export class ShopStaffService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
+    private readonly audit: AuditService,
   ) {}
 
   async myShops(userId: string): Promise<MyShopMembership[]> {
@@ -84,6 +86,16 @@ export class ShopStaffService {
       },
       update: { role: input.role, status: ShopStaffStatus.ACTIVE },
     });
+
+    // §45/16.6: shop-staff changes previously wrote no audit row at all.
+    await this.audit.record({
+      actorId,
+      action: AuditAction.SHOP_STAFF_ADDED,
+      resourceType: "shop_staff",
+      resourceId: membership.id,
+      metadata: { shopId: input.shopId, userId: input.userId, role: input.role },
+    });
+
     return this.toResponse(membership);
   }
 
@@ -91,7 +103,7 @@ export class ShopStaffService {
    * delete -- the row is the audit trail's own subject in 16.6. Blocks
    * removing a shop's last active SHOP_OWNER so a shop can never be
    * left with nobody able to manage it. */
-  async removeStaff(shopStaffId: string): Promise<void> {
+  async removeStaff(shopStaffId: string, actorId: string | null): Promise<void> {
     const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
     if (!membership) {
       throw new NotFoundException("No such shop staff membership.");
@@ -105,12 +117,24 @@ export class ShopStaffService {
       where: { id: shopStaffId },
       data: { status: ShopStaffStatus.REMOVED },
     });
+
+    await this.audit.record({
+      actorId,
+      action: AuditAction.SHOP_STAFF_REMOVED,
+      resourceType: "shop_staff",
+      resourceId: shopStaffId,
+      metadata: { shopId: membership.shopId, userId: membership.userId, role: membership.role },
+    });
   }
 
   /** Same last-owner safety net as `removeStaff` -- demoting the last
    * SHOP_OWNER away from SHOP_OWNER is exactly as dangerous as removing
    * them outright. */
-  async changeRole(shopStaffId: string, newRole: UserRole): Promise<ShopStaffMemberResponse> {
+  async changeRole(
+    shopStaffId: string,
+    newRole: UserRole,
+    actorId: string | null,
+  ): Promise<ShopStaffMemberResponse> {
     const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
     if (!membership) {
       throw new NotFoundException("No such shop staff membership.");
@@ -128,6 +152,20 @@ export class ShopStaffService {
       where: { id: shopStaffId },
       data: { role: newRole },
     });
+
+    await this.audit.record({
+      actorId,
+      action: AuditAction.SHOP_STAFF_ROLE_CHANGED,
+      resourceType: "shop_staff",
+      resourceId: shopStaffId,
+      metadata: {
+        shopId: membership.shopId,
+        userId: membership.userId,
+        from: membership.role,
+        to: newRole,
+      },
+    });
+
     return this.toResponse(updated);
   }
 

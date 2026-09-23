@@ -1,7 +1,8 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import { type Prisma, type Printer, PrinterStatus, PrintJobStatus } from "@prisma/client";
 import type { PrinterCapabilities } from "@print-automated/types";
-import { AppException, PrismaService } from "@print-automated/backend-shared";
+import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
+import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import type { RegisterPrinterInput, UpdatePrinterInput } from "@print-automated/validation";
 
@@ -31,6 +32,7 @@ export class PrintersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
+    private readonly audit: AuditService,
   ) {}
 
   /** §82: `shopId` arrives in the query string (list) or request body
@@ -55,6 +57,17 @@ export class PrintersService {
         capabilities: input.capabilities as unknown as Prisma.InputJsonValue | undefined,
       },
     });
+
+    // §45/16.6: printer create/update/delete previously wrote no audit
+    // row at all.
+    await this.audit.record({
+      actorId: requestingUserId,
+      action: AuditAction.PRINTER_CREATED,
+      resourceType: "printer",
+      resourceId: printer.id,
+      metadata: { shopId: printer.shopId, name: printer.name },
+    });
+
     return this.toResponse(printer);
   }
 
@@ -66,7 +79,11 @@ export class PrintersService {
    * PrinterShopResolver, at the route level) has already confirmed the
    * caller is active staff at this printer's shop by the time this
    * runs. */
-  async update(printerId: string, input: UpdatePrinterInput): Promise<PrinterResponse> {
+  async update(
+    printerId: string,
+    input: UpdatePrinterInput,
+    actorId: string | null,
+  ): Promise<PrinterResponse> {
     const existing = await this.prisma.printer.findUnique({ where: { id: printerId } });
     if (!existing) {
       throw new NotFoundException("Printer not found.");
@@ -87,13 +104,27 @@ export class PrintersService {
         status,
       },
     });
+
+    await this.audit.record({
+      actorId,
+      action: AuditAction.PRINTER_UPDATED,
+      resourceType: "printer",
+      resourceId: printerId,
+      metadata: { from: { name: existing.name, status: existing.status }, to: input },
+    });
+
     return this.toResponse(updated);
   }
 
   /** §38/8.4's own Done-when: "deleting a printer with an active job
    * is refused." ShopScopeGuard has already confirmed shop membership
    * by the time this runs. */
-  async remove(printerId: string): Promise<void> {
+  async remove(printerId: string, actorId: string | null): Promise<void> {
+    const existing = await this.prisma.printer.findUnique({ where: { id: printerId } });
+    if (!existing) {
+      throw new NotFoundException("Printer not found.");
+    }
+
     const activeJob = await this.prisma.printJob.findFirst({
       where: { printerId, status: { in: ACTIVE_JOB_STATUSES } },
     });
@@ -110,6 +141,14 @@ export class PrintersService {
     if (result.count === 0) {
       throw new NotFoundException("Printer not found.");
     }
+
+    await this.audit.record({
+      actorId,
+      action: AuditAction.PRINTER_REMOVED,
+      resourceType: "printer",
+      resourceId: printerId,
+      metadata: { shopId: existing.shopId, name: existing.name },
+    });
   }
 
   private async assertMember(shopId: string, userId: string): Promise<void> {

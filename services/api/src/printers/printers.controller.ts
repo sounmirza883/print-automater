@@ -58,15 +58,19 @@ export class PrintersController {
   @Patch(":id")
   @UseGuards(ShopScopeGuard)
   @ShopScoped("id", PrinterShopResolver)
-  update(@Param("id") id: string, @Body() dto: UpdatePrinterDto): Promise<PrinterResponse> {
-    return this.printersService.update(id, dto);
+  update(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: UpdatePrinterDto,
+  ): Promise<PrinterResponse> {
+    return this.printersService.update(id, dto, req.user!.id);
   }
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(ShopScopeGuard)
   @ShopScoped("id", PrinterShopResolver)
-  remove(@Param("id") id: string): Promise<void> {
-    return this.printersService.remove(id);
+  remove(@Req() req: RequestWithUser, @Param("id") id: string): Promise<void> {
+    return this.printersService.remove(id, req.user!.id);
   }
 }
