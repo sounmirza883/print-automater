@@ -34,6 +34,7 @@ import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
+import { ManualPaymentService } from "../payments/manual-payment.service.js";
 import { RefundService } from "../payments/refund.service.js";
 
 const SHOP_ORDER_INCLUDE = {
@@ -121,6 +122,7 @@ export class ShopOrdersService {
     private readonly agentJobsService: AgentJobsService,
     private readonly refundService: RefundService,
     private readonly ordersService: OrdersService,
+    private readonly manualPaymentService: ManualPaymentService,
   ) {
     this.repository = ShopOrdersService.buildRepository(prisma);
   }
@@ -664,6 +666,16 @@ export class ShopOrdersService {
     // avoiding even though the mock provider itself resolves
     // instantly.
     await this.refundService.refundOrderIfPaid(orderId, "shop_rejection", actorId);
+    return this.getOrder(orderId);
+  }
+
+  /** §35/17.6: thin wrapper over ManualPaymentService -- see its own
+   * comment for the full reasoning. ShopScopeGuard (via
+   * OrderShopResolver, at the route level) has already confirmed the
+   * caller is active staff at this exact order's shop by the time this
+   * runs. */
+  async recordManualPayment(orderId: string, actorId: string): Promise<ShopOrderResponse> {
+    await this.manualPaymentService.recordManualPayment(orderId, actorId);
     return this.getOrder(orderId);
   }
 

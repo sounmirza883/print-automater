@@ -105,6 +105,23 @@ export class ShopOrdersController {
     return this.shopOrdersService.acceptOrder(id, req.user!.id);
   }
 
+  /** §35/17.6: staff recording a cash/offline payment against an
+   * order with no PSP involved. EDIT_ORDERS -- same permission every
+   * other staff-driven order action on this controller uses (see its
+   * own class-level comment on that choice); this is squarely a
+   * front-of-house counter action, not printer/job assignment. */
+  @Post(":id/record-payment")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.EDIT_ORDERS)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  recordManualPayment(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+  ): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.recordManualPayment(id, req.user!.id);
+  }
+
   @Post(":id/reject")
   @HttpCode(HttpStatus.OK)
   @RequirePermission(Permission.EDIT_ORDERS)

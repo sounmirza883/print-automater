@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import type { ApiEnv } from "@print-automated/config";
 import { API_ENV, apiEnv } from "../config/config.module.js";
+import { ManualPaymentService } from "./manual-payment.service.js";
 import { MockCheckoutController } from "./mock-checkout.controller.js";
 import { MockPaymentProvider } from "./mock-payment-provider.js";
 import { OrderLockService } from "./order-lock.service.js";
@@ -20,10 +21,10 @@ const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutC
  * depends on cannot be imported back into OrdersModule without a
  * circular module dependency. This module holds exactly the provider
  * infrastructure (the PAYMENT_PROVIDER token, OrderLockService,
- * RefundService, and the dev-only mock checkout controller) that has
- * no dependency on OrdersModule at all, so OrdersModule,
- * ShopOrdersModule, and PaymentsModule can all import it safely,
- * sitting below all three. */
+ * RefundService, ManualPaymentService (17.6), and the dev-only mock
+ * checkout controller) that has no dependency on OrdersModule at all,
+ * so OrdersModule, ShopOrdersModule, and PaymentsModule can all import
+ * it safely, sitting below all three. */
 @Module({
   controllers: [...PROVIDER_CONTROLLERS],
   providers: [
@@ -46,7 +47,8 @@ const PROVIDER_CONTROLLERS = apiEnv.PAYMENT_PROVIDER === "mock" ? [MockCheckoutC
       },
     },
     RefundService,
+    ManualPaymentService,
   ],
-  exports: [PAYMENT_PROVIDER, OrderLockService, RefundService],
+  exports: [PAYMENT_PROVIDER, OrderLockService, RefundService, ManualPaymentService],
 })
 export class PaymentProviderModule {}
