@@ -123,6 +123,11 @@ export class AgentJobsService implements OnModuleDestroy {
         PrintJobEvent.CLAIM,
         { id: null },
         {
+          // 18.16: claim deliberately does NOT sync the order -- under
+          // the pre-18 explicit events claiming never moved the order's
+          // status, and syncing would move every single-job order to
+          // ASSIGNED, breaking 18.10's single-job equivalence gate.
+          syncOrder: false,
           guard: async (tx, job) => {
             const printer = job.printerId
               ? await tx.printer.findFirst({
@@ -206,6 +211,8 @@ export class AgentJobsService implements OnModuleDestroy {
 
     const event = REPORTED_STATUS_TO_JOB_EVENT[input.status];
     try {
+      // 18.16: the job write and the order sync are ONE transaction
+      // inside the job machine -- a failed sync rolls the job back.
       await this.jobStateMachine.transition(
         job.id,
         event,
@@ -219,9 +226,10 @@ export class AgentJobsService implements OnModuleDestroy {
       if (!(err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION")) {
         throw err;
       }
+      // Idempotent repair: the earlier report's own sync may have been
+      // lost; re-deriving is a no-op when the order is already right.
+      await this.syncOrderIgnoringIllegal(job.orderId);
     }
-
-    await this.syncOrderIgnoringIllegal(job.orderId);
 
     if (input.status === "PRINTED") {
       this.logger.log(

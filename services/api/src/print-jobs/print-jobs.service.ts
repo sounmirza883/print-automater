@@ -86,7 +86,7 @@ export class PrintJobsService {
       jobId,
       PrintJobEvent.SUPERSEDE,
       { id: actorId },
-      { metadata: { reason, newPrinterId } },
+      { metadata: { reason, newPrinterId }, syncOrder: false },
     );
 
     const attempt = await this.prisma.printJob.count({ where: { orderItemId: job.orderItemId } });

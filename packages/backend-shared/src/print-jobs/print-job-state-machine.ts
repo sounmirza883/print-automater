@@ -3,6 +3,7 @@ import type { Prisma, PrintJobStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
+import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -147,21 +148,24 @@ export interface JobTransitionContext {
    * ever exposing a TOCTOU gap between checking and locking: this runs
    * AFTER the job row is already locked, inside the same transaction. */
   guard?: (tx: Prisma.TransactionClient, job: LockedPrintJobRow) => Promise<void>;
+  /** 18.16: by default the order is re-derived (SYNC_JOBS) inside the SAME
+   * transaction as the job write, so the two commit or roll back together.
+   * `false` opts out: CLAIM does, because claiming never changed the
+   * order's status in the pre-18 code and syncing would move every
+   * single-job order to ASSIGNED (breaking 18.10's equivalence gate). */
+  syncOrder?: boolean;
 }
 
 export interface JobTransitionResult {
   jobId: string;
   orderId: string;
   status: PrintJobStatus;
-  /** Whether the caller should follow up with
-   * `OrderStateMachine.syncFromJobs(orderId, actor)` -- always true for
-   * a genuine status write. `PrintJobStateMachine` deliberately never
-   * calls the order machine itself (18's own load-bearing rule: "the
-   * job writer calls the order writer, never the reverse" describes the
-   * job-side machinery as a whole, but this specific method hands the
-   * decision back to its caller by design, per 18.1's own spec, rather
-   * than importing `OrderStateMachine` here at all -- keeping this
-   * class's only dependency the database itself). */
+  /** 18.16: true only when the order was NOT synced inside this
+   * transaction (`ctx.syncOrder === false`, or the order was already
+   * closed -- ILLEGAL_ORDER_TRANSITION -- so there is nothing to
+   * derive). Otherwise the sync already happened atomically with the job
+   * write. `OrderStateMachine.syncFromJobs()` stays available as an
+   * idempotent repair primitive. */
   requiresSync: boolean;
 }
 
@@ -193,7 +197,10 @@ export interface JobTransitionResult {
  */
 @Injectable()
 export class PrintJobStateMachine {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orderStateMachine: OrderStateMachine,
+  ) {}
 
   async transition(
     jobId: string,
@@ -237,8 +244,9 @@ export class PrintJobStateMachine {
       return [];
     }
     const sortedIds = [...new Set(jobIds)].sort();
+    let pendingEmail: Parameters<OrderStateMachine["enqueuePendingEmail"]>[0];
 
-    return this.prisma.$transaction(
+    const results = await this.prisma.$transaction(
       async (tx) => {
         // Discover which order these jobs belong to WITHOUT a lock --
         // just enough to know which `orders` row to lock first. The
@@ -341,9 +349,44 @@ export class PrintJobStateMachine {
           });
         }
 
+        // 18.16: sync the order in THIS transaction (orders row already
+        // locked above), so a failed sync rolls the job write back and
+        // the next sweep/report simply retries both. Only an already-
+        // closed order (ILLEGAL_ORDER_TRANSITION) is tolerated -- nothing
+        // to derive, and the job write must still stand. Anything else
+        // propagates and aborts the whole transaction. (That error is
+        // thrown by resolveSyncTarget before any write, so continuing in
+        // the same Postgres transaction afterwards is safe.)
+        if (ctx.syncOrder !== false) {
+          try {
+            const applied = await this.orderStateMachine.transitionWithin(
+              tx,
+              orderId as string,
+              OrderEvent.SYNC_JOBS,
+              actor,
+            );
+            pendingEmail = applied.pendingEmail;
+            for (const result of results) {
+              result.requiresSync = false;
+            }
+          } catch (error) {
+            if (!(
+              error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION"
+            )) {
+              throw error;
+            }
+          }
+        }
+
         return results;
       },
       { maxWait: 10_000, timeout: 10_000 },
     );
+
+    // Only after the combined transaction committed (Redis is not part
+    // of it): enqueue the customer notification the order transition
+    // produced, if any.
+    await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
+    return results;
   }
 }

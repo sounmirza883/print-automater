@@ -196,7 +196,7 @@ export interface TransitionContext {
   sideEffect?: (tx: Prisma.TransactionClient, next: OrderStatus) => Promise<void>;
 }
 
-interface ApplyResult {
+export interface ApplyResult {
   status: OrderStatus;
   pendingEmail?: SendEmailJob;
 }
@@ -303,6 +303,16 @@ export class OrderStateMachine {
     ctx: TransitionContext = {},
   ): Promise<ApplyResult> {
     return this.applyLocked(tx, orderId, event, actor, ctx);
+  }
+
+  /** 18.16: the post-commit half of `transitionWithin()`. A caller that
+   * ran the order transition inside its own, larger transaction (the job
+   * machine) enqueues the pending notification email here, only AFTER
+   * that transaction committed. */
+  async enqueuePendingEmail(pendingEmail: SendEmailJob | undefined): Promise<void> {
+    if (pendingEmail) {
+      await this.notificationsQueue.add("send-email", pendingEmail);
+    }
   }
 
   private async applyLocked(

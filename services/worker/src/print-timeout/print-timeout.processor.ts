@@ -4,7 +4,6 @@ import type { Job } from "bullmq";
 import { PrintJobStatus } from "@prisma/client";
 import {
   AppException,
-  OrderStateMachine,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
@@ -36,7 +35,6 @@ export class PrintTimeoutProcessor extends WorkerHost {
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(OrderStateMachine) private readonly orderStateMachine: OrderStateMachine,
     @Inject(PrintJobStateMachine) private readonly jobStateMachine: PrintJobStateMachine,
     @Inject(WORKER_ENV) private readonly env: WorkerEnv,
   ) {
@@ -57,26 +55,24 @@ export class PrintTimeoutProcessor extends WorkerHost {
     let timedOutCount = 0;
     for (const stuckJob of stale) {
       try {
+        // 18.16: the TIMEOUT write and the order sync commit together
+        // (inside the job machine). A failed sync rolls the job back to
+        // QUEUED/CLAIMED, so the next tick still sees it and retries.
         await this.jobStateMachine.transition(
           stuckJob.id,
           PrintJobEvent.TIMEOUT,
           { id: null },
           { metadata: { reason: "timeout" } },
         );
-        try {
-          await this.orderStateMachine.syncFromJobs(stuckJob.orderId, { id: null });
-        } catch (syncError) {
-          if (!(syncError instanceof AppException)) {
-            throw syncError;
-          }
-        }
         timedOutCount += 1;
       } catch (error) {
-        // Same reasoning as order-expiration.processor.ts: a 409 here
-        // means the job moved on (an agent's own report, or a
-        // previous/overlapping tick) between the query above and this
-        // transition's row lock -- the guarantee working, not a bug.
-        if (!(error instanceof AppException)) {
+        // Same reasoning as order-expiration.processor.ts: an
+        // ILLEGAL_JOB_TRANSITION means the job moved on (an agent's own
+        // report, or a previous/overlapping tick) between the query
+        // above and this transition's row lock -- the guarantee
+        // working, not a bug. Anything else (a transient sync failure,
+        // a DB error) propagates so it is logged and retried next tick.
+        if (!(error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION")) {
           throw error;
         }
         this.logger.debug(

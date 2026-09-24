@@ -13,7 +13,7 @@ import {
   ShopStatus,
   UserRole,
 } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import { AppException, OrderStateMachine, PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { PrintTimeoutProcessor } from "../src/print-timeout/print-timeout.processor.js";
 
@@ -208,5 +208,81 @@ describe("Print timeout sweep (10.5, e2e)", () => {
       where: { resourceType: "print_job", resourceId: jobId!, action: "PRINT_JOB_TIMEOUT" },
     });
     expect(timeoutAudits).toBe(1);
+  });
+
+  /** 18.16: makes the ORDER side of the sync fail exactly once for one
+   * order (SYNC_JOBS is the only event the sweep sends the order machine,
+   * routed through the private applyLocked whichever public entry point
+   * -- syncFromJobs or transitionWithin -- the implementation uses). */
+  function failNextSyncFor(orderId: string, error: Error): jest.SpyInstance {
+    const original = (
+      OrderStateMachine.prototype as unknown as {
+        applyLocked: (...args: unknown[]) => Promise<unknown>;
+      }
+    ).applyLocked;
+    let armed = true;
+    return jest
+      .spyOn(OrderStateMachine.prototype as never, "applyLocked" as never)
+      .mockImplementation(function (this: unknown, ...args: unknown[]) {
+        if (armed && args[1] === orderId && args[2] === "SYNC_JOBS") {
+          armed = false;
+          return Promise.reject(error);
+        }
+        return original.apply(this, args);
+      } as never);
+  }
+
+  it("18.16: a transient order-sync failure rolls the job write back (still QUEUED) and the NEXT tick times it out and fails the order", async () => {
+    const { orderId, jobId } = await createOrder(
+      OrderStatus.QUEUED_FOR_PRINT,
+      999,
+      PrintJobStatus.QUEUED,
+    );
+    const spy = failNextSyncFor(orderId, new Error("transient sync failure"));
+    try {
+      await expect(processor.process(fakeJob)).rejects.toThrow("transient sync failure");
+
+      const job = await prisma.printJob.findUniqueOrThrow({ where: { id: jobId! } });
+      expect(job.status).toBe(PrintJobStatus.QUEUED);
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).orderStatus).toBe(
+        OrderStatus.QUEUED_FOR_PRINT,
+      );
+
+      await processor.process(fakeJob);
+      expect((await prisma.printJob.findUniqueOrThrow({ where: { id: jobId! } })).status).toBe(
+        PrintJobStatus.TIMEOUT,
+      );
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).orderStatus).toBe(
+        OrderStatus.PRINT_FAILED,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("18.16: a non-ILLEGAL_ORDER_TRANSITION AppException from the sync is not swallowed", async () => {
+    const { orderId, jobId } = await createOrder(
+      OrderStatus.QUEUED_FOR_PRINT,
+      999,
+      PrintJobStatus.QUEUED,
+    );
+    const spy = failNextSyncFor(
+      orderId,
+      new AppException(503, "SOMETHING_ELSE", "not an illegal transition", true),
+    );
+    try {
+      await expect(processor.process(fakeJob)).rejects.toMatchObject({
+        errorCode: "SOMETHING_ELSE",
+      });
+      expect((await prisma.printJob.findUniqueOrThrow({ where: { id: jobId! } })).status).toBe(
+        PrintJobStatus.QUEUED,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    await processor.process(fakeJob);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).orderStatus).toBe(
+      OrderStatus.PRINT_FAILED,
+    );
   });
 });

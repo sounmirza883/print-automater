@@ -30,6 +30,7 @@ import {
   PrismaService,
   type AllocationResult,
   type PrinterCandidate,
+  type SendEmailJob,
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
@@ -659,6 +660,33 @@ export class ShopOrdersService {
     });
   }
 
+  /** 18.16: re-derive the order INSIDE the caller's transaction, so the
+   * job rows just written and the order status commit (or roll back)
+   * together. Returns the pending notification email, which the caller
+   * must hand to `enqueuePendingEmail` only after the transaction
+   * committed. An already-closed order (ILLEGAL_ORDER_TRANSITION) is
+   * tolerated; anything else propagates and aborts the transaction. */
+  private async syncOrderWithin(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    actorId: string,
+  ): Promise<SendEmailJob | undefined> {
+    try {
+      const applied = await this.orderStateMachine.transitionWithin(
+        tx,
+        orderId,
+        OrderEvent.SYNC_JOBS,
+        { id: actorId },
+      );
+      return applied.pendingEmail;
+    } catch (error) {
+      if (error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION") {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   private async syncOrderIgnoringIllegal(orderId: string, actorId: string): Promise<void> {
     try {
       await this.orderStateMachine.syncFromJobs(orderId, { id: actorId });
@@ -678,7 +706,7 @@ export class ShopOrdersService {
     printerId: string,
   ): Promise<ShopOrderResponse> {
     let notifyDeviceIds: string[] = [];
-    let retried = false;
+    let pendingEmail: SendEmailJob | undefined;
 
     await this.prisma.$transaction(async (tx) => {
       const status = await this.lockOrderStatus(tx, orderId);
@@ -687,12 +715,10 @@ export class ShopOrdersService {
       }
       await this.supersedeActiveJobs(tx, orderId);
       notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceIds;
-      retried = true;
+      pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
     });
 
-    if (retried) {
-      await this.syncOrderIgnoringIllegal(orderId, actorId);
-    }
+    await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
     await this.notifyDevices(notifyDeviceIds);
     return this.getOrder(orderId);
   }
@@ -703,7 +729,7 @@ export class ShopOrdersService {
    * row, and is a no-op rather than an error. */
   async retryPrint(orderId: string, actorId: string): Promise<ShopOrderResponse> {
     let notifyDeviceIds: string[] = [];
-    let retried = false;
+    let pendingEmail: SendEmailJob | undefined;
 
     await this.prisma.$transaction(async (tx) => {
       const status = await this.lockOrderStatus(tx, orderId);
@@ -712,12 +738,10 @@ export class ShopOrdersService {
       }
       await this.supersedeActiveJobs(tx, orderId);
       notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
-      retried = true;
+      pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
     });
 
-    if (retried) {
-      await this.syncOrderIgnoringIllegal(orderId, actorId);
-    }
+    await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
     await this.notifyDevices(notifyDeviceIds);
     return this.getOrder(orderId);
   }
@@ -756,7 +780,7 @@ export class ShopOrdersService {
 
     if (resolution === "RETRY") {
       let notifyDeviceIds: string[] = [];
-      let retried = false;
+      let pendingEmail: SendEmailJob | undefined;
       await this.prisma.$transaction(async (tx) => {
         const status = await this.lockOrderStatus(tx, orderId);
         if (status !== OrderStatus.PRINT_STATUS_UNKNOWN) {
@@ -764,11 +788,9 @@ export class ShopOrdersService {
         }
         await this.supersedeActiveJobs(tx, orderId);
         notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
-        retried = true;
+        pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
       });
-      if (retried) {
-        await this.syncOrderIgnoringIllegal(orderId, actorId);
-      }
+      await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
       await this.notifyDevices(notifyDeviceIds);
       return this.getOrder(orderId);
     }
