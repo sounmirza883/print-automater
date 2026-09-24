@@ -129,7 +129,7 @@ describe("aggregateOrderStatus exhaustive purity matrix (18.10)", () => {
   });
 
   it("monotonicity: an UNKNOWN-caused attention verdict never falls back to a progress/completion status when another job transitions -- it may only ESCALATE (to PRINT_FAILED, if that other job's own transition legally lands it on FAILED/TIMEOUT) or stay PRINT_STATUS_UNKNOWN, never regress. The UNKNOWN job's own RESOLVE_PRINTED/RESOLVE_FAILED is a deliberate, legitimate exit, not flapping, and is intentionally excluded here.", () => {
-    const ATTENTION_STATUSES = new Set([
+    const ATTENTION_STATUSES = new Set<OrderStatus>([
       OrderStatus.PRINT_STATUS_UNKNOWN,
       OrderStatus.PRINT_FAILED,
     ]);
