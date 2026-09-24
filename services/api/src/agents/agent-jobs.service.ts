@@ -98,9 +98,23 @@ export class AgentJobsService implements OnModuleDestroy {
   ): Promise<void> {
     try {
       const result = await reevaluatePrinterJobs(
-        { prisma: this.prisma, jobMachine: this.jobStateMachine },
+        {
+          prisma: this.prisma,
+          jobMachine: this.jobStateMachine,
+          onError: (jobId, err) =>
+            this.logger.error(
+              { jobId, printerId, trigger, err },
+              "Failover could not re-evaluate one job; continuing with the rest.",
+            ),
+        },
         { shopId, printerId, trigger },
       );
+      if (result.errors.length > 0) {
+        this.logger.error(
+          { printerId, trigger, failedJobIds: result.errors.map((e) => e.jobId) },
+          "Failover finished with per-job failures.",
+        );
+      }
       await Promise.all(result.notifyDeviceIds.map((deviceId) => this.notify(deviceId)));
     } catch (error) {
       this.logger.error(

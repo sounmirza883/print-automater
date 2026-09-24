@@ -94,7 +94,8 @@ export {
   type SmtpEmailTransportOptions,
 } from "./notifications/smtp-email-transport.js";
 export { periodStart, type PageLimitPeriod } from "./printers/page-limit-period.js";
-export { jobPages } from "./print-jobs/job-pages.js";
+export { jobPages, type JobPagesFallbackReason } from "./print-jobs/job-pages.js";
+export { logJobPagesFallback } from "./print-jobs/job-pages-log.js";
 export {
   buildPrinterCandidates,
   type PrinterCandidateSet,

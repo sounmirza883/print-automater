@@ -49,7 +49,11 @@ export async function clearOfUtcMidnight(windowMs = 90_000): Promise<void> {
  * collected errors at the end. Targeted deletes only, never bulk. */
 export async function createPhase19Fixture(
   label: string,
-  opts: { multiItemEnabled: boolean; autoFailoverEnabled?: boolean; documentPages?: number },
+  opts: {
+    multiItemEnabled: boolean;
+    autoFailoverEnabled?: boolean;
+    documentPages?: number | null;
+  },
 ) {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();
@@ -171,7 +175,7 @@ export async function createPhase19Fixture(
         filename: `${label}.pdf`,
         mimeType: "application/pdf",
         sizeBytes: 1,
-        pageCount: opts.documentPages ?? 5,
+        pageCount: opts.documentPages === undefined ? 5 : opts.documentPages,
         status: DocumentStatus.READY,
       },
     });

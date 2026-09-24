@@ -1,6 +1,8 @@
 import { resolvePageCount } from "@print-automated/pricing";
 import type { PageSelection } from "@print-automated/types";
 
+export type JobPagesFallbackReason = "UNKNOWN_DOCUMENT_PAGE_COUNT" | "INVALID_PAGE_RANGE";
+
 export type JobConfig = { pages: PageSelection; copies?: number };
 
 export interface JobPages {
@@ -25,12 +27,21 @@ export function jobPages(
   configuration: JobConfig,
   documentPageCount: number | null | undefined,
   quantity?: number | null,
+  /** Reports each silent fallback (the helper stays pure: callers decide how
+   * to log). Never changes the result. */
+  onFallback?: (reason: JobPagesFallbackReason) => void,
 ): JobPages {
+  if (documentPageCount == null) {
+    // UNDER-counts when the real document is longer than 1 page.
+    onFallback?.("UNKNOWN_DOCUMENT_PAGE_COUNT");
+  }
   const documentPages = documentPageCount ?? 1;
   let pagesPerCopy: number;
   try {
     pagesPerCopy = resolvePageCount(configuration.pages, documentPages);
   } catch {
+    // OVER-counts: a range the resolver rejects counts as the whole document.
+    onFallback?.("INVALID_PAGE_RANGE");
     pagesPerCopy = documentPages;
   }
   const copies = quantity ?? configuration.copies ?? 1;

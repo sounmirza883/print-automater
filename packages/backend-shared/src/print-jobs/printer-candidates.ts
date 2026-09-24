@@ -2,6 +2,7 @@ import { PrintJobStatus, type Prisma } from "@prisma/client";
 import { periodStart } from "../printers/page-limit-period.js";
 import type { PrinterCandidate } from "./allocate-printer.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
+import { logJobPagesFallback } from "./job-pages-log.js";
 
 export interface PrinterCandidateSet {
   candidates: PrinterCandidate[];
@@ -41,16 +42,23 @@ export async function buildPrinterCandidates(
       status: { in: [PrintJobStatus.QUEUED, PrintJobStatus.CLAIMED, PrintJobStatus.PRINTING] },
     },
     select: {
+      id: true,
+      orderId: true,
       printerId: true,
       orderItem: {
         select: {
+          documentId: true,
           quantity: true,
           printConfiguration: true,
           document: { select: { pageCount: true } },
         },
       },
       order: {
-        select: { printConfiguration: true, document: { select: { pageCount: true } } },
+        select: {
+          documentId: true,
+          printConfiguration: true,
+          document: { select: { pageCount: true } },
+        },
       },
     },
   });
@@ -60,6 +68,11 @@ export async function buildPrinterCandidates(
       (job.orderItem?.printConfiguration ?? job.order.printConfiguration) as unknown as JobConfig,
       job.orderItem?.document.pageCount ?? job.order.document.pageCount,
       job.orderItem?.quantity,
+      logJobPagesFallback({
+        jobId: job.id,
+        orderId: job.orderId,
+        documentId: job.orderItem?.documentId ?? job.order.documentId,
+      }),
     ).total;
     const entry = load.get(job.printerId!) ?? { pages: 0, jobs: 0 };
     entry.pages += pages;

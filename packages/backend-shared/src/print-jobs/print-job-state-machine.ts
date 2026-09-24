@@ -6,6 +6,7 @@ import { AppException } from "../errors/app-exception.js";
 import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js";
 import { periodStart } from "../printers/page-limit-period.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
+import { logJobPagesFallback } from "./job-pages-log.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -314,13 +315,19 @@ export class PrintJobStateMachine {
       select: {
         orderItem: {
           select: {
+            documentId: true,
             quantity: true,
             printConfiguration: true,
             document: { select: { pageCount: true } },
           },
         },
         order: {
-          select: { printConfiguration: true, document: { select: { pageCount: true } } },
+          select: {
+            id: true,
+            documentId: true,
+            printConfiguration: true,
+            document: { select: { pageCount: true } },
+          },
         },
       },
     });
@@ -328,6 +335,11 @@ export class PrintJobStateMachine {
       (job.orderItem?.printConfiguration ?? job.order.printConfiguration) as unknown as JobConfig,
       job.orderItem?.document.pageCount ?? job.order.document.pageCount,
       job.orderItem?.quantity,
+      logJobPagesFallback({
+        jobId,
+        orderId: job.order.id,
+        documentId: job.orderItem?.documentId ?? job.order.documentId,
+      }),
     ).total;
     const start = periodStart(printer.pageLimitPeriod, now);
     await tx.$executeRaw`
@@ -427,8 +439,8 @@ export class PrintJobStateMachine {
               ...(ctx.printerId !== undefined ? { printerId: ctx.printerId } : {}),
               ...(ctx.blockedReason !== undefined ? { blockedReason: ctx.blockedReason } : {}),
               ...(ctx.osJobId !== undefined ? { osJobId: ctx.osJobId } : {}),
-              ...(nextStatus === "CLAIMED" ? { claimedAt: new Date() } : {}),
-              ...(nextStatus === "REASSIGNED" ? { supersededAt: new Date() } : {}),
+              ...(nextStatus === "CLAIMED" ? { claimedAt: ctx.now ?? new Date() } : {}),
+              ...(nextStatus === "REASSIGNED" ? { supersededAt: ctx.now ?? new Date() } : {}),
             },
           });
 

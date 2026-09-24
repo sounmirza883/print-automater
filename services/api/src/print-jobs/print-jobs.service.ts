@@ -6,6 +6,7 @@ import {
   AppException,
   AuditService,
   jobPages,
+  logJobPagesFallback,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
@@ -173,6 +174,7 @@ export class PrintJobsService {
       item.printConfiguration as unknown as PrintConfiguration,
       item.document.pageCount,
       item.quantity,
+      logJobPagesFallback({ orderItemId }),
     );
     const pageFigures = { pageCount: jp.total, pagesPerCopy: jp.pagesPerCopy };
     const allocation = allocatePrinter(

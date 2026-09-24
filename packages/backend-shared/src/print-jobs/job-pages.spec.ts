@@ -22,4 +22,16 @@ describe("jobPages (resolved pages x copies)", () => {
     const bad = { pages: { mode: "range" as const, from: 9, to: 2 }, copies: 1 };
     expect(jobPages(bad, 10, 1).pagesPerCopy).toBe(10);
   });
+
+  it("reports each fallback through the callback without changing the result", () => {
+    const seen: string[] = [];
+    const onFallback = (reason: string) => seen.push(reason);
+    expect(jobPages(all, null, 2, onFallback).total).toBe(2);
+    const bad = { pages: { mode: "range" as const, from: 9, to: 2 }, copies: 1 };
+    expect(jobPages(bad, 10, 1, onFallback).pagesPerCopy).toBe(10);
+    expect(seen).toEqual(["UNKNOWN_DOCUMENT_PAGE_COUNT", "INVALID_PAGE_RANGE"]);
+    // No fallback, no report.
+    jobPages(all, 7, 3, onFallback);
+    expect(seen).toHaveLength(2);
+  });
 });

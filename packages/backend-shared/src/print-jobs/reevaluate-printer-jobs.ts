@@ -6,6 +6,7 @@ import { AppException } from "../errors/app-exception.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
 import { allocatePrinter } from "./allocate-printer.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
+import { logJobPagesFallback } from "./job-pages-log.js";
 import { PrintJobEvent, type PrintJobStateMachine } from "./print-job-state-machine.js";
 import { buildPrinterCandidates } from "./printer-candidates.js";
 
@@ -23,6 +24,10 @@ export interface ReevaluationOutcome {
 
 export interface ReevaluationResult {
   outcomes: ReevaluationOutcome[];
+  /** Per-job failures that were contained (one poison job must not block the
+   * rest, the same head-of-line lesson as the print-timeout sweep). Callers
+   * must log/surface these but never fail their own request because of them. */
+  errors: Array<{ jobId: string; error: unknown }>;
   /** Devices whose long-poll the CALLER must wake AFTER this returns (each
    * move already committed). Waking is API-specific (Redis list), so it is
    * deliberately not done here: the worker's offline sweep (19.5) reuses this
@@ -63,12 +68,14 @@ export async function reevaluatePrinterJobs(
     /** Test seam: runs between the candidate read and the machine call, to
      * force a deterministic interleaving. Never set in production. */
     afterCandidatesRead?: () => Promise<void>;
+    /** Called for each contained per-job failure (logging). */
+    onError?: (jobId: string, error: unknown) => void;
   },
   input: { shopId: string; printerId: string; trigger: FailoverTrigger },
 ): Promise<ReevaluationResult> {
   const { prisma, jobMachine } = deps;
   const now = (deps.now ?? (() => new Date()))();
-  const result: ReevaluationResult = { outcomes: [], notifyDeviceIds: [] };
+  const result: ReevaluationResult = { outcomes: [], errors: [], notifyDeviceIds: [] };
 
   const shop = await prisma.shop.findUnique({
     where: { id: input.shopId },
@@ -89,8 +96,10 @@ export async function reevaluatePrinterJobs(
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
+      orderId: true,
       orderItem: {
         select: {
+          documentId: true,
           quantity: true,
           printConfiguration: true,
           document: { select: { pageCount: true } },
@@ -100,167 +109,183 @@ export async function reevaluatePrinterJobs(
   });
 
   for (const job of jobs) {
-    if (!job.orderItem) {
-      continue;
-    }
-    const jp = jobPages(
-      job.orderItem.printConfiguration as unknown as JobConfig,
-      job.orderItem.document.pageCount,
-      job.orderItem.quantity,
-    );
-    const pages = jp.total;
-    const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
-      prisma,
-      input.shopId,
-      now,
-    );
-
-    await deps.afterCandidatesRead?.();
-
-    if (input.trigger === "PAGE_LIMIT_REACHED") {
-      // Only jobs that no longer fit the remaining allowance move; a small
-      // job that still fits stays (same remaining-vs-pages rule as allocation).
-      const self = candidates.find((c) => c.id === input.printerId);
-      if (self && (self.pageLimitRemaining == null || pages <= self.pageLimitRemaining)) {
-        result.outcomes.push({ jobId: job.id, action: "SKIPPED" });
+    try {
+      if (!job.orderItem) {
         continue;
       }
-    }
+      const jp = jobPages(
+        job.orderItem.printConfiguration as unknown as JobConfig,
+        job.orderItem.document.pageCount,
+        job.orderItem.quantity,
+        logJobPagesFallback({
+          jobId: job.id,
+          orderId: job.orderId,
+          documentId: job.orderItem.documentId,
+        }),
+      );
+      const pages = jp.total;
+      const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
+        prisma,
+        input.shopId,
+        now,
+      );
 
-    const allocation = allocatePrinter(
-      {
+      await deps.afterCandidatesRead?.();
+
+      if (input.trigger === "PAGE_LIMIT_REACHED") {
+        // Only jobs that no longer fit the remaining allowance move; a small
+        // job that still fits stays (same remaining-vs-pages rule as allocation).
+        const self = candidates.find((c) => c.id === input.printerId);
+        if (self && (self.pageLimitRemaining == null || pages <= self.pageLimitRemaining)) {
+          result.outcomes.push({ jobId: job.id, action: "SKIPPED" });
+          continue;
+        }
+      }
+
+      const allocation = allocatePrinter(
+        {
+          printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
+          pageCount: pages,
+          pagesPerCopy: jp.pagesPerCopy,
+          allowUnknownCapabilities: false,
+          excludePrinterIds: [input.printerId],
+        },
+        candidates,
+      );
+
+      const guard = async (
+        _tx: Prisma.TransactionClient,
+        locked: { status: PrintJobStatus; printerId: string | null },
+      ): Promise<void> => {
+        if (locked.status !== PrintJobStatus.QUEUED || locked.printerId !== input.printerId) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "FAILOVER_JOB_MOVED",
+            "The job is no longer queued on this printer.",
+            false,
+          );
+        }
+      };
+
+      const request = {
         printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
         pageCount: pages,
         pagesPerCopy: jp.pagesPerCopy,
         allowUnknownCapabilities: false,
         excludePrinterIds: [input.printerId],
-      },
-      candidates,
-    );
-
-    const guard = async (
-      _tx: Prisma.TransactionClient,
-      locked: { status: PrintJobStatus; printerId: string | null },
-    ): Promise<void> => {
-      if (locked.status !== PrintJobStatus.QUEUED || locked.printerId !== input.printerId) {
-        throw new AppException(
-          HttpStatus.CONFLICT,
-          "FAILOVER_JOB_MOVED",
-          "The job is no longer queued on this printer.",
-          false,
-        );
-      }
-    };
-
-    const request = {
-      printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
-      pageCount: pages,
-      pagesPerCopy: jp.pagesPerCopy,
-      allowUnknownCapabilities: false,
-      excludePrinterIds: [input.printerId],
-    };
-    const unallocate = async (blockedReason: string): Promise<void> => {
-      await jobMachine.transition(
-        job.id,
-        PrintJobEvent.UNALLOCATE,
-        { id: null },
-        {
-          guard,
-          printerId: null,
-          blockedReason,
-          metadata: {
-            automatic: true,
-            trigger: input.trigger,
-            fromPrinterId: input.printerId,
+      };
+      const unallocate = async (
+        blockedReason: string,
+        extra: Record<string, unknown> = {},
+      ): Promise<void> => {
+        await jobMachine.transition(
+          job.id,
+          PrintJobEvent.UNALLOCATE,
+          { id: null },
+          {
+            guard,
+            printerId: null,
             blockedReason,
-          },
-        },
-      );
-      result.outcomes.push({ jobId: job.id, action: "BLOCKED", blockedReason });
-    };
-
-    try {
-      if (allocation.outcome === "ALLOCATED") {
-        const targetId = allocation.printerId;
-        let staleReason: string | undefined;
-        // Re-check the TARGET under the lock, with the same eligibility the
-        // allocator used. FOR SHARE on the printer row makes it airtight:
-        // a staff disable / heartbeat UPDATE of that row must wait until this
-        // move commits, and its own trigger then sees (and re-moves) the job.
-        const targetGuard = async (
-          tx: Prisma.TransactionClient,
-          locked: { status: PrintJobStatus; printerId: string | null },
-        ): Promise<void> => {
-          await guard(tx, locked);
-          await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
-          const fresh = await buildPrinterCandidates(tx, input.shopId, now);
-          const recheck = allocatePrinter(
-            request,
-            fresh.candidates.filter((c) => c.id === targetId),
-          );
-          if (recheck.outcome === "BLOCKED") {
-            staleReason = recheck.blockedReason;
-            throw new AppException(
-              HttpStatus.CONFLICT,
-              "FAILOVER_TARGET_STALE",
-              "The chosen target printer is no longer suitable.",
-              false,
-            );
-          }
-        };
-        try {
-          const moved = await jobMachine.transition(
-            job.id,
-            PrintJobEvent.SUPERSEDE,
-            { id: null },
-            {
-              guard: targetGuard,
-              successor: { printerId: targetId },
-              metadata: {
-                automatic: true,
-                trigger: input.trigger,
-                fromPrinterId: input.printerId,
-                toPrinterId: targetId,
-              },
+            metadata: {
+              automatic: true,
+              trigger: input.trigger,
+              fromPrinterId: input.printerId,
+              blockedReason,
+              ...extra,
             },
-          );
-          result.outcomes.push({
-            jobId: job.id,
-            action: "MOVED",
-            successorJobId: moved.successorJobId,
-            toPrinterId: targetId,
-          });
-          const deviceId = deviceIdsByPrinterId.get(targetId);
-          if (deviceId && !result.notifyDeviceIds.includes(deviceId)) {
-            result.notifyDeviceIds.push(deviceId);
-          }
-        } catch (error) {
-          if (error instanceof AppException && error.errorCode === "FAILOVER_TARGET_STALE") {
-            // Never leave the job live on a printer that just became
-            // unsuitable: park it visibly so staff can act.
-            await unallocate(staleReason ?? TRIGGER_BLOCKED_REASON[input.trigger]);
-          } else {
-            throw error;
-          }
-        }
-      } else {
-        // Nothing else qualifies. With no other printer at all, name the
-        // trigger; otherwise the allocator's own reason (e.g. the other
-        // printer is offline, or at its page limit) is more actionable.
-        const others = candidates.filter((c) => c.id !== input.printerId);
-        await unallocate(
-          others.length === 0 ? TRIGGER_BLOCKED_REASON[input.trigger] : allocation.blockedReason,
+          },
         );
+        result.outcomes.push({ jobId: job.id, action: "BLOCKED", blockedReason });
+      };
+
+      try {
+        if (allocation.outcome === "ALLOCATED") {
+          const targetId = allocation.printerId;
+          let staleReason: string | undefined;
+          // Re-check the TARGET under the lock, with the same eligibility the
+          // allocator used. FOR SHARE on the printer row makes it airtight:
+          // a staff disable / heartbeat UPDATE of that row must wait until this
+          // move commits, and its own trigger then sees (and re-moves) the job.
+          const targetGuard = async (
+            tx: Prisma.TransactionClient,
+            locked: { status: PrintJobStatus; printerId: string | null },
+          ): Promise<void> => {
+            await guard(tx, locked);
+            await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
+            const fresh = await buildPrinterCandidates(tx, input.shopId, now);
+            const recheck = allocatePrinter(
+              request,
+              fresh.candidates.filter((c) => c.id === targetId),
+            );
+            if (recheck.outcome === "BLOCKED") {
+              staleReason = recheck.blockedReason;
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "FAILOVER_TARGET_STALE",
+                "The chosen target printer is no longer suitable.",
+                false,
+              );
+            }
+          };
+          try {
+            const moved = await jobMachine.transition(
+              job.id,
+              PrintJobEvent.SUPERSEDE,
+              { id: null },
+              {
+                guard: targetGuard,
+                successor: { printerId: targetId },
+                metadata: {
+                  automatic: true,
+                  trigger: input.trigger,
+                  fromPrinterId: input.printerId,
+                  toPrinterId: targetId,
+                },
+              },
+            );
+            result.outcomes.push({
+              jobId: job.id,
+              action: "MOVED",
+              successorJobId: moved.successorJobId,
+              toPrinterId: targetId,
+            });
+            const deviceId = deviceIdsByPrinterId.get(targetId);
+            if (deviceId && !result.notifyDeviceIds.includes(deviceId)) {
+              result.notifyDeviceIds.push(deviceId);
+            }
+          } catch (error) {
+            if (error instanceof AppException && error.errorCode === "FAILOVER_TARGET_STALE") {
+              // Never leave the job live on a printer that just became
+              // unsuitable: park it visibly so staff can act.
+              const reason = staleReason ?? TRIGGER_BLOCKED_REASON[input.trigger];
+              await unallocate(reason, { staleTargetId: targetId, staleReason: reason });
+            } else {
+              throw error;
+            }
+          }
+        } else {
+          // Nothing else qualifies. With no other printer at all, name the
+          // trigger; otherwise the allocator's own reason (e.g. the other
+          // printer is offline, or at its page limit) is more actionable.
+          const others = candidates.filter((c) => c.id !== input.printerId);
+          await unallocate(
+            others.length === 0 ? TRIGGER_BLOCKED_REASON[input.trigger] : allocation.blockedReason,
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof AppException &&
+          (error.errorCode === "FAILOVER_JOB_MOVED" || error.errorCode === "ILLEGAL_JOB_TRANSITION")
+        ) {
+          result.outcomes.push({ jobId: job.id, action: "SKIPPED" });
+          continue;
+        }
+        throw error;
       }
     } catch (error) {
-      if (
-        error instanceof AppException &&
-        (error.errorCode === "FAILOVER_JOB_MOVED" || error.errorCode === "ILLEGAL_JOB_TRANSITION")
-      ) {
-        result.outcomes.push({ jobId: job.id, action: "SKIPPED" });
-        continue;
-      }
-      throw error;
+      // Contain EVERYTHING per job: keep going with the rest.
+      result.errors.push({ jobId: job.id, error });
+      deps.onError?.(job.id, error);
     }
   }
   return result;
