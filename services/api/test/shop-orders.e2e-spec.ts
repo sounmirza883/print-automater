@@ -142,6 +142,7 @@ describe("Shop orders API (8.2, e2e)", () => {
   });
 
   afterAll(async () => {
+    await prisma.printJob.deleteMany({ where: { orderId: { in: orderIds } } });
     await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
     await prisma.shopStaff.deleteMany({
       where: { userId: { in: [counterAtShopA.id, counterAtShopB.id] } },
