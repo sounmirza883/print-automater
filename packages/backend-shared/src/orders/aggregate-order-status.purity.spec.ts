@@ -168,4 +168,71 @@ describe("aggregateOrderStatus exhaustive purity matrix (18.10)", () => {
     }
     expect(transitionsChecked).toBeGreaterThan(0);
   });
+
+  /** 18.15: progress rank PREPARING < QUEUED_FOR_PRINT < ASSIGNED <
+   * PRINTING. Property: for every multiset (<=3 jobs) x every QC state
+   * x every legal job transition that neither removes the job from the
+   * set (CANCELLED, REASSIGNED, PAUSED -- deliberate human/system actions that
+   * change WHICH jobs count, not job progress), if the order is a
+   * progress state both before AND after, its rank never decreases.
+   * DOES cover: the reviewer's flap (PRINTING -> job A PRINTED ->
+   * QUEUED_FOR_PRINT) and PRINTED siblings dragging the order back.
+   * DOES NOT cover: transitions into/out of attention states (escalation
+   * to PAUSED/PRINT_FAILED is legitimate, and PAUSED -> WAITING resume
+   * is an attention exit, checked by the other cases), job-set changes
+   * (cancel/reassign/retry adding a fresh job), or multi-step paths --
+   * it is a one-step property, which composes into any path because each
+   * step is checked from every reachable multiset. */
+  it("progress-rank monotonicity: PREPARING < QUEUED_FOR_PRINT < ASSIGNED < PRINTING never decreases across a legal non-superseding job transition", () => {
+    const RANK: Partial<Record<OrderStatus, number>> = {
+      [OrderStatus.PREPARING]: 0,
+      [OrderStatus.QUEUED_FOR_PRINT]: 1,
+      [OrderStatus.ASSIGNED]: 2,
+      [OrderStatus.PRINTING]: 3,
+    };
+    let checked = 0;
+    for (const multiset of multisets) {
+      for (const qc of ALL_QC) {
+        const before = aggregateOrderStatus(toJobs(multiset), { qualityCheck: qc });
+        const beforeRank = before ? RANK[before] : undefined;
+        if (beforeRank === undefined) {
+          continue;
+        }
+        for (let i = 0; i < multiset.length; i += 1) {
+          for (const target of JOB_TRANSITION_TARGETS[multiset[i]!]) {
+            if (
+              target === PrintJobStatus.CANCELLED ||
+              target === PrintJobStatus.REASSIGNED ||
+              target === PrintJobStatus.PAUSED
+            ) {
+              continue;
+            }
+            const after = [...multiset];
+            after[i] = target;
+            const result = aggregateOrderStatus(toJobs(after), { qualityCheck: qc });
+            const afterRank = result ? RANK[result] : undefined;
+            if (afterRank === undefined) {
+              continue;
+            }
+            checked += 1;
+            if (afterRank < beforeRank) {
+              throw new Error(
+                `rank decreased: [${multiset.join(",")}] ${before} -> [${after.join(",")}] ${result}`,
+              );
+            }
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("18.15: a PRINTED job among unfinished live jobs keeps the order PRINTING", () => {
+    const qc = { qualityCheck: QualityCheckStatus.NOT_REQUIRED };
+    for (const other of [PrintJobStatus.QUEUED, PrintJobStatus.CLAIMED, PrintJobStatus.WAITING]) {
+      expect(aggregateOrderStatus(toJobs([PrintJobStatus.PRINTED, other]), qc)).toBe(
+        OrderStatus.PRINTING,
+      );
+    }
+  });
 });

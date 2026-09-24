@@ -88,7 +88,20 @@ export function aggregateOrderStatus(
   }
 
   // 4. Progress: anything actively printing beats anything already done.
-  if (relevant.some((job) => job.status === PrintJobStatus.PRINTING)) {
+  // 18.15: a PRINTED job proves production has started, so while any
+  // required job is still unfinished the order is PRINTING (sticky) --
+  // never QUEUED_FOR_PRINT/ASSIGNED/PREPARING. Otherwise the order
+  // regressed when job A printed while job B was still queued, then
+  // re-entered PRINTING (a second PRINT_STARTED notification) once B
+  // started. When every required job is PRINTED this does not apply and
+  // completion (step 6) decides, so a single-job order is unchanged.
+  const requiredAll = relevant.filter((job) => job.required !== false);
+  const allRequiredDone =
+    requiredAll.length > 0 && requiredAll.every((job) => job.status === PrintJobStatus.PRINTED);
+  if (
+    relevant.some((job) => job.status === PrintJobStatus.PRINTING) ||
+    (!allRequiredDone && relevant.some((job) => job.status === PrintJobStatus.PRINTED))
+  ) {
     return OrderStatus.PRINTING;
   }
 
