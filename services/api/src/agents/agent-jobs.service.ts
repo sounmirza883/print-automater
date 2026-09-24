@@ -210,6 +210,20 @@ export class AgentJobsService implements OnModuleDestroy {
     }
 
     const event = REPORTED_STATUS_TO_JOB_EVENT[input.status];
+
+    // 18.24: the OLD order machine always tried START_PRINT first (swallowing
+    // ILLEGAL), so a PRINTED/FAILED/UNKNOWN report that arrived while the job
+    // was still QUEUED/CLAIMED still produced PRINT_STARTED before the
+    // terminal notification (and LOSE was only legal from PRINTING). The
+    // design moves that self-healing here, verbatim: QUEUED -> CLAIMED (no
+    // order sync, like a real claim) -> PRINTING (syncs the order, notifying
+    // PRINT_STARTED once), then the reported event. Each step is its own
+    // atomic transaction; ILLEGAL at any step means "already past it".
+    if (input.status !== "PRINTING") {
+      await this.selfHealToPrinting(job.id);
+    } else {
+      await this.selfHealToClaimed(job.id);
+    }
     try {
       // 18.16: the job write and the order sync are ONE transaction
       // inside the job machine -- a failed sync rolls the job back.
@@ -247,6 +261,29 @@ export class AgentJobsService implements OnModuleDestroy {
         "Print job status unknown.",
       );
     }
+  }
+
+  private async tryJobEvent(
+    jobId: string,
+    event: PrintJobEvent,
+    ctx: { syncOrder?: boolean } = {},
+  ): Promise<void> {
+    try {
+      await this.jobStateMachine.transition(jobId, event, { id: null }, ctx);
+    } catch (err) {
+      if (!(err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION")) {
+        throw err;
+      }
+    }
+  }
+
+  private async selfHealToClaimed(jobId: string): Promise<void> {
+    await this.tryJobEvent(jobId, PrintJobEvent.CLAIM, { syncOrder: false });
+  }
+
+  private async selfHealToPrinting(jobId: string): Promise<void> {
+    await this.selfHealToClaimed(jobId);
+    await this.tryJobEvent(jobId, PrintJobEvent.START);
   }
 
   private async syncOrderIgnoringIllegal(orderId: string): Promise<void> {

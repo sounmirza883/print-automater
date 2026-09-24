@@ -150,6 +150,26 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
     return printer;
   }
 
+  /** Counts customer notifications by "TYPE:CHANNEL" so equivalence covers
+   * what the customer actually receives, not just the final status. */
+  async function notificationCounts(orderId: string): Promise<Record<string, number>> {
+    const rows = await prisma.notification.findMany({ where: { orderId } });
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      const key = `${row.type}:${row.channel}`;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  async function jobAuditActions(jobId: string): Promise<string[]> {
+    const rows = await prisma.auditLog.findMany({
+      where: { resourceType: "print_job", resourceId: jobId },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map((r) => r.action);
+  }
+
   async function seedOrder(shop: { id: string }, orderStatus: OrderStatus): Promise<string> {
     const order = await prisma.order.create({
       data: {
@@ -267,6 +287,18 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
       .expect(200);
     const afterPrinted = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(afterPrinted.orderStatus).toBe(OrderStatus.PRINTED);
+    // Exactly one PRINT_STARTED and one PRINT_COMPLETED pair (APP + EMAIL), nothing else.
+    expect(await notificationCounts(orderId)).toMatchObject({
+      "PRINT_STARTED:APP": 1,
+      "PRINT_STARTED:EMAIL": 1,
+      "PRINT_COMPLETED:APP": 1,
+      "PRINT_COMPLETED:EMAIL": 1,
+    });
+    expect(await jobAuditActions(job.id)).toEqual([
+      "PRINT_JOB_CLAIM",
+      "PRINT_JOB_START",
+      "PRINT_JOB_PRINTED",
+    ]);
 
     // OLD: PRINTED --MARK_READY--> READY_FOR_COLLECTION (unchanged, fixed event).
     const ready = await request(app.getHttpServer())
@@ -281,6 +313,48 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
       .set("Authorization", `Bearer ${counterToken}`)
       .expect(200);
     expect(completed.body.orderStatus).toBe(OrderStatus.COMPLETED);
+  });
+
+  it("journey 1b: a PRINTED report on a job that is still QUEUED or only CLAIMED self-heals through START -- both PRINT_STARTED and PRINT_COMPLETED pairs, as OLD", async () => {
+    for (const claimFirst of [false, true]) {
+      const { shop, counter, counterToken } = await setupShop();
+      const { deviceId, accessToken } = await registerAndAuthenticate(shop, counter);
+      await createOnlinePrinter(shop, deviceId, `Equivalence Printer J1b-${claimFirst}`);
+      const orderId = await seedOrder(shop, OrderStatus.WAITING_FOR_SHOP);
+      await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${orderId}/accept`)
+        .set("Authorization", `Bearer ${counterToken}`)
+        .expect(200);
+      const job = await prisma.printJob.findFirstOrThrow({ where: { orderId } });
+      if (claimFirst) {
+        await request(app.getHttpServer())
+          .post(`/v1/agents/jobs/${job.id}/claim`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200);
+      }
+      await request(app.getHttpServer())
+        .post(`/v1/agents/jobs/${job.id}/status`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .set("Idempotency-Key", `${job.id}:PRINTED`)
+        .send({ status: "PRINTED" })
+        .expect(200);
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).orderStatus).toBe(
+        OrderStatus.PRINTED,
+      );
+      expect(await notificationCounts(orderId)).toEqual({
+        "ORDER_ACCEPTED:APP": 1,
+        "ORDER_ACCEPTED:EMAIL": 1,
+        "PRINT_STARTED:APP": 1,
+        "PRINT_STARTED:EMAIL": 1,
+        "PRINT_COMPLETED:APP": 1,
+        "PRINT_COMPLETED:EMAIL": 1,
+      });
+      expect(await jobAuditActions(job.id)).toEqual([
+        "PRINT_JOB_CLAIM",
+        "PRINT_JOB_START",
+        "PRINT_JOB_PRINTED",
+      ]);
+    }
   });
 
   it("journey 2: failure -> retry, matching OLD QUEUED_FOR_PRINT--FAIL_PRINT-->PRINT_FAILED--RETRY_PRINT-->QUEUED_FOR_PRINT", async () => {
@@ -304,6 +378,13 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
       .expect(200);
     const afterFail = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(afterFail.orderStatus).toBe(OrderStatus.PRINT_FAILED);
+    // OLD always tried START_PRINT first: PRINT_STARTED, then PRINT_FAILED.
+    expect(await notificationCounts(orderId)).toMatchObject({
+      "PRINT_STARTED:APP": 1,
+      "PRINT_STARTED:EMAIL": 1,
+      "PRINT_FAILED:APP": 1,
+      "PRINT_FAILED:EMAIL": 1,
+    });
 
     // OLD: PRINT_FAILED --RETRY_PRINT--> QUEUED_FOR_PRINT.
     const retry = await request(app.getHttpServer())
@@ -326,7 +407,7 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
     expect(jobs[1]?.supersededAt).toBeNull();
   });
 
-  it("journey 3: unknown -> each of the three resolutions, matching OLD PRINTING--LOSE_PRINT_STATUS-->PRINT_STATUS_UNKNOWN and its three RESOLVE_UNKNOWN_* targets", async () => {
+  it("journey 3: unknown -> each of the three resolutions (OLD: START_PRINT then LOSE_PRINT_STATUS, since LOSE was only legal from PRINTING; the report arrives while the job is still QUEUED, so the job machine must START first)", async () => {
     // 3a: resolution CONFIRMED_PRINTED -> PRINTED (OLD RESOLVE_UNKNOWN_PRINTED).
     {
       const { shop, counter, counterToken } = await setupShop();
@@ -346,6 +427,13 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
         .expect(200);
       const afterUnknown = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
       expect(afterUnknown.orderStatus).toBe(OrderStatus.PRINT_STATUS_UNKNOWN);
+      // START happened first (PRINT_STARTED notified); UNKNOWN itself never notifies.
+      expect(await notificationCounts(orderId)).toEqual({
+        "ORDER_ACCEPTED:APP": 1,
+        "ORDER_ACCEPTED:EMAIL": 1,
+        "PRINT_STARTED:APP": 1,
+        "PRINT_STARTED:EMAIL": 1,
+      });
 
       const resolved = await request(app.getHttpServer())
         .post(`/v1/shop/orders/${orderId}/resolve-unknown`)
@@ -353,6 +441,16 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
         .send({ resolution: "CONFIRMED_PRINTED" })
         .expect(200);
       expect(resolved.body.orderStatus).toBe(OrderStatus.PRINTED);
+      expect((await prisma.printJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe(
+        "PRINTED",
+      );
+      // A staff resolution never notifies the customer (as OLD).
+      expect(await notificationCounts(orderId)).toEqual({
+        "ORDER_ACCEPTED:APP": 1,
+        "ORDER_ACCEPTED:EMAIL": 1,
+        "PRINT_STARTED:APP": 1,
+        "PRINT_STARTED:EMAIL": 1,
+      });
     }
 
     // 3b: resolution MARK_FAILED -> PRINT_FAILED (OLD RESOLVE_UNKNOWN_FAILED).
