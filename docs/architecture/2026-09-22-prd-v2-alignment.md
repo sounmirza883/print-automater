@@ -243,3 +243,31 @@ Reuse rather than rebuild: `ShopScopeGuard` + `ShopMembershipService` + `ShopSco
 5. **PDFium vendoring (24.9)** — the vcpkg port and prebuilt binaries occasionally lag; pin an exact version and cache it in CI rather than fetching per build.
 6. **The C++ port is a second implementation of proven-hard logic** — duplicate-print protection especially. 24.6 and 24.15 exist to prove parity rather than assume it; the Node agent stays shippable until they pass.
 7. **Scope.** This is comparable in size to the original 0–13 build. Phases 15–20 are the load-bearing half; 21–23 are broad but mostly conventional CRUD and UI; 24 is self-contained and parallelisable.
+
+---
+
+## Execution log and plan adjustments (updated 2026-09-24, after Phase 18)
+
+Findings from execution that change what later phases must do. Sub-phase numbers below refer to this plan.
+
+### How Phases 14-18 actually went
+
+- Every phase was followed by an adversarial `code-reviewer` pass and its findings fixed before moving on. Every phase hid real bugs: Phase 16 a privilege escalation and a TOCTOU race; Phase 17 an order-list conflation and an unproven concurrency claim; Phase 18 a silently disabled lint guard, enum drift, an aggregation regression, non-atomic job/order sync, retry re-printing already-printed items, and a dropped late agent report. Keep doing this. Verify a reviewer's critical claims yourself before fixing.
+- Phase 18 shipped as `eb03fa1`..`bb9a08a` plus review-fix commits 18.11-18.27, not one commit per sub-phase: the second lint guard fails every existing job-status writer, so the guard and the migrations off those writers had to land together. `shops.multi_item_enabled` is still `false` by default and must stay so until 19.5's sweep-race tests exist.
+- Guards now enforced: `pnpm lint` runs `scripts/verify-lint-guards.mjs` (proves both single-writer lint rules actually fire); `services/api/src/common/enum-mirror.spec.ts` (Prisma vs `packages/types` enums); `single-writer-raw-sql.spec.ts` (raw SQL blind spot). `turbo.json` now declares root config files as cache inputs.
+
+### Requirements added to later phases
+
+- **19.2 / 19.3:** define ONE pages-per-job measure (`resolved page count x copies`) in a single pure helper used by allocation, queue-load and usage accrual. Today `dispatchToPrinter`'s load query uses `pageCount x (orderItem?.quantity ?? 1)` (under-counts a legacy job with no order item) and `allocatePrinter` receives bare `pageCount` for `maxJobPages`. `PrinterCandidate`'s page-limit / paper / operator fields are wired but nothing populates them yet: 19.2 populates the page-limit ones. Accrue usage inside the job machine's own transaction on the PRINTED transition (including staff `RESOLVE_UNKNOWN_PRINTED`), so it is atomic and counted once.
+- **19.4:** automatic failover must be opt-in per shop (a `shops` flag defaulting to `false`, like `multiItemEnabled`), folded into `shop_settings` by 22.1. Section 122 requires every automatic path to be overridable.
+- **19.5 (must include):**
+  - The sweep-race tests the risk list always required and Phase 18 did not write: the print-timeout sweep and the offline sweep each racing a staff retry, via `Promise.all`.
+  - **Late agent reports must not be dropped.** The pre-Phase-18 `reportStatus` wrote the reported status onto the job row unconditionally, so a late `PRINTED` from an agent whose job had already timed out left a job row saying `PRINTED` (the order stayed `PRINT_FAILED`, so a blind Retry could still reprint, but the evidence existed). The job machine correctly rejects illegal transitions, but `reportStatus` then swallows the report, so the fact that paper came out is lost. Fix: a late `PRINTED` (or `UNKNOWN`) on a live TIMEOUT/FAILED job moves it to UNKNOWN (add the edge) so the order derives `PRINT_STATUS_UNKNOWN` and staff must resolve it; a late report on a superseded/REASSIGNED job is audited and logged at warn. Duplicate printing is this product's cardinal rule.
+  - Worker e2e verification: the 18.16 / 18.27 worker e2e cases are written but were never run (see Environment below).
+- **22.2:** `dispatchToPrinter` has no automation toggle around auto-allocation (section 122).
+- **25:** isolate the e2e infrastructure. Tests share Postgres and Redis with dev, which caused: a live worker draining test queues (`Expected length: 1, Received length: 0`), leftover-fixture FK failures in `authorization-matrix.e2e-spec.ts`'s `afterAll`, and a Redis `notifications` backlog of 1,000+ jobs nobody drains. Use a separate Redis DB index and a separate Postgres database for e2e.
+- **Minor, tracked:** `attempt` is computed by a count outside the order lock (bounded by the unique idempotency token); the rewritten `services/worker/test/print-timeout.e2e-spec.ts` runs a global sweep against the shared DB, so another suite's stale job can make it throw spuriously.
+
+### Environment (as of this entry)
+
+A hung `jest test/print-timeout` process tree (sh 1364 -> pnpm 7988 -> cmd 16044 -> jest 1788, started 07:51 on 2026-09-24) is pegged at ~100% CPU and cannot be removed by the agents (the safety classifier denies the kill, correctly). It is a live worker on the shared Redis, so `services/worker` e2e suites hang until it is stopped and the stale `bull:*` backlog is cleared. Until then verify worker logic through the worker unit specs and API-level mirrors.
