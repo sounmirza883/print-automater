@@ -1,4 +1,18 @@
-import type { UserRole } from "@print-automated/types";
+import type {
+  OrderStatus,
+  PaymentStatus,
+  PrinterStatus,
+  ShopRejectionReason,
+  UserRole,
+} from "@print-automated/types";
+
+// Single source of truth: these were hand-written string unions here, which
+// drifted silently (OrderStatus missed the four Phase 18 statuses;
+// PrinterStatus still had 4 of its 8 values since Phase 15.3), so a status
+// the API could emit was a type error nowhere and a blank label everywhere.
+// Re-exported, not redefined, so they cannot drift again. The public names
+// api-client exposes are unchanged.
+export type { OrderStatus, PaymentStatus, PrinterStatus, ShopRejectionReason };
 
 export interface AuthTokens {
   accessToken: string;
@@ -42,40 +56,8 @@ export interface DocumentStatusView {
   createdAt: string;
 }
 
-/** Mirrors services/api's `OrderStatus`/`PaymentStatus` Prisma enums --
- * same "not imported from @prisma/client" reasoning as DocumentStatus
- * above. */
-export type OrderStatus =
-  | "DRAFT"
-  | "UPLOADED"
-  | "PAYMENT_PENDING"
-  | "PAID"
-  | "WAITING_FOR_SHOP"
-  | "SHOP_ACCEPTED"
-  | "QUEUED_FOR_PRINT"
-  | "PRINTING"
-  | "PRINTED"
-  | "READY_FOR_COLLECTION"
-  | "COMPLETED"
-  | "PAYMENT_FAILED"
-  | "SHOP_REJECTED"
-  | "PRINT_FAILED"
-  | "PRINT_STATUS_UNKNOWN"
-  | "CANCELLED"
-  | "EXPIRED";
-
-export type PaymentStatus =
-  | "PENDING"
-  | "AUTHORIZED"
-  | "PAID"
-  | "FAILED"
-  | "CANCELLED"
-  | "REFUND_PENDING"
-  | "REFUNDED"
-  | "REFUND_FAILED";
-
-export type ShopRejectionReason =
-  "PRINTER_UNAVAILABLE" | "CAPABILITY_UNAVAILABLE" | "SHOP_UNAVAILABLE" | "DOCUMENT_ISSUE";
+// `OrderStatus`, `PaymentStatus` and `ShopRejectionReason` are re-exported
+// from @print-automated/types at the top of this file.
 
 /** Mirrors services/api's `ShopOrdersService.ShopOrderResponse`
  * (8.2/8.3). `pricingSnapshot` is optional for the same reason
@@ -110,16 +92,14 @@ export interface ShopOrdersGrouped {
   failed: ShopOrderResponse[];
 }
 
-/** Mirrors packages/types' `PrinterCapabilities` / services/api's
- * `PrinterStatus` Prisma enum. */
+/** Mirrors packages/types' `PrinterCapabilities`. `PrinterStatus` is
+ * re-exported from @print-automated/types at the top of this file. */
 export interface PrinterCapabilities {
   color: boolean;
   duplex: boolean;
   a4: boolean;
   a3: boolean;
 }
-
-export type PrinterStatus = "ONLINE" | "OFFLINE" | "ERROR" | "DISABLED";
 
 export interface PrinterResponse {
   id: string;
