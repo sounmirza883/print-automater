@@ -848,7 +848,13 @@ model PrintJob {
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   order     Order      @relation(fields: [orderId], references: [id])
-  printer   Printer?   @relation(fields: [printerId], references: [id])
+  // 18.23: explicit Restrict, matching what the database has always enforced. Phase 18
+  // made printer_id nullable (a blocked job has no printer yet), and Prisma's default
+  // for an OPTIONAL relation is SetNull -- so with no explicit onDelete the schema
+  // silently claimed ON DELETE SET NULL while the DB kept RESTRICT, and the next
+  // `prisma migrate dev` would have flipped it: deleting a printer would then erase
+  // which printer printed every historical job. Restrict keeps job history intact.
+  printer   Printer?   @relation(fields: [printerId], references: [id], onDelete: Restrict)
   orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
   operator  User?      @relation("PrintJobOperator", fields: [operatorId], references: [id], onDelete: SetNull)
 
