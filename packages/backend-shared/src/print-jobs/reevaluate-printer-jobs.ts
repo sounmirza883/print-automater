@@ -1,5 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import { PrintJobStatus } from "@prisma/client";
+import { PrintJobStatus, type Prisma } from "@prisma/client";
 import { BlockedReason } from "@print-automated/types";
 import type { PrintConfiguration } from "@print-automated/types";
 import { AppException } from "../errors/app-exception.js";
@@ -49,11 +49,21 @@ const TRIGGER_BLOCKED_REASON: Record<FailoverTrigger, string> = {
  * REASSIGNED and skips it, so an item never gets two live jobs.
  *
  * Candidates are read outside the machine's transaction (the machine accepts
- * no caller tx by design). The window that leaves (the chosen printer itself
- * becoming unsuitable before commit) is closed by that printer's own trigger
- * re-running this function. Pure of Nest/HTTP/Redis: deps are passed in. */
+ * no caller tx by design), so the chosen TARGET is re-validated inside the
+ * machine's guard, under the locks, with the same allocator rules, and its
+ * row is held FOR SHARE until commit. A stale target makes the job WAITING
+ * with the target's blocked reason instead of being stranded QUEUED on it.
+ * (The target's own trigger cannot be relied on: it may have already run and
+ * found nothing to move.) Pure of Nest/HTTP/Redis: deps are passed in. */
 export async function reevaluatePrinterJobs(
-  deps: { prisma: PrismaService; jobMachine: PrintJobStateMachine; now?: () => Date },
+  deps: {
+    prisma: PrismaService;
+    jobMachine: PrintJobStateMachine;
+    now?: () => Date;
+    /** Test seam: runs between the candidate read and the machine call, to
+     * force a deterministic interleaving. Never set in production. */
+    afterCandidatesRead?: () => Promise<void>;
+  },
   input: { shopId: string; printerId: string; trigger: FailoverTrigger },
 ): Promise<ReevaluationResult> {
   const { prisma, jobMachine } = deps;
@@ -100,6 +110,8 @@ export async function reevaluatePrinterJobs(
       now,
     );
 
+    await deps.afterCandidatesRead?.();
+
     if (input.trigger === "PAGE_LIMIT_REACHED") {
       // Only jobs that no longer fit the remaining allowance move; a small
       // job that still fits stays (same remaining-vs-pages rule as allocation).
@@ -121,7 +133,7 @@ export async function reevaluatePrinterJobs(
     );
 
     const guard = async (
-      _tx: unknown,
+      _tx: Prisma.TransactionClient,
       locked: { status: PrintJobStatus; printerId: string | null },
     ): Promise<void> => {
       if (locked.status !== PrintJobStatus.QUEUED || locked.printerId !== input.printerId) {
@@ -134,57 +146,104 @@ export async function reevaluatePrinterJobs(
       }
     };
 
+    const request = {
+      printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
+      pageCount: pages,
+      allowUnknownCapabilities: false,
+      excludePrinterIds: [input.printerId],
+    };
+    const unallocate = async (blockedReason: string): Promise<void> => {
+      await jobMachine.transition(
+        job.id,
+        PrintJobEvent.UNALLOCATE,
+        { id: null },
+        {
+          guard,
+          printerId: null,
+          blockedReason,
+          metadata: {
+            automatic: true,
+            trigger: input.trigger,
+            fromPrinterId: input.printerId,
+            blockedReason,
+          },
+        },
+      );
+      result.outcomes.push({ jobId: job.id, action: "BLOCKED", blockedReason });
+    };
+
     try {
       if (allocation.outcome === "ALLOCATED") {
-        const moved = await jobMachine.transition(
-          job.id,
-          PrintJobEvent.SUPERSEDE,
-          { id: null },
-          {
-            guard,
-            successor: { printerId: allocation.printerId },
-            metadata: {
-              automatic: true,
-              trigger: input.trigger,
-              fromPrinterId: input.printerId,
-              toPrinterId: allocation.printerId,
+        const targetId = allocation.printerId;
+        let staleReason: string | undefined;
+        // Re-check the TARGET under the lock, with the same eligibility the
+        // allocator used. FOR SHARE on the printer row makes it airtight:
+        // a staff disable / heartbeat UPDATE of that row must wait until this
+        // move commits, and its own trigger then sees (and re-moves) the job.
+        const targetGuard = async (
+          tx: Prisma.TransactionClient,
+          locked: { status: PrintJobStatus; printerId: string | null },
+        ): Promise<void> => {
+          await guard(tx, locked);
+          await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
+          const fresh = await buildPrinterCandidates(tx, input.shopId, now);
+          const recheck = allocatePrinter(
+            request,
+            fresh.candidates.filter((c) => c.id === targetId),
+          );
+          if (recheck.outcome === "BLOCKED") {
+            staleReason = recheck.blockedReason;
+            throw new AppException(
+              HttpStatus.CONFLICT,
+              "FAILOVER_TARGET_STALE",
+              "The chosen target printer is no longer suitable.",
+              false,
+            );
+          }
+        };
+        try {
+          const moved = await jobMachine.transition(
+            job.id,
+            PrintJobEvent.SUPERSEDE,
+            { id: null },
+            {
+              guard: targetGuard,
+              successor: { printerId: targetId },
+              metadata: {
+                automatic: true,
+                trigger: input.trigger,
+                fromPrinterId: input.printerId,
+                toPrinterId: targetId,
+              },
             },
-          },
-        );
-        result.outcomes.push({
-          jobId: job.id,
-          action: "MOVED",
-          successorJobId: moved.successorJobId,
-          toPrinterId: allocation.printerId,
-        });
-        const deviceId = deviceIdsByPrinterId.get(allocation.printerId);
-        if (deviceId && !result.notifyDeviceIds.includes(deviceId)) {
-          result.notifyDeviceIds.push(deviceId);
+          );
+          result.outcomes.push({
+            jobId: job.id,
+            action: "MOVED",
+            successorJobId: moved.successorJobId,
+            toPrinterId: targetId,
+          });
+          const deviceId = deviceIdsByPrinterId.get(targetId);
+          if (deviceId && !result.notifyDeviceIds.includes(deviceId)) {
+            result.notifyDeviceIds.push(deviceId);
+          }
+        } catch (error) {
+          if (error instanceof AppException && error.errorCode === "FAILOVER_TARGET_STALE") {
+            // Never leave the job live on a printer that just became
+            // unsuitable: park it visibly so staff can act.
+            await unallocate(staleReason ?? TRIGGER_BLOCKED_REASON[input.trigger]);
+          } else {
+            throw error;
+          }
         }
       } else {
         // Nothing else qualifies. With no other printer at all, name the
         // trigger; otherwise the allocator's own reason (e.g. the other
         // printer is offline, or at its page limit) is more actionable.
         const others = candidates.filter((c) => c.id !== input.printerId);
-        const blockedReason =
-          others.length === 0 ? TRIGGER_BLOCKED_REASON[input.trigger] : allocation.blockedReason;
-        await jobMachine.transition(
-          job.id,
-          PrintJobEvent.UNALLOCATE,
-          { id: null },
-          {
-            guard,
-            printerId: null,
-            blockedReason,
-            metadata: {
-              automatic: true,
-              trigger: input.trigger,
-              fromPrinterId: input.printerId,
-              blockedReason,
-            },
-          },
+        await unallocate(
+          others.length === 0 ? TRIGGER_BLOCKED_REASON[input.trigger] : allocation.blockedReason,
         );
-        result.outcomes.push({ jobId: job.id, action: "BLOCKED", blockedReason });
       }
     } catch (error) {
       if (
