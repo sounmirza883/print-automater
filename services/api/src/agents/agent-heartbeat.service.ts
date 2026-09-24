@@ -108,6 +108,11 @@ export class AgentHeartbeatService {
         },
       });
 
+      // Awaited inside the heartbeat request on purpose (the agent's next
+      // beat is 30s away and the moves are a handful of small transactions),
+      // but agentJobs.reevaluatePrinter contains every failure, so a slow or
+      // failing re-evaluation can delay but never fail the heartbeat
+      // (covered by failover-containment.e2e-spec.ts).
       // 19.4 trigger (c): the printer just BECAME unsuitable (a state
       // change, not every 30s beat that repeats ERROR). After commit; a no-op
       // unless the shop opted in.

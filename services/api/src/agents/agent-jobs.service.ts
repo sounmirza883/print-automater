@@ -110,15 +110,26 @@ export class AgentJobsService implements OnModuleDestroy {
     }
   }
 
-  /** 19.4 trigger (b): after a job reached PRINTED and accrued usage, a
+  /** SOFT CAP (documented, reviewer-confirmed): usage counts COMPLETED pages
+   * only, so jobs allocated together can overshoot the limit, and this trigger
+   * moves not-yet-claimed jobs away but does not undo overshoot on jobs that
+   * are already claimed/printing.
+   *
+   * 19.4 trigger (b): after a job reached PRINTED and accrued usage, a
    * limit-enabled printer may no longer fit its queued jobs. */
   async onUsageAccrued(printerId: string): Promise<void> {
-    const printer = await this.prisma.printer.findUnique({
-      where: { id: printerId },
-      select: { shopId: true, pageLimitEnabled: true, pageLimit: true },
-    });
-    if (printer?.pageLimitEnabled && printer.pageLimit !== null) {
-      await this.reevaluatePrinter(printer.shopId, printerId, "PAGE_LIMIT_REACHED");
+    // Contain EVERYTHING, including this lookup: the job and its usage have
+    // already committed, so no failure here may fail the caller's request.
+    try {
+      const printer = await this.prisma.printer.findUnique({
+        where: { id: printerId },
+        select: { shopId: true, pageLimitEnabled: true, pageLimit: true },
+      });
+      if (printer?.pageLimitEnabled && printer.pageLimit !== null) {
+        await this.reevaluatePrinter(printer.shopId, printerId, "PAGE_LIMIT_REACHED");
+      }
+    } catch (error) {
+      this.logger.error({ printerId, err: error }, "Post-accrual limit check failed.");
     }
   }
 
@@ -263,6 +274,7 @@ export class AgentJobsService implements OnModuleDestroy {
     } else {
       await this.selfHealToClaimed(job.id);
     }
+    let accruedPrinterId: string | undefined;
     try {
       // 18.16: the job write and the order sync are ONE transaction
       // inside the job machine -- a failed sync rolls the job back.
@@ -272,9 +284,7 @@ export class AgentJobsService implements OnModuleDestroy {
         { id: null },
         { osJobId: input.osJobId },
       );
-      if (applied.accruedPrinterId) {
-        await this.onUsageAccrued(applied.accruedPrinterId);
-      }
+      accruedPrinterId = applied.accruedPrinterId;
     } catch (err) {
       // Same self-healing reasoning as the order side: a replayed or
       // out-of-order-but-already-applied report finds the job already
@@ -285,6 +295,12 @@ export class AgentJobsService implements OnModuleDestroy {
       // Idempotent repair: the earlier report's own sync may have been
       // lost; re-deriving is a no-op when the order is already right.
       await this.syncOrderIgnoringIllegal(job.orderId);
+    }
+
+    // 19.4 trigger (b), strictly AFTER the commit and outside the try above
+    // (contained inside, so it can never turn a good report into an error).
+    if (accruedPrinterId) {
+      await this.onUsageAccrued(accruedPrinterId);
     }
 
     if (input.status === "PRINTED") {

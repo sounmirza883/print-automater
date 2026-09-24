@@ -13,7 +13,10 @@ export interface PrinterCandidateSet {
 /** 19.2/19.4. Builds allocation candidates for every printer in a shop from
  * live rows: queue load (QUEUED/CLAIMED/PRINTING, non-superseded, measured
  * with `jobPages()`) and, only when `pageLimitEnabled` AND `pageLimit` is
- * set, the remaining allowance from the current period's usage row. Lives in
+ * set, the remaining allowance from the current period's usage row. The limit is a
+ * SOFT cap: usage counts completed pages only, so jobs allocated together can
+ * overshoot it. Changing a printer's period mid-month (DAILY -> MONTHLY) uses
+ * a different period key, effectively resetting the allowance. Lives in
  * backend-shared so the worker's offline sweep (19.5) can reuse it. `now` is
  * passed in. Queued-but-unprinted pages are deliberately NOT subtracted from
  * the allowance: usage counts completed pages only (accrual is on PRINTED). */

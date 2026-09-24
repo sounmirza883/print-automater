@@ -195,7 +195,11 @@ export class PrintersService {
     }
   }
 
-  /** 19.2: usage for the CURRENT period (UTC), read live so the figure
+  /** Semantics (documented): the period is part of the usage key, so changing
+   * a printer's period DAILY -> MONTHLY mid-month addresses a different key and
+   * effectively resets its allowance (the old period's rows are not merged).
+   *
+   * 19.2: usage for the CURRENT period (UTC), read live so the figure
    * rolls over with no reset job. */
   private async toResponseWithUsage(printer: Printer): Promise<PrinterResponse> {
     const usage = await this.prisma.printerPageUsage.findUnique({
