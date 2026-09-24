@@ -335,3 +335,16 @@ describe("allocatePrinter page allowance (19.2)", () => {
     expect(result).toEqual({ outcome: "ALLOCATED", printerId: "a" });
   });
 });
+
+describe("allocatePrinter maxJobPages is per copy (19.7)", () => {
+  it("compares the per-copy pages, not the total across copies", () => {
+    const result = allocatePrinter(request({ pageCount: 20, pagesPerCopy: 5 }), [
+      candidate({ maxJobPages: 10 }),
+    ]);
+    expect(result.outcome).toBe("ALLOCATED");
+    const tooBig = allocatePrinter(request({ pageCount: 30, pagesPerCopy: 15 }), [
+      candidate({ maxJobPages: 10 }),
+    ]);
+    expect(tooBig.outcome).toBe("BLOCKED");
+  });
+});

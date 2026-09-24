@@ -235,6 +235,9 @@ importers:
       '@nestjs/core':
         specifier: ^11.0.1
         version: 11.2.4(@nestjs/common@11.2.4(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.2.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@print-automated/pricing':
+        specifier: workspace:*
+        version: link:../pricing
       '@print-automated/types':
         specifier: workspace:*
         version: link:../types

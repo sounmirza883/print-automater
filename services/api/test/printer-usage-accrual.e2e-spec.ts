@@ -1,4 +1,5 @@
 import { PrintJobEvent, PrintJobStateMachine, periodStart } from "@print-automated/backend-shared";
+import { OrderStatus } from "@prisma/client";
 import request from "supertest";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
 
@@ -143,5 +144,85 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
       where: { printerId_periodStart: { printerId: printer.id, periodStart: yesterday } },
     });
     expect(old.pagesUsed).toBe(999);
+  });
+
+  it("a 5-of-100-page range job accrues 5 x copies, not the whole document (19.7)", async () => {
+    const big = await createPhase19Fixture("usage-range", {
+      multiItemEnabled: true,
+      documentPages: 100,
+    });
+    try {
+      const m = big.app.get(PrintJobStateMachine);
+      const { printer } = await big.makePrinter("Range");
+      const cfg = {
+        pages: { mode: "range", from: 10, to: 14 },
+        copies: 3,
+        paperSize: "A4",
+        color: "BW",
+        sides: "SINGLE",
+        orientation: "PORTRAIT",
+      };
+      const { orderId, itemIds } = await big.makeOrder(1, 3, OrderStatus.QUEUED_FOR_PRINT, cfg);
+      const job = await big.prisma.printJob.create({
+        data: {
+          orderId,
+          shopId: big.shop.id,
+          orderItemId: itemIds[0]!,
+          printerId: printer.id,
+          status: "PRINTING",
+          idempotencyToken: `${itemIds[0]}:1`,
+        },
+      });
+      await m.transition(job.id, PrintJobEvent.PRINTED, { id: null });
+      const row = await big.prisma.printerPageUsage.findFirstOrThrow({
+        where: { printerId: printer.id },
+      });
+      expect(row.pagesUsed).toBe(15);
+    } finally {
+      await big.cleanup();
+    }
+  });
+
+  it("a legacy job with no order item uses the order's own configuration (19.7)", async () => {
+    const { printer } = await fx.makePrinter("Legacy");
+    const cfg = {
+      pages: { mode: "range", from: 1, to: 2 },
+      copies: 4,
+      paperSize: "A4",
+      color: "BW",
+      sides: "SINGLE",
+      orientation: "PORTRAIT",
+    };
+    const { orderId } = await fx.makeOrder(0, 1, OrderStatus.QUEUED_FOR_PRINT, cfg);
+    const job = await fx.prisma.printJob.create({
+      data: {
+        orderId,
+        shopId: fx.shop.id,
+        orderItemId: null,
+        printerId: printer.id,
+        status: "PRINTING",
+        idempotencyToken: `legacy:${orderId}`,
+      },
+    });
+    await machine.transition(job.id, PrintJobEvent.PRINTED, { id: null });
+    expect(await usage(printer.id)).toBe(8);
+  });
+
+  it("period rollover with an injected clock: the same printer accrues into a new row across a boundary (19.7)", async () => {
+    const { printer } = await fx.makePrinter("Clock");
+    const day1 = new Date("2031-03-10T23:59:59.000Z");
+    const day2 = new Date("2031-03-11T00:00:01.000Z");
+    const a = await seedJob(printer.id, "PRINTING", 1);
+    const b = await seedJob(printer.id, "PRINTING", 2);
+    await machine.transition(a, PrintJobEvent.PRINTED, { id: null }, { now: day1 });
+    await machine.transition(b, PrintJobEvent.PRINTED, { id: null }, { now: day2 });
+    const rows = await fx.prisma.printerPageUsage.findMany({
+      where: { printerId: printer.id },
+      orderBy: { periodStart: "asc" },
+    });
+    expect(rows.map((r) => [r.periodStart.toISOString(), r.pagesUsed])).toEqual([
+      ["2031-03-10T00:00:00.000Z", 5],
+      ["2031-03-11T00:00:00.000Z", 10],
+    ]);
   });
 });

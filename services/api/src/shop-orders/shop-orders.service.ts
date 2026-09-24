@@ -479,7 +479,8 @@ export class ShopOrdersService {
       // One measure everywhere (jobPages): pages x copies, so maxJobPages,
       // the page allowance, queue load and accrual agree.
       const pageCount = document?.pageCount ?? 1;
-      const pages = jobPages(pageCount, itemQuantity.get(draft.orderItemId));
+      const jp = jobPages(draft.printConfiguration, pageCount, itemQuantity.get(draft.orderItemId));
+      const pages = jp.total;
       const attempt = await tx.printJob.count({ where: { orderItemId: draft.orderItemId } });
       const idempotencyToken = `${draft.orderItemId}:${attempt + 1}`;
 
@@ -487,6 +488,7 @@ export class ShopOrdersService {
         {
           printConfiguration: draft.printConfiguration,
           pageCount: pages,
+          pagesPerCopy: jp.pagesPerCopy,
           allowUnknownCapabilities: requestedPrinterId !== undefined,
           requestedPrinterId,
         },

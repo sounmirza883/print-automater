@@ -169,10 +169,16 @@ export class PrintJobsService {
         document: { select: { pageCount: true } },
       },
     });
+    const jp = jobPages(
+      item.printConfiguration as unknown as PrintConfiguration,
+      item.document.pageCount,
+      item.quantity,
+    );
+    const pageFigures = { pageCount: jp.total, pagesPerCopy: jp.pagesPerCopy };
     const allocation = allocatePrinter(
       {
         printConfiguration: item.printConfiguration as unknown as PrintConfiguration,
-        pageCount: jobPages(item.document.pageCount, item.quantity),
+        ...pageFigures,
         allowUnknownCapabilities: true,
         requestedPrinterId: printerId,
       },

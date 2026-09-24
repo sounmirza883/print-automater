@@ -122,6 +122,7 @@ export async function createPhase19Fixture(
     items: number,
     quantity = 1,
     orderStatus: OrderStatus = OrderStatus.WAITING_FOR_SHOP,
+    config: Record<string, unknown> = CONFIG,
   ): Promise<{ orderId: string; itemIds: string[] }> {
     const order = await prisma.order.create({
       data: {
@@ -129,7 +130,7 @@ export async function createPhase19Fixture(
         customerId: customer.id,
         shopId: shop.id,
         documentId: document.id,
-        printConfiguration: CONFIG,
+        printConfiguration: config as object,
         pricingSnapshot: { quote: { totalMinor: 3000, currency: "PKR" } },
         orderStatus,
         paymentStatus: PaymentStatus.PAID,
@@ -142,7 +143,7 @@ export async function createPhase19Fixture(
         data: {
           orderId: order.id,
           documentId: document.id,
-          printConfiguration: CONFIG,
+          printConfiguration: config as object,
           quantity,
           itemType: OrderItemType.PRINT,
           required: true,

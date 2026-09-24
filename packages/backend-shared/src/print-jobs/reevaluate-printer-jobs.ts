@@ -5,7 +5,7 @@ import type { PrintConfiguration } from "@print-automated/types";
 import { AppException } from "../errors/app-exception.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
 import { allocatePrinter } from "./allocate-printer.js";
-import { jobPages } from "./job-pages.js";
+import { jobPages, type JobConfig } from "./job-pages.js";
 import { PrintJobEvent, type PrintJobStateMachine } from "./print-job-state-machine.js";
 import { buildPrinterCandidates } from "./printer-candidates.js";
 
@@ -103,7 +103,12 @@ export async function reevaluatePrinterJobs(
     if (!job.orderItem) {
       continue;
     }
-    const pages = jobPages(job.orderItem.document.pageCount, job.orderItem.quantity);
+    const jp = jobPages(
+      job.orderItem.printConfiguration as unknown as JobConfig,
+      job.orderItem.document.pageCount,
+      job.orderItem.quantity,
+    );
+    const pages = jp.total;
     const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
       prisma,
       input.shopId,
@@ -126,6 +131,7 @@ export async function reevaluatePrinterJobs(
       {
         printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
         pageCount: pages,
+        pagesPerCopy: jp.pagesPerCopy,
         allowUnknownCapabilities: false,
         excludePrinterIds: [input.printerId],
       },
@@ -149,6 +155,7 @@ export async function reevaluatePrinterJobs(
     const request = {
       printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
       pageCount: pages,
+      pagesPerCopy: jp.pagesPerCopy,
       allowUnknownCapabilities: false,
       excludePrinterIds: [input.printerId],
     };

@@ -5,7 +5,7 @@ import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
 import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js";
 import { periodStart } from "../printers/page-limit-period.js";
-import { jobPages } from "./job-pages.js";
+import { jobPages, type JobConfig } from "./job-pages.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -168,6 +168,9 @@ export interface JobTransitionContext {
    * order's status in the pre-18 code and syncing would move every
    * single-job order to ASSIGNED (breaking 18.10's equivalence gate). */
   syncOrder?: boolean;
+  /** Clock for the accrual period key (defaults to the real clock); lets
+   * tests cross a period boundary deterministically. */
+  now?: Date;
   /** 18.18, SUPERSEDE only: create the replacement job for the same order
    * item, on `printerId`, in the SAME transaction (orders row already
    * locked, so `attempt` and the `${orderItemId}:${attempt}` idempotency
@@ -277,6 +280,7 @@ export class PrintJobStateMachine {
     tx: Prisma.TransactionClient,
     jobId: string,
     printerId: string | null,
+    now: Date,
   ): Promise<boolean> {
     if (!printerId) {
       return false;
@@ -291,15 +295,24 @@ export class PrintJobStateMachine {
     const job = await tx.printJob.findUniqueOrThrow({
       where: { id: jobId },
       select: {
-        orderItem: { select: { quantity: true, document: { select: { pageCount: true } } } },
-        order: { select: { document: { select: { pageCount: true } } } },
+        orderItem: {
+          select: {
+            quantity: true,
+            printConfiguration: true,
+            document: { select: { pageCount: true } },
+          },
+        },
+        order: {
+          select: { printConfiguration: true, document: { select: { pageCount: true } } },
+        },
       },
     });
     const pages = jobPages(
+      (job.orderItem?.printConfiguration ?? job.order.printConfiguration) as unknown as JobConfig,
       job.orderItem?.document.pageCount ?? job.order.document.pageCount,
       job.orderItem?.quantity,
-    );
-    const start = periodStart(printer.pageLimitPeriod, new Date());
+    ).total;
+    const start = periodStart(printer.pageLimitPeriod, now);
     await tx.$executeRaw`
       INSERT INTO printer_page_usage (id, printer_id, period_start, pages_used, created_at, updated_at)
       VALUES (gen_random_uuid()::text, ${printerId}, ${start}, ${pages}, now(), now())
@@ -403,7 +416,10 @@ export class PrintJobStateMachine {
           });
 
           let accruedPrinterId: string | undefined;
-          if (nextStatus === "PRINTED" && (await this.accruePageUsage(tx, job.id, job.printerId))) {
+          if (
+            nextStatus === "PRINTED" &&
+            (await this.accruePageUsage(tx, job.id, job.printerId, ctx.now ?? new Date()))
+          ) {
             accruedPrinterId = job.printerId!;
           }
 

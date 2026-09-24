@@ -47,6 +47,9 @@ export interface AllocationRequest {
   /** Pages this specific job would consume (`jobPages()`: pages x copies)
    * -- checked against `maxJobPages` and the page allowance. */
   pageCount: number;
+  /** Resolved pages of ONE copy, for the `maxJobPages` check (largest
+   * document a printer can spool). Defaults to `pageCount`. */
+  pagesPerCopy?: number;
   /** false for the automatic path (15.2's own "guessing on the
    * customer/order's behalf" reasoning: an unprobed printer is
    * excluded, never assumed compatible); true for a staff-initiated
@@ -151,7 +154,10 @@ function blockedReasonFor(
   ) {
     return BlockedReason.NO_COMPATIBLE_PRINTER;
   }
-  if (candidate.maxJobPages !== null && request.pageCount > candidate.maxJobPages) {
+  if (
+    candidate.maxJobPages !== null &&
+    (request.pagesPerCopy ?? request.pageCount) > candidate.maxJobPages
+  ) {
     return BlockedReason.NO_COMPATIBLE_PRINTER;
   }
   // Manual assignment overrides automation (PRD 20): a human naming this
