@@ -1,32 +1,16 @@
+import { OrderStatus } from "@print-automated/types";
 import {
   fetchOrder,
   fetchOrders,
   formatMoney,
   getOrderProgress,
+  getOrderStatusNote,
   summarizeConfiguration,
 } from "./orders.js";
 
 describe("getOrderProgress", () => {
   it("maps every internal OrderStatus to a step position or a plain-language message -- never the raw status itself", () => {
-    const allStatuses = [
-      "DRAFT",
-      "UPLOADED",
-      "PAYMENT_PENDING",
-      "PAID",
-      "WAITING_FOR_SHOP",
-      "SHOP_ACCEPTED",
-      "QUEUED_FOR_PRINT",
-      "PRINTING",
-      "PRINTED",
-      "READY_FOR_COLLECTION",
-      "COMPLETED",
-      "PAYMENT_FAILED",
-      "SHOP_REJECTED",
-      "PRINT_FAILED",
-      "PRINT_STATUS_UNKNOWN",
-      "CANCELLED",
-      "EXPIRED",
-    ];
+    const allStatuses = Object.values(OrderStatus);
 
     for (const status of allStatuses) {
       const progress = getOrderProgress(status);
@@ -53,6 +37,25 @@ describe("getOrderProgress", () => {
   it("PAYMENT_PENDING is still awaiting payment confirmation, not already past it", () => {
     const progress = getOrderProgress("PAYMENT_PENDING");
     expect(progress).toEqual({ kind: "steps", doneCount: 1, currentIndex: 1 });
+  });
+
+  it("the four Phase 18 statuses map onto existing steps with a customer-facing note where the step alone is misleading", () => {
+    expect(getOrderProgress("PREPARING")).toEqual(getOrderProgress("QUEUED_FOR_PRINT"));
+    expect(getOrderProgress("ASSIGNED")).toEqual(getOrderProgress("QUEUED_FOR_PRINT"));
+    expect(getOrderProgress("PAUSED")).toEqual(getOrderProgress("PRINTING"));
+    expect(getOrderProgress("QUALITY_CHECK")).toEqual(getOrderProgress("PRINTED"));
+    expect(getOrderStatusNote("PAUSED")).toContain("paused");
+    expect(getOrderStatusNote("QUALITY_CHECK")).toContain("quality");
+  });
+
+  it("every OrderStatus is present in the progress and note tables", () => {
+    for (const status of Object.values(OrderStatus)) {
+      expect(getOrderProgress(status)).not.toEqual({
+        kind: "message",
+        text: "Order status unavailable.",
+      });
+      expect(getOrderStatusNote(status)).not.toBeUndefined();
+    }
   });
 
   it("a genuinely unknown status still produces a message, not a crash", () => {

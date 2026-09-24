@@ -6,6 +6,7 @@ import {
   fetchOrder,
   formatMoney,
   getOrderProgress,
+  getOrderStatusNote,
   summarizeConfiguration,
   type OrderListItem,
 } from "@/lib/orders";
@@ -65,6 +66,7 @@ export default function OrderDetailPage({
 
 function OrderDetail({ order }: { order: OrderListItem }): ReactNode {
   const progress = getOrderProgress(order.orderStatus);
+  const note = getOrderStatusNote(order.orderStatus);
 
   return (
     <>
@@ -92,6 +94,12 @@ function OrderDetail({ order }: { order: OrderListItem }): ReactNode {
       ) : (
         <p role="status" className="rounded-md border border-gray-300 p-4">
           {progress.text}
+        </p>
+      )}
+
+      {progress.kind === "steps" && note !== null && (
+        <p role="status" className="text-sm text-gray-600">
+          {note}
         </p>
       )}
 

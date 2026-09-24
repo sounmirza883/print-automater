@@ -6,6 +6,7 @@ import type { ShopOrderResponse, ShopRejectionReason } from "@print-automated/ap
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
 import { usePrinters } from "@/lib/use-printers";
+import { inFlightLabel, isInFlight } from "@/lib/order-status";
 import { useIsOffline } from "@/lib/use-is-offline";
 
 type LoadState =
@@ -20,26 +21,9 @@ const REJECTION_REASONS: { value: ShopRejectionReason; label: string }[] = [
   { value: "DOCUMENT_ISSUE", label: "Document issue" },
 ];
 
-// §37/9.14: a job is "in flight" (accepted, waiting for an agent to
-// pick it up, or actively printing) from SHOP_ACCEPTED through
-// PRINTING -- this screen polls only across that window, the same 5s
-// cadence 8.5's dashboard already established, so staff watching an
-// active print see it move to PRINTED without a manual refresh.
-const IN_FLIGHT_STATUSES = new Set(["SHOP_ACCEPTED", "QUEUED_FOR_PRINT", "PRINTING"]);
+// In-flight polling + labels live in lib/order-status.ts (exhaustive
+// over OrderStatus). Same 5s cadence 8.5's dashboard established.
 const PRINTING_POLL_MS = 5_000;
-
-// §37's own line: "page progress where the driver actually reports it
-// -- otherwise the literal text 'Printing…', never a fabricated
-// percentage." No page-by-page progress is reported to the backend
-// anywhere in this pipeline (9.12 only reports the final PRINTING/
-// PRINTED/FAILED/UNKNOWN verdict, not intermediate page counts) --
-// so every in-flight state honestly renders as plain-language waiting
-// text, never a number this screen has no real basis for.
-const IN_FLIGHT_LABELS: Record<string, string> = {
-  SHOP_ACCEPTED: "Preparing to print…",
-  QUEUED_FOR_PRINT: "Waiting for the printer…",
-  PRINTING: "Printing…",
-};
 
 /** §34's detail screen, §35's unmistakable payment banner, and §36's
  * accept/reject (plus 8.3's ready/complete, which have no separate
@@ -98,7 +82,7 @@ export default function OrderDetailScreen(): ReactNode {
   const orderStatus = state.phase === "ready" ? state.order.orderStatus : null;
 
   useEffect(() => {
-    if (isOffline || orderStatus === null || !IN_FLIGHT_STATUSES.has(orderStatus)) {
+    if (isOffline || orderStatus === null || !isInFlight(orderStatus)) {
       return;
     }
     const intervalId = setInterval(() => {
@@ -206,12 +190,12 @@ export default function OrderDetailScreen(): ReactNode {
         {paid && <Text style={styles.paymentBannerAmount}>✓ {formatOrderTotal(order)}</Text>}
       </View>
 
-      {IN_FLIGHT_STATUSES.has(order.orderStatus) && (
+      {isInFlight(order.orderStatus) && (
         <View style={styles.printingCard}>
           <View style={styles.printingRow}>
             <ActivityIndicator size="small" color={tokens.colors.primaryAction} />
             <Text style={styles.printingStatusText}>
-              {IN_FLIGHT_LABELS[order.orderStatus] ?? "Printing…"}
+              {inFlightLabel(order.orderStatus) ?? "Printing…"}
             </Text>
           </View>
           <Text style={styles.printingPrinterText}>

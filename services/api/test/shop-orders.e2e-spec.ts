@@ -192,6 +192,24 @@ describe("Shop orders API (8.2, e2e)", () => {
     expect(res.body.needsAttention[0].documentFilename).toBe("shop-orders-test.pdf");
   });
 
+  it("18.14: orders in PREPARING/ASSIGNED/PAUSED/QUALITY_CHECK are visible in the right group", async () => {
+    const preparing = await seedOrder(shopA.id, OrderStatus.PREPARING);
+    const assigned = await seedOrder(shopA.id, OrderStatus.ASSIGNED);
+    const paused = await seedOrder(shopA.id, OrderStatus.PAUSED);
+    const qc = await seedOrder(shopA.id, OrderStatus.QUALITY_CHECK);
+
+    const res = await request(app.getHttpServer())
+      .get(`/v1/shop/orders?shopId=${shopA.id}`)
+      .set("Authorization", `Bearer ${counterATokan}`);
+
+    expect(res.status).toBe(200);
+    const ids = (group: string) => res.body[group].map((o: { id: string }) => o.id);
+    expect(ids("printing")).toEqual(expect.arrayContaining([preparing, assigned]));
+    expect(ids("needsAttention")).toEqual(expect.arrayContaining([paused, qc]));
+    expect(ids("needsAttention")).not.toContain(preparing);
+    expect(ids("printing")).not.toContain(paused);
+  });
+
   it("shop B staff see shop B's own orders (the tenant boundary blocks cross-shop access, not same-shop access)", async () => {
     const shopBOrder = await seedOrder(shopB.id, OrderStatus.WAITING_FOR_SHOP);
 

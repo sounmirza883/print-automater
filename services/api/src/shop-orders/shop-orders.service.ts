@@ -118,11 +118,28 @@ export interface ShopOrdersGrouped {
  * terminal-without-success outcomes ("failed") since §79 permits
  * cancelling from WAITING_FOR_SHOP -- a shop can briefly see an order
  * as "needs attention" and then have it cancelled out from under it. */
-const GROUP_BY_STATUS: Partial<Record<OrderStatus, keyof ShopOrdersGrouped>> = {
+/** 18.14: TOTAL over OrderStatus, so adding a status is a compile error
+ * until someone decides whether the shop sees it. "hidden" = customer-/
+ * payment-side-only. The four 18.2 statuses are all visible: PREPARING
+ * and ASSIGNED are in-production ("printing"); PAUSED and QUALITY_CHECK
+ * each need a human to act, so they are "needsAttention". (Previously
+ * they were absent, which excluded them from the DB query and made such
+ * orders vanish from the shop's list.) */
+export const GROUP_BY_STATUS: Record<OrderStatus, keyof ShopOrdersGrouped | "hidden"> = {
+  [OrderStatus.DRAFT]: "hidden",
+  [OrderStatus.UPLOADED]: "hidden",
+  [OrderStatus.PAYMENT_PENDING]: "hidden",
+  [OrderStatus.PAID]: "hidden",
+  [OrderStatus.PAYMENT_FAILED]: "hidden",
+  [OrderStatus.EXPIRED]: "hidden",
   [OrderStatus.WAITING_FOR_SHOP]: "needsAttention",
   [OrderStatus.PRINT_STATUS_UNKNOWN]: "needsAttention",
+  [OrderStatus.PAUSED]: "needsAttention",
+  [OrderStatus.QUALITY_CHECK]: "needsAttention",
   [OrderStatus.SHOP_ACCEPTED]: "printing",
   [OrderStatus.QUEUED_FOR_PRINT]: "printing",
+  [OrderStatus.PREPARING]: "printing",
+  [OrderStatus.ASSIGNED]: "printing",
   [OrderStatus.PRINTING]: "printing",
   [OrderStatus.PRINTED]: "ready",
   [OrderStatus.READY_FOR_COLLECTION]: "ready",
@@ -132,7 +149,9 @@ const GROUP_BY_STATUS: Partial<Record<OrderStatus, keyof ShopOrdersGrouped>> = {
   [OrderStatus.CANCELLED]: "failed",
 };
 
-const SHOP_VISIBLE_STATUSES = Object.keys(GROUP_BY_STATUS) as OrderStatus[];
+export const SHOP_VISIBLE_STATUSES = (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter(
+  (status) => GROUP_BY_STATUS[status] !== "hidden",
+);
 
 @Injectable()
 export class ShopOrdersService {
@@ -205,7 +224,7 @@ export class ShopOrdersService {
     };
     for (const order of orders) {
       const group = GROUP_BY_STATUS[order.orderStatus];
-      if (group) {
+      if (group && group !== "hidden") {
         grouped[group].push(this.toResponse(order));
       }
     }

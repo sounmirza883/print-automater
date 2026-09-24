@@ -1,3 +1,5 @@
+import type { OrderStatus } from "@print-automated/types";
+
 export interface OrderListItem {
   id: string;
   publicOrderNumber: string;
@@ -71,42 +73,86 @@ export type OrderProgress =
  * bar can't represent (a failure, a cancellation). Nothing else in
  * customer-web ever needs to know the raw status string. */
 export function getOrderProgress(orderStatus: string): OrderProgress {
-  switch (orderStatus) {
-    case "DRAFT":
-    case "UPLOADED":
-    case "PAYMENT_PENDING":
-      return { kind: "steps", doneCount: 1, currentIndex: 1 };
-    case "PAID":
-    case "WAITING_FOR_SHOP":
-      return { kind: "steps", doneCount: 2, currentIndex: 2 };
-    case "SHOP_ACCEPTED":
-    case "QUEUED_FOR_PRINT":
-    case "PRINTING":
-      return { kind: "steps", doneCount: 3, currentIndex: 3 };
-    case "PRINTED":
-      return { kind: "steps", doneCount: 4, currentIndex: 4 };
-    case "READY_FOR_COLLECTION":
-      return { kind: "steps", doneCount: 5, currentIndex: 5 };
-    case "COMPLETED":
-      return { kind: "steps", doneCount: 6, currentIndex: null };
-    case "PAYMENT_FAILED":
-      return { kind: "message", text: "Payment could not be completed for this order." };
-    case "SHOP_REJECTED":
-      return { kind: "message", text: "The shop was unable to accept this order." };
-    case "PRINT_FAILED":
-      return {
-        kind: "message",
-        text: "There was a problem printing this order. The shop has been notified and will follow up with you.",
-      };
-    case "PRINT_STATUS_UNKNOWN":
-      return { kind: "message", text: "We're checking on the status of this order's printing." };
-    case "CANCELLED":
-      return { kind: "message", text: "This order was cancelled." };
-    case "EXPIRED":
-      return { kind: "message", text: "This order expired before payment was completed." };
-    default:
-      return { kind: "message", text: "Order status unavailable." };
+  if (!isOrderStatus(orderStatus)) {
+    // A status the server sent that this build has never heard of: still
+    // degrade to a message rather than crash the page.
+    return { kind: "message", text: "Order status unavailable." };
   }
+  return ORDER_PROGRESS_BY_STATUS[orderStatus];
+}
+
+function isOrderStatus(value: string): value is OrderStatus {
+  return Object.prototype.hasOwnProperty.call(ORDER_PROGRESS_BY_STATUS, value);
+}
+
+const step = (n: number): OrderProgress => ({ kind: "steps", doneCount: n, currentIndex: n });
+
+/** Total on purpose: `Record<OrderStatus, ...>` makes a new status a
+ * compile error here, not a blank tracker in production. */
+const ORDER_PROGRESS_BY_STATUS: Record<OrderStatus, OrderProgress> = {
+  DRAFT: step(1),
+  UPLOADED: step(1),
+  PAYMENT_PENDING: step(1),
+  PAID: step(2),
+  WAITING_FOR_SHOP: step(2),
+  SHOP_ACCEPTED: step(3),
+  QUEUED_FOR_PRINT: step(3),
+  // Phase 18 job-derived statuses share the existing shop-side
+  // step (the one SHOP_ACCEPTED/QUEUED_FOR_PRINT already use).
+  PREPARING: step(3),
+  ASSIGNED: step(3),
+  PRINTING: step(3),
+  // Paused shares the printing step; the wording is in
+  // getOrderStatusNote so the bar itself stays six steps.
+  PAUSED: step(3),
+  PRINTED: step(4),
+  // Printed but being quality-checked: same step as PRINTED.
+  QUALITY_CHECK: step(4),
+  READY_FOR_COLLECTION: step(5),
+  COMPLETED: { kind: "steps", doneCount: 6, currentIndex: null },
+  PAYMENT_FAILED: { kind: "message", text: "Payment could not be completed for this order." },
+  SHOP_REJECTED: { kind: "message", text: "The shop was unable to accept this order." },
+  PRINT_FAILED: {
+    kind: "message",
+    text: "There was a problem printing this order. The shop has been notified and will follow up with you.",
+  },
+  PRINT_STATUS_UNKNOWN: {
+    kind: "message",
+    text: "We're checking on the status of this order's printing.",
+  },
+  CANCELLED: { kind: "message", text: "This order was cancelled." },
+  EXPIRED: { kind: "message", text: "This order expired before payment was completed." },
+};
+
+/** Plain-language sentence for the statuses that share a step with a
+ * different meaning; null where the step name alone says it all.
+ * Total over `OrderStatus` for the same reason as the table above. */
+const ORDER_STATUS_NOTE: Record<OrderStatus, string | null> = {
+  DRAFT: null,
+  UPLOADED: null,
+  PAYMENT_PENDING: null,
+  PAID: null,
+  WAITING_FOR_SHOP: null,
+  SHOP_ACCEPTED: null,
+  QUEUED_FOR_PRINT: null,
+  PREPARING: "The shop is preparing your order.",
+  ASSIGNED: "The shop has lined your order up for a printer.",
+  PRINTING: null,
+  PAUSED: "Printing is paused for now. The shop will resume it shortly.",
+  PRINTED: null,
+  QUALITY_CHECK: "Printed. The shop is quality-checking your order.",
+  READY_FOR_COLLECTION: null,
+  COMPLETED: null,
+  PAYMENT_FAILED: null,
+  SHOP_REJECTED: null,
+  PRINT_FAILED: null,
+  PRINT_STATUS_UNKNOWN: null,
+  CANCELLED: null,
+  EXPIRED: null,
+};
+
+export function getOrderStatusNote(orderStatus: string): string | null {
+  return isOrderStatus(orderStatus) ? ORDER_STATUS_NOTE[orderStatus] : null;
 }
 
 const PAGE_LABELS: Record<string, string> = {
