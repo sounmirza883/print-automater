@@ -1,7 +1,11 @@
 import { PrinterStatus } from "@prisma/client";
 import { periodStart } from "@print-automated/backend-shared";
 import request from "supertest";
-import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import {
+  clearOfUtcMidnight,
+  createPhase19Fixture,
+  type Phase19Fixture as Fx,
+} from "./helpers/phase19-fixture.js";
 
 async function seedUsage(fx: Fx, printerId: string, pages: number): Promise<void> {
   await fx.prisma.printerPageUsage.create({
@@ -19,10 +23,11 @@ describe("Printer page limits in allocation (19.2, e2e)", () => {
   describe("multi-item shop, two printers", () => {
     let fx: Fx;
     beforeAll(async () => {
+      await clearOfUtcMidnight();
       fx = await createPhase19Fixture("pl-multi", { multiItemEnabled: true, documentPages: 5 });
     });
     afterAll(async () => {
-      await fx.cleanup();
+      await fx?.cleanup();
     });
 
     it("A at its limit with enforcement enabled: auto-dispatch picks B", async () => {
@@ -68,10 +73,11 @@ describe("Printer page limits in allocation (19.2, e2e)", () => {
   describe("only one printer", () => {
     let fx: Fx;
     beforeAll(async () => {
+      await clearOfUtcMidnight();
       fx = await createPhase19Fixture("pl-only", { multiItemEnabled: true });
     });
     afterAll(async () => {
-      await fx.cleanup();
+      await fx?.cleanup();
     });
 
     it("enabled: blocked with PAGE_LIMIT_REACHED; disabled via PATCH: A is chosen normally", async () => {
@@ -152,10 +158,11 @@ describe("Printer page limits in allocation (19.2, e2e)", () => {
   describe("single-item (legacy) shop", () => {
     let fx: Fx;
     beforeAll(async () => {
+      await clearOfUtcMidnight();
       fx = await createPhase19Fixture("pl-legacy", { multiItemEnabled: false });
     });
     afterAll(async () => {
-      await fx.cleanup();
+      await fx?.cleanup();
     });
     it("keeps NO_PRINTER_AVAILABLE but names the page limit in the message", async () => {
       const a = await fx.makePrinter("A", { pageLimit: 5, pageLimitEnabled: true });

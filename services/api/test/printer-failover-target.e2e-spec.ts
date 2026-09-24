@@ -5,9 +5,18 @@ import {
   reevaluatePrinterJobs,
 } from "@print-automated/backend-shared";
 import request from "supertest";
-import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
+import {
+  clearOfUtcMidnight,
+  createPhase19Fixture,
+  type Phase19Fixture as Fx,
+} from "./helpers/phase19-fixture.js";
 
-async function seedQueued(fx: Fx, printerId: string): Promise<{ jobId: string; itemId: string }> {
+async function seedQueued(
+  fx: Fx,
+  printerId: string,
+  status: "QUEUED" | "PRINTING" = "QUEUED",
+): Promise<{ jobId: string; itemId: string }> {
   const { orderId, itemIds } = await fx.makeOrder(1, 1, OrderStatus.QUEUED_FOR_PRINT);
   const job = await fx.prisma.printJob.create({
     data: {
@@ -15,7 +24,7 @@ async function seedQueued(fx: Fx, printerId: string): Promise<{ jobId: string; i
       shopId: fx.shop.id,
       orderItemId: itemIds[0]!,
       printerId,
-      status: "QUEUED",
+      status,
       idempotencyToken: `${itemIds[0]}:1`,
     },
   });
@@ -25,16 +34,21 @@ async function seedQueued(fx: Fx, printerId: string): Promise<{ jobId: string; i
 describe("Failover re-checks the TARGET printer under the lock (19.6, e2e)", () => {
   let fx: Fx;
   beforeAll(async () => {
+    await clearOfUtcMidnight();
     fx = await createPhase19Fixture("fo-target", {
       multiItemEnabled: true,
       autoFailoverEnabled: true,
     });
   });
   afterAll(async () => {
-    await fx.cleanup();
+    await fx?.cleanup();
   });
 
-  function run(printerId: string, afterCandidatesRead?: () => Promise<void>) {
+  function run(
+    printerId: string,
+    afterCandidatesRead?: () => Promise<void>,
+    trigger: "PRINTER_DISABLED" | "PAGE_LIMIT_REACHED" = "PRINTER_DISABLED",
+  ) {
     // A variable (not an object literal) so the hook is passed even before the
     // type knows about it.
     const deps = {
@@ -45,7 +59,7 @@ describe("Failover re-checks the TARGET printer under the lock (19.6, e2e)", () 
     return reevaluatePrinterJobs(deps, {
       shopId: fx.shop.id,
       printerId,
-      trigger: "PRINTER_DISABLED",
+      trigger,
     });
   }
 
@@ -168,5 +182,95 @@ describe("Failover re-checks the TARGET printer under the lock (19.6, e2e)", () 
         }
       }
     }
+  });
+
+  it("FORCED overlap: the accrual trigger fires inside the disable trigger's window; the outer run skips what the nested run already moved (one live job per item, usage 10)", async () => {
+    const a = await fx.makePrinter("O-A", { pageLimit: 10, pageLimitEnabled: true });
+    const b = await fx.makePrinter("O-B");
+    await fx.prisma.printer.updateMany({
+      where: { shopId: fx.shop.id, id: { notIn: [a.printer.id, b.printer.id] } },
+      data: { status: "DISABLED" },
+    });
+    const now = new Date();
+    await fx.prisma.printerPageUsage.create({
+      data: {
+        printerId: a.printer.id,
+        periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
+        pagesUsed: 5,
+      },
+    });
+    await fx.prisma.printer.update({ where: { id: a.printer.id }, data: { status: "DISABLED" } });
+    const printing = await seedQueued(fx, a.printer.id, "PRINTING");
+    const queued = [await seedQueued(fx, a.printer.id), await seedQueued(fx, a.printer.id)];
+
+    let fired = false;
+    const result = await run(a.printer.id, async () => {
+      if (fired) return;
+      fired = true;
+      // The agent's PRINTED report lands while the disable trigger holds its
+      // (now stale) list of A's queued jobs. Its own limit trigger runs to
+      // completion right here.
+      await fx.app
+        .get(AgentJobsService)
+        .reportStatus(printing.jobId, a.deviceId, { status: "PRINTED" });
+    });
+
+    expect(
+      (await fx.prisma.printJob.findUniqueOrThrow({ where: { id: printing.jobId } })).status,
+    ).toBe("PRINTED");
+    const usage = await fx.prisma.printerPageUsage.findFirstOrThrow({
+      where: { printerId: a.printer.id },
+    });
+    expect(usage.pagesUsed).toBe(10);
+    for (const q of queued) {
+      const live = await fx.prisma.printJob.findMany({
+        where: { orderItemId: q.itemId, supersededAt: null },
+      });
+      expect(live).toHaveLength(1);
+      expect(live[0]?.printerId).toBe(b.printer.id);
+      expect(live[0]?.status).toBe("QUEUED");
+    }
+    // PROOF the interleaving really happened: the nested limit trigger moved
+    // both jobs first, so the outer disable run found them already gone.
+    expect(result.outcomes.map((o) => o.action)).toEqual(["SKIPPED", "SKIPPED"]);
+  });
+
+  it("FORCED contention: each printer becomes disabled inside the OTHER's window; outcome consistent with the window", async () => {
+    const a = await fx.makePrinter("F-A");
+    const b = await fx.makePrinter("F-B");
+    await fx.prisma.printer.updateMany({
+      where: { shopId: fx.shop.id, id: { notIn: [a.printer.id, b.printer.id] } },
+      data: { status: "DISABLED" },
+    });
+    await fx.prisma.printer.update({ where: { id: a.printer.id }, data: { status: "DISABLED" } });
+    const onA = [await seedQueued(fx, a.printer.id), await seedQueued(fx, a.printer.id)];
+    const onB = [await seedQueued(fx, b.printer.id), await seedQueued(fx, b.printer.id)];
+
+    let fired = false;
+    const outerA = await run(a.printer.id, async () => {
+      if (fired) return;
+      fired = true;
+      // Inside A's window: B is disabled and B's own trigger runs to
+      // completion (it sees A already disabled, so B's jobs have nowhere to go).
+      await fx.prisma.printer.update({ where: { id: b.printer.id }, data: { status: "DISABLED" } });
+      await run(b.printer.id);
+    });
+
+    for (const s of [...onA, ...onB]) {
+      const live = await fx.prisma.printJob.findMany({
+        where: { orderItemId: s.itemId, supersededAt: null },
+        include: { printer: true },
+      });
+      expect(live).toHaveLength(1);
+      // Both printers are disabled, so NOTHING may be QUEUED anywhere: every
+      // job is parked WAITING with the reason the window produced.
+      expect(live[0]?.status).toBe("WAITING");
+      expect(live[0]?.printerId).toBeNull();
+      expect(live[0]?.blockedReason).toBe("PRINTER_DISABLED");
+    }
+    // A's first job targeted the (stale) B and was parked by the target
+    // re-check; none of A's jobs was MOVED.
+    expect(outerA.outcomes.every((o) => o.action === "BLOCKED")).toBe(true);
+    expect(outerA.outcomes).toHaveLength(2);
   });
 });

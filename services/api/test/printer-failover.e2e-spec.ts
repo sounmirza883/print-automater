@@ -2,7 +2,11 @@ import { OrderStatus } from "@prisma/client";
 import request from "supertest";
 import { AgentHeartbeatService } from "../src/agents/agent-heartbeat.service.js";
 import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
-import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import {
+  clearOfUtcMidnight,
+  createPhase19Fixture,
+  type Phase19Fixture as Fx,
+} from "./helpers/phase19-fixture.js";
 
 type JobStatus = "QUEUED" | "CLAIMED" | "PRINTING";
 
@@ -50,7 +54,7 @@ describe("Automatic printer failover (19.4, e2e)", () => {
       });
     });
     afterAll(async () => {
-      await fx.cleanup();
+      await fx?.cleanup();
     });
 
     it("disabling a printer moves both QUEUED jobs to the other printer: one live job per item, audited, new agent woken, old agent refused", async () => {
@@ -112,6 +116,7 @@ describe("Automatic printer failover (19.4, e2e)", () => {
   describe("claimed jobs and other triggers", () => {
     let fx: Fx;
     beforeAll(async () => {
+      await clearOfUtcMidnight();
       fx = await createPhase19Fixture("fo-trig", {
         multiItemEnabled: true,
         autoFailoverEnabled: true,
@@ -119,7 +124,7 @@ describe("Automatic printer failover (19.4, e2e)", () => {
       });
     });
     afterAll(async () => {
-      await fx.cleanup();
+      await fx?.cleanup();
     });
 
     it("a CLAIMED and a PRINTING job on the disabled printer are untouched; the QUEUED one moves", async () => {
@@ -185,8 +190,8 @@ describe("Automatic printer failover (19.4, e2e)", () => {
       expect(live[0]?.printerId).toBe(b.printer.id);
     });
 
-    it("two triggers at once (disable + accrual) never produce two live jobs for one item", async () => {
-      for (let round = 0; round < 3; round += 1) {
+    it("two triggers started together (disable + accrual): printing job PRINTED, usage 10, exactly one live job per queued item", async () => {
+      for (let round = 0; round < 6; round += 1) {
         const a = await fx.makePrinter(`A4-${round}`, { pageLimit: 10, pageLimitEnabled: true });
         const b = await fx.makePrinter(`B4-${round}`);
         const now = new Date();
@@ -209,13 +214,27 @@ describe("Automatic printer failover (19.4, e2e)", () => {
           "QUEUED",
           "QUEUED",
         ]);
-        const [res] = await Promise.all([
-          disable(fx, a.printer.id),
-          fx.app.get(AgentJobsService).reportStatus(printing!.jobId, a.deviceId, {
-            status: "PRINTED",
-          }),
-        ]);
-        expect(res.status).toBe(200);
+        // Thunks: supertest only sends on `.then`, so both are STARTED here,
+        // together, rather than one being eagerly finished first.
+        const starters = [
+          async () => await disable(fx, a.printer.id),
+          async () =>
+            await fx.app.get(AgentJobsService).reportStatus(printing!.jobId, a.deviceId, {
+              status: "PRINTED",
+            }),
+        ];
+        const [res] = await Promise.all(starters.map((start) => start()));
+        expect((res as { status: number }).status).toBe(200);
+        expect(
+          (await fx.prisma.printJob.findUniqueOrThrow({ where: { id: printing!.jobId } })).status,
+        ).toBe("PRINTED");
+        expect(
+          (
+            await fx.prisma.printerPageUsage.findFirstOrThrow({
+              where: { printerId: a.printer.id },
+            })
+          ).pagesUsed,
+        ).toBe(10);
         for (const q of [q1!, q2!]) {
           const live = await liveJobs(fx, q.itemId);
           expect(live).toHaveLength(1);
@@ -235,7 +254,7 @@ describe("Automatic printer failover (19.4, e2e)", () => {
       });
     });
     afterAll(async () => {
-      await fx.cleanup();
+      await fx?.cleanup();
     });
 
     it("nothing moves when a printer is disabled or reports ERROR", async () => {

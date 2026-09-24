@@ -34,7 +34,7 @@ describe("Failover containment and visibility (19.9, e2e)", () => {
   });
   afterAll(async () => {
     jest.restoreAllMocks();
-    await fx.cleanup();
+    await fx?.cleanup();
   });
 
   it("(a) a DB error in the post-accrual lookup cannot fail the agent's PRINTED report; job and usage stay committed", async () => {
@@ -45,12 +45,19 @@ describe("Failover containment and visibility (19.9, e2e)", () => {
       .spyOn(prisma.printer, "findUnique")
       .mockImplementation((() => Promise.reject(new Error("simulated db failure"))) as never);
     try {
-      // Only the lookup after commit is mocked to fail; run the report.
-      // The machine's own printer read (inside the transaction) uses tx, not
-      // this delegate, so it is unaffected.
+      // CONTROL: the spy really intercepts the delegate production uses; if
+      // Prisma handed out a fresh proxy per access this would resolve and the
+      // whole test would be vacuous.
+      await expect(prisma.printer.findUnique({ where: { id: a.printer.id } })).rejects.toThrow(
+        "simulated db failure",
+      );
+      spy.mockClear();
+
       await expect(
         fx.app.get(AgentJobsService).reportStatus(jobId, a.deviceId, { status: "PRINTED" }),
       ).resolves.toBeUndefined();
+      // The failure injection actually fired inside production code.
+      expect(spy).toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }
@@ -110,38 +117,69 @@ describe("Failover containment and visibility (19.9, e2e)", () => {
     expect(live[0]?.status).toBe("QUEUED");
   });
 
-  it("(c) a failing or slow re-evaluation cannot fail the heartbeat", async () => {
+  it("(c) a failing or slow re-evaluation cannot fail the heartbeat, and its effect on jobs/orders is what we expect", async () => {
     const a = await fx.makePrinter("H-A");
-    await seedJob(fx, a.printer.id, "QUEUED");
+    const b = await fx.makePrinter("H-B");
+    await fx.prisma.printer.updateMany({
+      where: { shopId: fx.shop.id, id: { notIn: [a.printer.id, b.printer.id] } },
+      data: { status: "DISABLED" },
+    });
+    const failingJob = await seedJob(fx, a.printer.id, "QUEUED");
     const prisma = fx.app.get(PrismaService);
     const heartbeat = fx.app.get(AgentHeartbeatService);
+    const beat = () =>
+      heartbeat.processHeartbeat(a.deviceId, fx.shop.id, {
+        printers: [{ name: "H-A", status: "ERROR" }],
+      });
 
+    // ---- failing re-evaluation
     const failing = jest
       .spyOn(prisma.shop, "findUnique")
       .mockImplementation((() => Promise.reject(new Error("simulated db failure"))) as never);
-    await expect(
-      heartbeat.processHeartbeat(a.deviceId, fx.shop.id, {
-        printers: [{ name: "H-A", status: "ERROR" }],
-      }),
-    ).resolves.toBeUndefined();
-    failing.mockRestore();
+    try {
+      // CONTROL: the spy intercepts the delegate.
+      await expect(prisma.shop.findUnique({ where: { id: fx.shop.id } })).rejects.toThrow(
+        "simulated db failure",
+      );
+      failing.mockClear();
+      await expect(beat()).resolves.toBeUndefined();
+      expect(failing).toHaveBeenCalled();
+    } finally {
+      failing.mockRestore();
+    }
+    // The heartbeat's own effect stands...
     expect(
       (await fx.prisma.printer.findUniqueOrThrow({ where: { id: a.printer.id } })).status,
     ).toBe("ERROR");
+    // ...and the failed failover left the job exactly where it was (nothing
+    // half-moved), still one live job.
+    const stayed = await fx.prisma.printJob.findMany({
+      where: { orderItemId: failingJob.itemId, supersededAt: null },
+    });
+    expect(stayed.map((j) => [j.id, j.status, j.printerId])).toEqual([
+      [failingJob.jobId, "QUEUED", a.printer.id],
+    ]);
 
-    // Slow: the heartbeat waits for it (bounded by the re-evaluation) but
-    // still succeeds.
+    // ---- slow re-evaluation: the beat waits, still succeeds, and the move happens.
     await fx.prisma.printer.update({ where: { id: a.printer.id }, data: { status: "ONLINE" } });
     const original = prisma.shop.findUnique.bind(prisma.shop);
     const slow = jest
       .spyOn(prisma.shop, "findUnique")
       .mockImplementation(((args: never) =>
         new Promise((resolve) => setTimeout(resolve, 300)).then(() => original(args))) as never);
-    await expect(
-      heartbeat.processHeartbeat(a.deviceId, fx.shop.id, {
-        printers: [{ name: "H-A", status: "ERROR" }],
-      }),
-    ).resolves.toBeUndefined();
-    slow.mockRestore();
+    const started = Date.now();
+    try {
+      await expect(beat()).resolves.toBeUndefined();
+      expect(slow).toHaveBeenCalled();
+    } finally {
+      slow.mockRestore();
+    }
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    const moved = await fx.prisma.printJob.findMany({
+      where: { orderItemId: failingJob.itemId, supersededAt: null },
+    });
+    expect(moved).toHaveLength(1);
+    expect(moved[0]?.printerId).toBe(b.printer.id);
+    expect(moved[0]?.status).toBe("QUEUED");
   });
 });

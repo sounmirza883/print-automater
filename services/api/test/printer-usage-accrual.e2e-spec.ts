@@ -1,19 +1,29 @@
-import { PrintJobEvent, PrintJobStateMachine, periodStart } from "@print-automated/backend-shared";
+import {
+  AppException,
+  PrintJobEvent,
+  PrintJobStateMachine,
+  periodStart,
+} from "@print-automated/backend-shared";
 import { OrderStatus } from "@prisma/client";
 import request from "supertest";
-import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import {
+  clearOfUtcMidnight,
+  createPhase19Fixture,
+  type Phase19Fixture as Fx,
+} from "./helpers/phase19-fixture.js";
 
 describe("Printer page usage accrual (19.3, e2e)", () => {
   let fx: Fx;
   let machine: PrintJobStateMachine;
 
   beforeAll(async () => {
+    await clearOfUtcMidnight();
     // 5-page document.
     fx = await createPhase19Fixture("usage", { multiItemEnabled: true, documentPages: 5 });
     machine = fx.app.get(PrintJobStateMachine);
   });
   afterAll(async () => {
-    await fx.cleanup();
+    await fx?.cleanup();
   });
 
   async function seedJob(
@@ -46,28 +56,53 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
     return row?.pagesUsed ?? 0;
   }
 
-  it("N jobs completing concurrently on one printer sum exactly (pages x copies)", async () => {
-    const { printer } = await fx.makePrinter("Concurrent");
-    const quantities = [1, 2, 3, 1, 2, 3, 1, 2];
-    const jobIds = await Promise.all(quantities.map((q) => seedJob(printer.id, "PRINTING", q)));
-    await Promise.all(
-      jobIds.map((id) => machine.transition(id, PrintJobEvent.PRINTED, { id: null })),
-    );
-    const expected = quantities.reduce((sum, q) => sum + 5 * q, 0);
-    expect(await usage(printer.id)).toBe(expected);
-    expect(await fx.prisma.printerPageUsage.count({ where: { printerId: printer.id } })).toBe(1);
+  it("N jobs completing concurrently on one printer sum exactly (pages x copies), over several rounds", async () => {
+    // NOTE: Promise.all cannot PROVE the transactions overlapped; it only makes
+    // overlap likely. Several rounds with fresh jobs raise the odds. The
+    // simultaneous-FIRST-report test below is the one that guards double
+    // accrual; this one guards the atomic increment (no lost updates).
+    for (let round = 0; round < 4; round += 1) {
+      const { printer } = await fx.makePrinter(`Concurrent-${round}`);
+      const quantities = [1, 2, 3, 1, 2, 3, 1, 2];
+      const jobIds = await Promise.all(quantities.map((q) => seedJob(printer.id, "PRINTING", q)));
+      await Promise.all(
+        jobIds.map((id) => machine.transition(id, PrintJobEvent.PRINTED, { id: null })),
+      );
+      const expected = quantities.reduce((sum, q) => sum + 5 * q, 0);
+      expect(await usage(printer.id)).toBe(expected);
+      expect(await fx.prisma.printerPageUsage.count({ where: { printerId: printer.id } })).toBe(1);
+    }
   });
 
-  it("a replayed PRINTED report does not double-count", async () => {
+  it("three SIMULTANEOUS first PRINTED reports on one job: exactly one wins, usage counted once, the losers are state-machine conflicts", async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const { printer } = await fx.makePrinter(`Simultaneous-${round}`);
+      const id = await seedJob(printer.id, "PRINTING", 2);
+      // Thunks started together: no report is awaited before the others start.
+      const attempts = [1, 2, 3].map(() =>
+        machine.transition(id, PrintJobEvent.PRINTED, { id: null }),
+      );
+      const settled = await Promise.allSettled(attempts);
+      const fulfilled = settled.filter((r) => r.status === "fulfilled");
+      const rejected = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(2);
+      for (const r of rejected) {
+        expect(r.reason).toBeInstanceOf(AppException);
+        expect((r.reason as AppException).errorCode).toBe("ILLEGAL_JOB_TRANSITION");
+      }
+      expect(await usage(printer.id)).toBe(10);
+    }
+  });
+
+  it("a replayed PRINTED after the first has committed is refused and does not count", async () => {
     const { printer } = await fx.makePrinter("Replay");
     const id = await seedJob(printer.id, "PRINTING", 2);
     await machine.transition(id, PrintJobEvent.PRINTED, { id: null });
-    // Two more replays, concurrently: both refused, neither counts.
-    const replays = await Promise.allSettled([
-      machine.transition(id, PrintJobEvent.PRINTED, { id: null }),
-      machine.transition(id, PrintJobEvent.PRINTED, { id: null }),
-    ]);
-    expect(replays.every((r) => r.status === "rejected")).toBe(true);
+    const replay = await machine
+      .transition(id, PrintJobEvent.PRINTED, { id: null })
+      .catch((error: unknown) => error);
+    expect((replay as AppException).errorCode).toBe("ILLEGAL_JOB_TRANSITION");
     expect(await usage(printer.id)).toBe(10);
   });
 
@@ -154,9 +189,11 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
     try {
       const m = big.app.get(PrintJobStateMachine);
       const { printer } = await big.makePrinter("Range");
+      // quantity (3) deliberately differs from configuration.copies (2): the
+      // item's quantity is what is printed, so 5 pages x 3 = 15 (not 10).
       const cfg = {
         pages: { mode: "range", from: 10, to: 14 },
-        copies: 3,
+        copies: 2,
         paperSize: "A4",
         color: "BW",
         sides: "SINGLE",
