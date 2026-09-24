@@ -7,6 +7,7 @@ import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js"
 import { periodStart } from "../printers/page-limit-period.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
+import { consumePaperForJob } from "../inventory/consume-paper.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -457,6 +458,11 @@ export class PrintJobStateMachine {
             (await this.accruePageUsage(tx, job.id, job.printerId, ctx.now ?? new Date()))
           ) {
             accruedPrinterId = job.printerId!;
+          }
+          // 20.4: paper consumption (a no-op unless the shop tracks inventory)
+          // in the SAME transaction, after the usage accrual, inside the locks.
+          if (nextStatus === "PRINTED") {
+            await consumePaperForJob(tx, { jobId: job.id, actorId: actor.id });
           }
 
           let successorJobId: string | undefined;

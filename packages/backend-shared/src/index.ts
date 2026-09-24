@@ -131,3 +131,9 @@ export {
   withPaperAvailability,
   type PaperNeed,
 } from "./inventory/paper-availability.js";
+export {
+  consumePaperForJob,
+  consumptionOrder,
+  INVENTORY_SHORTFALL_AUDIT_ACTION,
+  type PaperConsumptionResult,
+} from "./inventory/consume-paper.js";
