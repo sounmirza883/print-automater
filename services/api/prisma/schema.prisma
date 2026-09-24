@@ -57,6 +57,7 @@ model User {
   // 18.9: jobs this user (role OPERATOR) is manually or automatically
   // assigned to run.
   printJobsAsOperator PrintJob[]           @relation("PrintJobOperator")
+  inventoryMovements  InventoryMovement[]  @relation("InventoryMovementActor")
 
   @@map("users")
 }
@@ -144,6 +145,8 @@ model Shop {
   agentPairingCodes AgentPairingCode[]
   customers         Customer[]
   products          Product[]
+  inventoryItems    InventoryItem[]
+  inventoryMovements InventoryMovement[]
 
   @@map("shops")
 }
@@ -1012,4 +1015,78 @@ model PrinterPageUsage {
 
   @@unique([printerId, periodStart])
   @@map("printer_page_usage")
+}
+
+// 20.1/§27: the six movement kinds the PRD lists. The signed delta on the row is
+// authoritative; the type says why. Mirrored in packages/types.
+enum InventoryMovementType {
+  PURCHASE
+  ADJUSTMENT
+  CONSUMPTION
+  RETURN
+  TRANSFER
+  CORRECTION
+}
+
+// 20.1/§26: a shop's tracked stock line (paper stock today; any counted
+// consumable fits). Only rows with paper_size set take part in the paper
+// availability gate (20.3) and consumption (20.4). `quantity` is only ever
+// changed by the atomic stock function in backend-shared (never
+// read-modify-write) and is guarded by a CHECK >= 0 as a last line of
+// defence. Items are deactivated (`active=false`), never deleted, so movement
+// history keeps its subject. Supplier links are many-to-many (20.6), so there is
+// deliberately no supplier column here.
+model InventoryItem {
+  id            String   @id @default(uuid())
+  shopId        String   @map("shop_id")
+  name          String
+  sku           String?
+  paperSize     String?  @map("paper_size")
+  paperType     String?  @map("paper_type")
+  weightGsm     Int?     @map("weight_gsm")
+  quantity      Int      @default(0)
+  minQuantity   Int      @default(0) @map("min_quantity")
+  maxQuantity   Int?     @map("max_quantity")
+  location      String?
+  unitCostMinor Int?     @map("unit_cost_minor")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  shop      Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  movements InventoryMovement[]
+
+  @@unique([shopId, sku])
+  @@index([shopId])
+  @@index([shopId, paperSize])
+  @@map("inventory_items")
+}
+
+// 20.1/§27: append-only ledger (a DB trigger rejects UPDATE). Every row is
+// also mirrored into audit_logs by the writer, in the same transaction.
+// `idempotencyKey` (nullable, unique) makes a replayed job consumption or
+// purchase-order receipt physically unable to record twice.
+model InventoryMovement {
+  id              String                @id @default(uuid())
+  shopId          String                @map("shop_id")
+  inventoryItemId String                @map("inventory_item_id")
+  type            InventoryMovementType
+  quantityDelta   Int                   @map("quantity_delta")
+  quantityAfter   Int                   @map("quantity_after")
+  reason          String?
+  actorId         String?               @map("actor_id")
+  // No FK on purpose: a plain reference, so print-job housekeeping never has to
+  // UPDATE (and the append-only trigger never has to allow) ledger rows.
+  printJobId      String?               @map("print_job_id")
+  idempotencyKey  String?               @unique @map("idempotency_key")
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  shop  Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  item  InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  actor User?         @relation("InventoryMovementActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryItemId, createdAt])
+  @@index([shopId, createdAt])
+  @@index([printJobId])
+  @@map("inventory_movements")
 }
