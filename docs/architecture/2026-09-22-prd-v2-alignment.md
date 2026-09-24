@@ -271,3 +271,26 @@ Findings from execution that change what later phases must do. Sub-phase numbers
 ### Environment (as of this entry)
 
 A hung `jest test/print-timeout` process tree (sh 1364 -> pnpm 7988 -> cmd 16044 -> jest 1788, started 07:51 on 2026-09-24) is pegged at ~100% CPU and cannot be removed by the agents (the safety classifier denies the kill, correctly). It is a live worker on the shared Redis, so `services/worker` e2e suites hang until it is stopped and the stale `bull:*` backlog is cleared. Until then verify worker logic through the worker unit specs and API-level mirrors.
+
+### Phase 19 (19.1-19.4) outcome and decisions (updated 2026-09-24)
+
+Shipped as `8d9bb2c`..`e300a0b`; review fixes are numbered 19.6-19.9 (19.5, the worker sweeps, is deliberately deferred until the stuck worker e2e process is cleared).
+
+- **Page limits.** Per printer: `page_limit`, `page_limit_enabled` (default false: PRD 23's explicit toggle), `page_limit_period` (DAILY|WEEKLY|MONTHLY, UTC, ISO week from Monday). Usage lives in `printer_page_usage` keyed by (printer, period start), so rollover is implicit and needs no reset job. A printer is auto-ineligible when remaining allowance < the job's total pages; manual assignment ignores the limit (PRD 20).
+- **The limit is a SOFT cap.** Usage counts _completed_ pages only, so jobs allocated together can overshoot; failover trigger (b) moves not-yet-claimed jobs away after each accrual but does not undo overshoot on claimed/printing ones. Switching a printer's period DAILY -> MONTHLY mid-month effectively resets its allowance (different period keys).
+- **One page measure**, resolved page count x copies (`job-pages.ts`): allowance, queue-load and accrual use the total; `maxJobPages` ("maximum supported job size") compares the per-copy document pages, not pages x copies.
+- **Accrual is inside the job machine's own transaction** on the PRINTED transition (and staff `RESOLVE_PRINTED`), by atomic `INSERT .. ON CONFLICT DO UPDATE`, so it is counted exactly once and rolls back with the transition.
+- **Failover is opt-in**: `shops.auto_failover_enabled` (default false, DB-only until 22.1 folds it into `shop_settings`). New job event `UNALLOCATE` (QUEUED -> WAITING, clears the printer, records a blocked reason). The primitive `reevaluatePrinterJobs` lives in `packages/backend-shared` so the worker can call it; it only ever touches QUEUED jobs, never CLAIMED/PRINTING/PRINTED (an agent may already be printing).
+- **Testing lesson.** The agent wrote some tests alongside the code and never watched them fail. Mutation-testing the key guarantees (ignore the failover flag; ignore usage in the limit) showed they do catch it, but do this for any guarantee whose test was not seen failing.
+
+### Requirements added to 19.5 by the Phase 19 review
+
+- Call `reevaluatePrinterJobs` from the worker's offline sweep (a printer going OFFLINE), and **re-allocate WAITING jobs when a printer recovers**: nothing does today, so a job UNALLOCATEd by failover stays WAITING until staff act.
+- Everything already listed for 19.5 above (sweep-race tests, late agent reports routed to UNKNOWN, worker e2e verification) still applies.
+
+### Update, 2026-09-24 evening: the environment blocker resolved
+
+- The orphaned jest tree was removed by a machine restart (no agent or classifier could do it). **Every `services/worker` e2e suite now passes** (print-timeout 9, order-expiration, document-processing 1, send-email 3, document-retention 5, printer-offline-sweep 4), so the 18.16 and 18.27 worker e2e cases, previously "written but never run", are verified. The "hang" was environmental: a shared Redis with a 1,500+ job notification backlog and live workers, not a code fault.
+- **e2e now runs in its own Redis logical database (DB 9)** by default (commit `906f67c`; `services/*/jest.setup.cjs`), so dev workers and stale backlogs on DB 0 cannot interfere with tests or be drained by them. This removes the Redis half of Phase 25's "isolate the e2e infrastructure" item; **Postgres isolation (a separate test database) remains for Phase 25.**
+- The `notifications` backlog on DB 0 was drained by a peer session's dev worker (1,567 -> 0); ~7,100 stale completed-job keys remain there, harmless.
+- 19.5 is therefore no longer blocked: worker e2e can be run (direct jest under `timeout`, as in CONTEXT.md rule 6).
