@@ -1,13 +1,16 @@
 import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { PrintJobStatus, ShopStaffStatus, UserRole } from "@prisma/client";
+import { Prisma, PrintJobStatus, ShopStaffStatus, UserRole } from "@prisma/client";
+import type { PrintConfiguration } from "@print-automated/types";
 import {
+  allocatePrinter,
   AppException,
   AuditService,
-  OrderStateMachine,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
+  type PrinterCandidate,
 } from "@print-automated/backend-shared";
+import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { AuditAction } from "../audit/audit-action.js";
 
 export interface PrintJobResponse {
@@ -31,7 +34,7 @@ export class PrintJobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jobStateMachine: PrintJobStateMachine,
-    private readonly orderStateMachine: OrderStateMachine,
+    private readonly agentJobsService: AgentJobsService,
     private readonly audit: AuditService,
   ) {}
 
@@ -70,46 +73,42 @@ export class PrintJobsService {
       );
     }
 
-    const newPrinter = await this.prisma.printer.findFirst({
-      where: { id: newPrinterId, shopId: job.shopId },
-    });
-    if (!newPrinter) {
-      throw new AppException(
-        HttpStatus.CONFLICT,
-        "PRINTER_NOT_AVAILABLE",
-        "That printer is not available for this shop.",
-        true,
+    const deviceId = await this.validateTargetPrinter(job.shopId, job.orderItemId, newPrinterId);
+
+    // 18.18: supersede + successor creation + order sync are ONE
+    // transaction inside the job machine, under the orders-row lock it
+    // takes first. A second concurrent reassign of the same job blocks
+    // on that lock, then finds the job already REASSIGNED and gets a
+    // clean 409 ILLEGAL_JOB_TRANSITION; a unique-violation on the
+    // idempotency token (P2002) is mapped to a 409 as well, never a 500.
+    let replacementId: string;
+    try {
+      const result = await this.jobStateMachine.transition(
+        jobId,
+        PrintJobEvent.SUPERSEDE,
+        { id: actorId },
+        { metadata: { reason, newPrinterId }, successor: { printerId: newPrinterId } },
       );
+      replacementId = result.successorJobId!;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "REASSIGN_CONFLICT",
+          "This job was reassigned concurrently; refresh and try again.",
+          true,
+        );
+      }
+      throw error;
     }
 
-    await this.jobStateMachine.transition(
-      jobId,
-      PrintJobEvent.SUPERSEDE,
-      { id: actorId },
-      { metadata: { reason, newPrinterId }, syncOrder: false },
-    );
+    // Only after commit: wake the new device's long-poll.
+    await this.agentJobsService.notify(deviceId);
 
-    const attempt = await this.prisma.printJob.count({ where: { orderItemId: job.orderItemId } });
-    const replacement = await this.prisma.printJob.create({
-      data: {
-        orderId: job.orderId,
-        shopId: job.shopId,
-        orderItemId: job.orderItemId,
-        printerId: newPrinterId,
-        attempt: attempt + 1,
-        idempotencyToken: `${job.orderItemId}:${attempt + 1}`,
-        status: PrintJobStatus.QUEUED,
-      },
+    const replacement = await this.prisma.printJob.findUniqueOrThrow({
+      where: { id: replacementId },
       include: { printer: { select: { name: true } } },
     });
-
-    try {
-      await this.orderStateMachine.syncFromJobs(job.orderId, { id: actorId });
-    } catch (error) {
-      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
-        throw error;
-      }
-    }
 
     // 18.7's own Done-when: who (actorId), when (createdAt, implicit in
     // every audit row), previous printer, new printer, reason -- all
@@ -129,6 +128,78 @@ export class PrintJobsService {
     });
 
     return this.toResponse(replacement);
+  }
+
+  /** 18.18: the manual reassign target must be usable NOW, not merely
+   * exist in the shop: not DISABLED, an attached agent (otherwise the job
+   * would sit until the print timeout), and capability-compatible with
+   * the item unless its capabilities were never probed (manual semantics,
+   * `allowUnknownCapabilities: true`). Returns the agent's deviceId. */
+  private async validateTargetPrinter(
+    shopId: string,
+    orderItemId: string,
+    printerId: string,
+  ): Promise<string> {
+    const printer = await this.prisma.printer.findFirst({
+      where: { id: printerId, shopId },
+      include: { agent: { select: { deviceId: true } } },
+    });
+    if (!printer) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PRINTER_NOT_AVAILABLE",
+        "That printer is not available for this shop.",
+        true,
+      );
+    }
+    if (!printer.agent) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PRINTER_HAS_NO_AGENT",
+        "That printer has no print agent attached, so it cannot receive jobs.",
+        true,
+      );
+    }
+    const item = await this.prisma.orderItem.findUniqueOrThrow({
+      where: { id: orderItemId },
+      select: { printConfiguration: true, document: { select: { pageCount: true } } },
+    });
+    const allocation = allocatePrinter(
+      {
+        printConfiguration: item.printConfiguration as unknown as PrintConfiguration,
+        pageCount: item.document.pageCount ?? 1,
+        allowUnknownCapabilities: true,
+        requestedPrinterId: printerId,
+      },
+      [
+        {
+          id: printer.id,
+          status: printer.status,
+          hasAgent: true,
+          capabilities: printer.capabilities as PrinterCandidate["capabilities"],
+          supportedSizes: printer.supportedSizes,
+          supportedPaperTypes: printer.supportedPaperTypes,
+          maxJobPages: printer.maxJobPages,
+          queuedPages: 0,
+          queuedJobs: 0,
+          registeredAt: printer.createdAt.getTime(),
+        },
+      ],
+    );
+    if (allocation.outcome === "BLOCKED") {
+      const unavailable =
+        allocation.blockedReason === "PRINTER_DISABLED" ||
+        allocation.blockedReason === "PRINTER_OFFLINE";
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        unavailable ? "PRINTER_NOT_AVAILABLE" : "PRINTER_CAPABILITY_MISMATCH",
+        unavailable
+          ? "That printer is not available for this shop."
+          : "That printer cannot fulfil this job's configuration.",
+        unavailable,
+      );
+    }
+    return printer.agent.deviceId;
   }
 
   /** §21/18.9: manual assignment of a job to a specific OPERATOR user,

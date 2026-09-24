@@ -154,12 +154,21 @@ export interface JobTransitionContext {
    * order's status in the pre-18 code and syncing would move every
    * single-job order to ASSIGNED (breaking 18.10's equivalence gate). */
   syncOrder?: boolean;
+  /** 18.18, SUPERSEDE only: create the replacement job for the same order
+   * item, on `printerId`, in the SAME transaction (orders row already
+   * locked, so `attempt` and the `${orderItemId}:${attempt}` idempotency
+   * token cannot collide with a concurrent reassign) -- then the order is
+   * synced with the replacement already present. Without this a crash
+   * between "supersede" and "create" strands the item with no live job. */
+  successor?: { printerId: string };
 }
 
 export interface JobTransitionResult {
   jobId: string;
   orderId: string;
   status: PrintJobStatus;
+  /** 18.18: set when `ctx.successor` created a replacement job. */
+  successorJobId?: string;
   /** 18.16: true only when the order was NOT synced inside this
    * transaction (`ctx.syncOrder === false`, or the order was already
    * closed -- ILLEGAL_ORDER_TRANSITION -- so there is nothing to
@@ -326,6 +335,44 @@ export class PrintJobStateMachine {
             },
           });
 
+          let successorJobId: string | undefined;
+          if (ctx.successor) {
+            if (nextStatus !== "REASSIGNED") {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "SUCCESSOR_NOT_ALLOWED",
+                "A successor job can only be created by SUPERSEDE.",
+                false,
+              );
+            }
+            const original = await tx.printJob.findUniqueOrThrow({
+              where: { id: job.id },
+              select: { shopId: true, orderItemId: true },
+            });
+            if (!original.orderItemId) {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "JOB_NOT_REASSIGNABLE",
+                "This job has no order item to re-dispatch against.",
+                false,
+              );
+            }
+            const attempt =
+              (await tx.printJob.count({ where: { orderItemId: original.orderItemId } })) + 1;
+            const created = await tx.printJob.create({
+              data: {
+                orderId: job.orderId,
+                shopId: original.shopId,
+                orderItemId: original.orderItemId,
+                printerId: ctx.successor.printerId,
+                attempt,
+                idempotencyToken: `${original.orderItemId}:${attempt}`,
+                status: "QUEUED",
+              },
+            });
+            successorJobId = created.id;
+          }
+
           await tx.auditLog.create({
             data: {
               actorId: actor.id,
@@ -345,6 +392,7 @@ export class PrintJobStateMachine {
             jobId: job.id,
             orderId: job.orderId,
             status: nextStatus,
+            successorJobId,
             requiresSync: true,
           });
         }

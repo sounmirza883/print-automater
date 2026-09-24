@@ -13,9 +13,10 @@ import {
   ShopStatus,
   UserRole,
 } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import { OrderStateMachine, PrismaService } from "@print-automated/backend-shared";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
+import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
 import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
@@ -286,6 +287,169 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
       newPrinterId: printerB.id,
       reason: "Printer A is jammed",
     });
+  });
+
+  it("18.18: a concurrent double reassign of the same job yields one success, one clean 409, and exactly one live replacement", async () => {
+    const { jobId, orderId, orderItemId } = await seedQueuedOrderWithJob();
+
+    const responses = await Promise.all(
+      [0, 1].map(() =>
+        request(app.getHttpServer())
+          .post(`/v1/print-jobs/${jobId}/reassign`)
+          .set("Authorization", `Bearer ${managerToken}`)
+          .send({ printerId: printerB.id, reason: "race" }),
+      ),
+    );
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+    const loser = responses.find((r) => r.status === 409)!;
+    expect(loser.body.error_code).toBeDefined();
+    expect(loser.status).not.toBe(500);
+
+    const jobs = await prisma.printJob.findMany({ where: { orderItemId } });
+    const live = jobs.filter((j) => j.supersededAt === null);
+    expect(live).toHaveLength(1);
+    expect(live[0]!.status).toBe("QUEUED");
+    expect(live[0]!.printerId).toBe(printerB.id);
+    expect(live[0]!.attempt).toBe(2);
+    expect(jobs).toHaveLength(2);
+    expect((await prisma.printJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe(
+      "REASSIGNED",
+    );
+    // The order still derives from a real, live job -- never stranded.
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).orderStatus).toBe(
+      OrderStatus.QUEUED_FOR_PRINT,
+    );
+  });
+
+  async function makeTarget(overrides: {
+    agent: boolean;
+    status: PrinterStatus;
+    capabilities?: object;
+  }): Promise<string> {
+    let agentId: string | null = null;
+    if (overrides.agent) {
+      const agent = await prisma.printerAgent.create({
+        data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+      });
+      printerAgentIds.push(agent.id);
+      agentId = agent.id;
+    }
+    const printer = await prisma.printer.create({
+      data: {
+        shopId: shop.id,
+        agentId,
+        name: `Print Jobs Target ${randomUUID()}`,
+        status: overrides.status,
+        capabilities: overrides.capabilities ?? {
+          color: false,
+          duplex: false,
+          a4: true,
+          a3: false,
+        },
+      },
+    });
+    printerIds.push(printer.id);
+    return printer.id;
+  }
+
+  async function expectRejectedAndUntouched(
+    jobId: string,
+    orderItemId: string,
+    targetPrinterId: string,
+    errorCode: string,
+  ): Promise<void> {
+    const res = await request(app.getHttpServer())
+      .post(`/v1/print-jobs/${jobId}/reassign`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({ printerId: targetPrinterId, reason: "invalid target" });
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe(errorCode);
+    const jobs = await prisma.printJob.findMany({ where: { orderItemId } });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.status).toBe("QUEUED");
+    expect(jobs[0]!.supersededAt).toBeNull();
+  }
+
+  it("18.18: a DISABLED target printer is rejected and the job is untouched", async () => {
+    const { jobId, orderItemId } = await seedQueuedOrderWithJob();
+    const target = await makeTarget({ agent: true, status: PrinterStatus.DISABLED });
+    await expectRejectedAndUntouched(jobId, orderItemId, target, "PRINTER_NOT_AVAILABLE");
+  });
+
+  it("18.18: a target printer with no attached agent is rejected and the job is untouched", async () => {
+    const { jobId, orderItemId } = await seedQueuedOrderWithJob();
+    const target = await makeTarget({ agent: false, status: PrinterStatus.ONLINE });
+    await expectRejectedAndUntouched(jobId, orderItemId, target, "PRINTER_HAS_NO_AGENT");
+  });
+
+  it("18.18: a capability-incompatible target printer is rejected and the job is untouched", async () => {
+    const { jobId, orderItemId } = await seedQueuedOrderWithJob();
+    const target = await makeTarget({
+      agent: true,
+      status: PrinterStatus.ONLINE,
+      capabilities: { color: false, duplex: false, a4: false, a3: true },
+    });
+    await expectRejectedAndUntouched(jobId, orderItemId, target, "PRINTER_CAPABILITY_MISMATCH");
+  });
+
+  it("18.18: a successful reassign wakes the NEW device's long-poll (notify after commit)", async () => {
+    const { jobId } = await seedQueuedOrderWithJob();
+    const agentB = await prisma.printerAgent.findFirstOrThrow({
+      where: { printers: { some: { id: printerB.id } } },
+    });
+    const notifySpy = jest.spyOn(AgentJobsService.prototype, "notify");
+    try {
+      await request(app.getHttpServer())
+        .post(`/v1/print-jobs/${jobId}/reassign`)
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ printerId: printerB.id, reason: "wake" })
+        .expect(200);
+      expect(notifySpy).toHaveBeenCalledWith(agentB.deviceId);
+    } finally {
+      notifySpy.mockRestore();
+    }
+  });
+
+  it("18.18: reassign is atomic -- a failure after the supersede rolls back the supersede AND the successor, so the item is never stranded", async () => {
+    const { jobId, orderId, orderItemId } = await seedQueuedOrderWithJob();
+    const original = (
+      OrderStateMachine.prototype as unknown as {
+        applyLocked: (...args: unknown[]) => Promise<unknown>;
+      }
+    ).applyLocked;
+    let armed = true;
+    const spy = jest
+      .spyOn(OrderStateMachine.prototype as never, "applyLocked" as never)
+      .mockImplementation(function (this: unknown, ...args: unknown[]) {
+        if (armed && args[1] === orderId && args[2] === "SYNC_JOBS") {
+          armed = false;
+          return Promise.reject(new Error("transient sync failure"));
+        }
+        return original.apply(this, args);
+      } as never);
+    try {
+      const failed = await request(app.getHttpServer())
+        .post(`/v1/print-jobs/${jobId}/reassign`)
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ printerId: printerB.id, reason: "atomic" });
+      expect(failed.status).toBeGreaterThanOrEqual(500);
+
+      const jobs = await prisma.printJob.findMany({ where: { orderItemId } });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.id).toBe(jobId);
+      expect(jobs[0]!.status).toBe("QUEUED");
+      expect(jobs[0]!.supersededAt).toBeNull();
+
+      await request(app.getHttpServer())
+        .post(`/v1/print-jobs/${jobId}/reassign`)
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ printerId: printerB.id, reason: "atomic retry" })
+        .expect(200);
+      const after = await prisma.printJob.findMany({ where: { orderItemId } });
+      expect(after.filter((j) => j.supersededAt === null)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("SHOP_COUNTER (no ASSIGN_JOBS permission) is refused", async () => {
