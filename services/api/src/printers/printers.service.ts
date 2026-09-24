@@ -13,6 +13,7 @@ import {
   periodStart,
   PrismaService,
 } from "@print-automated/backend-shared";
+import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import type { RegisterPrinterInput, UpdatePrinterInput } from "@print-automated/validation";
@@ -50,6 +51,7 @@ export class PrintersService {
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
     private readonly audit: AuditService,
+    private readonly agentJobs: AgentJobsService,
   ) {}
 
   /** §82: `shopId` arrives in the query string (list) or request body
@@ -141,6 +143,12 @@ export class PrintersService {
         to: input,
       },
     });
+
+    // 19.4 trigger (a): staff just disabled it. After commit + audit; a
+    // no-op unless the shop opted in to automatic handoff.
+    if (updated.status === PrinterStatus.DISABLED && existing.status !== PrinterStatus.DISABLED) {
+      await this.agentJobs.reevaluatePrinter(updated.shopId, updated.id, "PRINTER_DISABLED");
+    }
 
     return this.toResponseWithUsage(updated);
   }

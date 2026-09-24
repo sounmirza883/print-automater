@@ -43,6 +43,10 @@ export const PrintJobEvent = {
   // as its own event so the audit row (PRINT_JOB_RESOLVE_RETRY) carries the
   // actor and resolution like the other two resolutions.
   RESOLVE_RETRY: "RESOLVE_RETRY",
+  // QUEUED -> WAITING (19.4): automatic handoff found no other suitable
+  // printer; clears printerId and records why (blockedReason). Never legal
+  // from CLAIMED/PRINTING: an agent may already be printing it.
+  UNALLOCATE: "UNALLOCATE",
   // QUEUED|CLAIMED|WAITING -> PAUSED, PAUSED -> WAITING (21.1):
   // resuming re-enters the allocation queue rather than assuming the
   // same printer/claim state still applies.
@@ -93,6 +97,7 @@ const JOB_TRANSITIONS: Record<PrintJobStatus, Partial<Record<PrintJobEvent, Prin
     [PrintJobEvent.FAIL]: "FAILED",
     [PrintJobEvent.LOSE]: "UNKNOWN",
     [PrintJobEvent.TIMEOUT]: "TIMEOUT",
+    [PrintJobEvent.UNALLOCATE]: "WAITING",
     [PrintJobEvent.PAUSE]: "PAUSED",
     [PrintJobEvent.CANCEL]: "CANCELLED",
     [PrintJobEvent.SUPERSEDE]: "REASSIGNED",
@@ -143,8 +148,9 @@ export interface LockedPrintJobRow {
 
 export interface JobTransitionContext {
   metadata?: Record<string, unknown>;
-  /** ALLOCATE only: the printer this job is being assigned to. */
-  printerId?: string;
+  /** ALLOCATE: the printer this job is being assigned to. UNALLOCATE: null
+   * clears it. */
+  printerId?: string | null;
   /** BLOCK only: why allocation failed (packages/types' BlockedReason). */
   blockedReason?: string;
   /** Agent status reports carry the OS-level job id (9.11). */
@@ -182,6 +188,9 @@ export interface JobTransitionResult {
   status: PrintJobStatus;
   /** 18.18: set when `ctx.successor` created a replacement job. */
   successorJobId?: string;
+  /** 19.3: set when this transition accrued page usage (job reached PRINTED),
+   * so the caller can run post-commit follow-ups (19.4 limit re-evaluation). */
+  accruedPrinterId?: string;
   /** 18.16: true only when the order was NOT synced inside this
    * transaction (`ctx.syncOrder === false`, or the order was already
    * closed -- ILLEGAL_ORDER_TRANSITION -- so there is nothing to
@@ -268,16 +277,16 @@ export class PrintJobStateMachine {
     tx: Prisma.TransactionClient,
     jobId: string,
     printerId: string | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!printerId) {
-      return;
+      return false;
     }
     const printer = await tx.printer.findUnique({
       where: { id: printerId },
       select: { pageLimitPeriod: true },
     });
     if (!printer) {
-      return;
+      return false;
     }
     const job = await tx.printJob.findUniqueOrThrow({
       where: { id: jobId },
@@ -298,6 +307,7 @@ export class PrintJobStateMachine {
       DO UPDATE SET pages_used = printer_page_usage.pages_used + EXCLUDED.pages_used,
                     updated_at = now()
     `;
+    return true;
   }
 
   private async applyTransaction(
@@ -392,8 +402,9 @@ export class PrintJobStateMachine {
             },
           });
 
-          if (nextStatus === "PRINTED") {
-            await this.accruePageUsage(tx, job.id, job.printerId);
+          let accruedPrinterId: string | undefined;
+          if (nextStatus === "PRINTED" && (await this.accruePageUsage(tx, job.id, job.printerId))) {
+            accruedPrinterId = job.printerId!;
           }
 
           let successorJobId: string | undefined;
@@ -454,6 +465,7 @@ export class PrintJobStateMachine {
             orderId: job.orderId,
             status: nextStatus,
             successorJobId,
+            accruedPrinterId,
             requiresSync: true,
           });
         }

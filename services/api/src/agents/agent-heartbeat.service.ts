@@ -2,12 +2,16 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Prisma, PrinterStatus } from "@prisma/client";
 import type { HeartbeatInput } from "@print-automated/validation";
 import { PrismaService } from "@print-automated/backend-shared";
+import { AgentJobsService } from "./agent-jobs.service.js";
 
 @Injectable()
 export class AgentHeartbeatService {
   private readonly logger = new Logger(AgentHeartbeatService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly agentJobs: AgentJobsService,
+  ) {}
 
   /** §41/9.4. Printers are matched to this shop's existing rows by
    * name -- 9.6's real WMI-based discovery doesn't exist yet, and
@@ -103,6 +107,13 @@ export class AgentHeartbeatService {
           connectionType: reported.portName ?? existing.connectionType,
         },
       });
+
+      // 19.4 trigger (c): the printer just BECAME unsuitable (a state
+      // change, not every 30s beat that repeats ERROR). After commit; a no-op
+      // unless the shop opted in.
+      if (reported.status === PrinterStatus.ERROR && existing.status !== PrinterStatus.ERROR) {
+        await this.agentJobs.reevaluatePrinter(shopId, existing.id, "PRINTER_ERROR");
+      }
     }
   }
 }

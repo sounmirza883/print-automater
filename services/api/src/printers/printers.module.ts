@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
+import { AgentsModule } from "../agents/agents.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { PrinterShopResolver } from "./printer-shop.resolver.js";
 import { PrintersController } from "./printers.controller.js";
 import { PrintersService } from "./printers.service.js";
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, AgentsModule],
   controllers: [PrintersController],
   providers: [PrintersService, PrinterShopResolver],
 })

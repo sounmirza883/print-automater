@@ -10,7 +10,9 @@ import {
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
+  reevaluatePrinterJobs,
   REDIS_CLIENT,
+  type FailoverTrigger,
 } from "@print-automated/backend-shared";
 
 export interface PrintJobSummary {
@@ -81,6 +83,43 @@ export class AgentJobsService implements OnModuleDestroy {
   async notify(deviceId: string): Promise<void> {
     const key = signalKey(deviceId);
     await this.redis.multi().lpush(key, "1").ltrim(key, 0, 49).expire(key, 3600).exec();
+  }
+
+  /** 19.4: a printer became unsuitable. Delegates to the shared
+   * re-evaluation primitive (no-op unless the shop opted in), then wakes the
+   * receiving agents AFTER every move has committed. Never throws into the
+   * caller's flow: the triggering change (disable, heartbeat, print report)
+   * already succeeded and must not fail because a handoff did; the next
+   * trigger or the 19.5 sweep retries. */
+  async reevaluatePrinter(
+    shopId: string,
+    printerId: string,
+    trigger: FailoverTrigger,
+  ): Promise<void> {
+    try {
+      const result = await reevaluatePrinterJobs(
+        { prisma: this.prisma, jobMachine: this.jobStateMachine },
+        { shopId, printerId, trigger },
+      );
+      await Promise.all(result.notifyDeviceIds.map((deviceId) => this.notify(deviceId)));
+    } catch (error) {
+      this.logger.error(
+        { printerId, trigger, err: error },
+        "Automatic failover re-evaluation failed.",
+      );
+    }
+  }
+
+  /** 19.4 trigger (b): after a job reached PRINTED and accrued usage, a
+   * limit-enabled printer may no longer fit its queued jobs. */
+  async onUsageAccrued(printerId: string): Promise<void> {
+    const printer = await this.prisma.printer.findUnique({
+      where: { id: printerId },
+      select: { shopId: true, pageLimitEnabled: true, pageLimit: true },
+    });
+    if (printer?.pageLimitEnabled && printer.pageLimit !== null) {
+      await this.reevaluatePrinter(printer.shopId, printerId, "PAGE_LIMIT_REACHED");
+    }
   }
 
   async waitForJob(deviceId: string, waitSeconds: number): Promise<PrintJobSummary | null> {
@@ -227,12 +266,15 @@ export class AgentJobsService implements OnModuleDestroy {
     try {
       // 18.16: the job write and the order sync are ONE transaction
       // inside the job machine -- a failed sync rolls the job back.
-      await this.jobStateMachine.transition(
+      const applied = await this.jobStateMachine.transition(
         job.id,
         event,
         { id: null },
         { osJobId: input.osJobId },
       );
+      if (applied.accruedPrinterId) {
+        await this.onUsageAccrued(applied.accruedPrinterId);
+      }
     } catch (err) {
       // Same self-healing reasoning as the order side: a replayed or
       // out-of-order-but-already-applied report finds the job already

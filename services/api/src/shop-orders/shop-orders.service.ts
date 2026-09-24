@@ -822,12 +822,13 @@ export class ShopOrdersService {
           : PrintJobEvent.RESOLVE_RETRY;
 
     let notifyDeviceIds: string[] = [];
+    let accruedPrinterId: string | undefined;
     try {
       // One transaction, orders row locked first: the job write, (for RETRY)
       // the replacement dispatch, and the order sync commit together. Never a
       // 200 when nothing was resolved: a job that is no longer UNKNOWN is a
       // 409 like any other lost race.
-      await this.jobStateMachine.transition(
+      const resolved = await this.jobStateMachine.transition(
         target.id,
         event,
         { id: actorId },
@@ -849,6 +850,7 @@ export class ShopOrdersService {
               : undefined,
         },
       );
+      accruedPrinterId = resolved.accruedPrinterId;
     } catch (error) {
       if (error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION") {
         throw illegal("This print job is no longer awaiting resolution.");
@@ -857,6 +859,11 @@ export class ShopOrdersService {
     }
 
     await this.notifyDevices(notifyDeviceIds);
+    // 19.3/19.4: staff confirming UNKNOWN as printed accrued usage; a
+    // limit-enabled printer may no longer fit its queue.
+    if (accruedPrinterId) {
+      await this.agentJobsService.onUsageAccrued(accruedPrinterId);
+    }
     return this.getOrder(orderId);
   }
 

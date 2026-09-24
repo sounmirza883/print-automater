@@ -98,3 +98,9 @@ export {
   buildPrinterCandidates,
   type PrinterCandidateSet,
 } from "./print-jobs/printer-candidates.js";
+export {
+  reevaluatePrinterJobs,
+  type FailoverTrigger,
+  type ReevaluationOutcome,
+  type ReevaluationResult,
+} from "./print-jobs/reevaluate-printer-jobs.js";
