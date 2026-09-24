@@ -25,6 +25,7 @@ import { ShopAgentsModule } from "./shop-agents/shop-agents.module.js";
 import { AgentsModule } from "./agents/agents.module.js";
 import { PaymentReconciliationModule } from "./payment-reconciliation/payment-reconciliation.module.js";
 import { AdminModule } from "./admin/admin.module.js";
+import { InventoryModule } from "./inventory/inventory.module.js";
 import { ProductsModule } from "./products/products.module.js";
 import { PricingRulesModule } from "./pricing-rules/pricing-rules.module.js";
 import { CustomersModule } from "./customers/customers.module.js";
@@ -77,6 +78,7 @@ import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
     PaymentReconciliationModule,
     AdminModule,
     ProductsModule,
+    InventoryModule,
     PricingRulesModule,
     CustomersModule,
     PrintJobsModule,

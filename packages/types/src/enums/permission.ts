@@ -10,6 +10,10 @@ export const Permission = {
   CANCEL_ORDERS: "CANCEL_ORDERS",
   ASSIGN_JOBS: "ASSIGN_JOBS",
   MANAGE_PRINTERS: "MANAGE_PRINTERS",
+  /** 20.2: read stock and movements (operators need to see paper stock;
+   * counter staff do not). MANAGE_INVENTORY (change stock) implies it by
+   * being granted alongside it in ROLE_PERMISSIONS. */
+  VIEW_INVENTORY: "VIEW_INVENTORY",
   MANAGE_INVENTORY: "MANAGE_INVENTORY",
   MANAGE_SUPPLIERS: "MANAGE_SUPPLIERS",
   MANAGE_PRICES: "MANAGE_PRICES",

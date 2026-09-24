@@ -114,3 +114,11 @@ export {
   type ReallocationOutcome,
   type ReallocationResult,
 } from "./print-jobs/reallocate-waiting-jobs.js";
+export {
+  applyStockMovement,
+  INVENTORY_MOVEMENT_AUDIT_ACTION,
+  type StockMode,
+  type StockMovementInput,
+  type StockMovementResult,
+} from "./inventory/stock-movement.js";
+export { isLowStock } from "./inventory/low-stock.js";

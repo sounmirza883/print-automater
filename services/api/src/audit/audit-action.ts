@@ -38,6 +38,10 @@ export const AuditAction = {
   JOB_REASSIGNED: "JOB_REASSIGNED",
   // §21/18.9.
   JOB_OPERATOR_ASSIGNED: "JOB_OPERATOR_ASSIGNED",
+  // 26/27/20.2. Every stock movement itself is audited by applyStockMovement as
+  // INVENTORY_MOVEMENT; these two cover the item's own metadata.
+  INVENTORY_ITEM_CREATED: "INVENTORY_ITEM_CREATED",
+  INVENTORY_ITEM_UPDATED: "INVENTORY_ITEM_UPDATED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

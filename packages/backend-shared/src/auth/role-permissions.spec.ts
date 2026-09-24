@@ -27,4 +27,23 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
     expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("MANAGE_PRINTERS");
     expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("MANAGE_USERS");
   });
+
+  it("inventory (20.2): operators and printer managers may view, only manager/owner may manage, counter neither", () => {
+    expect(ROLE_PERMISSIONS.OPERATOR).toContain("VIEW_INVENTORY");
+    expect(ROLE_PERMISSIONS.PRINTER_MANAGER).toContain("VIEW_INVENTORY");
+    expect(ROLE_PERMISSIONS.OPERATOR).not.toContain("MANAGE_INVENTORY");
+    expect(ROLE_PERMISSIONS.PRINTER_MANAGER).not.toContain("MANAGE_INVENTORY");
+    for (const role of ["SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_INVENTORY");
+      expect(ROLE_PERMISSIONS[role]).toContain("MANAGE_INVENTORY");
+    }
+    expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("VIEW_INVENTORY");
+    expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("MANAGE_INVENTORY");
+    // every role that can manage can also view (a manage-only role could not see what it edits)
+    for (const role of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
+      if (ROLE_PERMISSIONS[role].includes("MANAGE_INVENTORY")) {
+        expect(ROLE_PERMISSIONS[role]).toContain("VIEW_INVENTORY");
+      }
+    }
+  });
 });

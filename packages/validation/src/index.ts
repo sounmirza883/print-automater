@@ -97,3 +97,22 @@ export {
   reportJobStatusSchema,
   type ReportJobStatusInput,
 } from "./agents/index.js";
+export {
+  DEFAULT_PAGE_LIMIT,
+  MAX_PAGE_LIMIT,
+  paginationQuerySchema,
+  queryBooleanSchema,
+  type PaginationQueryInput,
+} from "./common/index.js";
+export {
+  createInventoryItemSchema,
+  type CreateInventoryItemInput,
+  updateInventoryItemSchema,
+  type UpdateInventoryItemInput,
+  listInventoryItemsQuerySchema,
+  type ListInventoryItemsQueryInput,
+  listInventoryMovementsQuerySchema,
+  type ListInventoryMovementsQueryInput,
+  recordInventoryMovementSchema,
+  type RecordInventoryMovementInput,
+} from "./inventory/index.js";

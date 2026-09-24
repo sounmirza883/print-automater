@@ -19,6 +19,9 @@ import { Permission } from "@print-automated/types";
  *     printer), no MANAGE_PRINTERS, no MANAGE_USERS.
  *   - OPERATOR: production-floor -- views orders and assigns/handles
  *     print jobs, nothing administrative.
+ *   - Inventory (20.2): VIEW_INVENTORY for OPERATOR and PRINTER_MANAGER (they load
+ *     paper and need to see stock); MANAGE_INVENTORY (change stock) only for
+ *     SHOP_MANAGER/SHOP_OWNER; SHOP_COUNTER has neither.
  *   - PRINTER_MANAGER: owns the printer fleet -- MANAGE_PRINTERS and
  *     ASSIGN_JOBS, plus VIEW_ORDERS to see what's queued; no order
  *     editing, pricing, or staff management.
@@ -30,8 +33,13 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   CUSTOMER: [],
   SUPPLIER: [],
   SHOP_COUNTER: [Permission.VIEW_ORDERS, Permission.CREATE_ORDERS, Permission.EDIT_ORDERS],
-  OPERATOR: [Permission.VIEW_ORDERS, Permission.ASSIGN_JOBS],
-  PRINTER_MANAGER: [Permission.VIEW_ORDERS, Permission.MANAGE_PRINTERS, Permission.ASSIGN_JOBS],
+  OPERATOR: [Permission.VIEW_ORDERS, Permission.ASSIGN_JOBS, Permission.VIEW_INVENTORY],
+  PRINTER_MANAGER: [
+    Permission.VIEW_ORDERS,
+    Permission.MANAGE_PRINTERS,
+    Permission.ASSIGN_JOBS,
+    Permission.VIEW_INVENTORY,
+  ],
   SHOP_MANAGER: [
     Permission.VIEW_ORDERS,
     Permission.CREATE_ORDERS,
@@ -39,6 +47,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.CANCEL_ORDERS,
     Permission.ASSIGN_JOBS,
     Permission.MANAGE_PRINTERS,
+    Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,
     Permission.MANAGE_SUPPLIERS,
     Permission.MANAGE_PRICES,
@@ -52,6 +61,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.CANCEL_ORDERS,
     Permission.ASSIGN_JOBS,
     Permission.MANAGE_PRINTERS,
+    Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,
     Permission.MANAGE_SUPPLIERS,
     Permission.MANAGE_PRICES,
