@@ -252,6 +252,36 @@ describe("Shop orders API (8.2, e2e)", () => {
     expect(res.status).toBe(401);
   });
 
+  it("18.21a: a WAITING job with NO printer (printer_id null) never 500s the list or the detail", async () => {
+    const orderId = await seedOrder(shopA.id, OrderStatus.PREPARING);
+    const job = await prisma.printJob.create({
+      data: {
+        orderId,
+        shopId: shopA.id,
+        printerId: null,
+        idempotencyToken: randomUUID(),
+        status: "WAITING",
+        blockedReason: "NO_ONLINE_PRINTER",
+      },
+    });
+
+    const list = await request(app.getHttpServer())
+      .get(`/v1/shop/orders?shopId=${shopA.id}`)
+      .set("Authorization", `Bearer ${counterATokan}`);
+    expect(list.status).toBe(200);
+    const listed = list.body.printing.find((o: { id: string }) => o.id === orderId);
+    expect(listed.printerName).toBeNull();
+    expect(listed.printJobs).toEqual([
+      { id: job.id, status: "WAITING", printerName: null, blockedReason: "NO_ONLINE_PRINTER" },
+    ]);
+
+    const detail = await request(app.getHttpServer())
+      .get(`/v1/shop/orders/${orderId}`)
+      .set("Authorization", `Bearer ${counterATokan}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.printerName).toBeNull();
+  });
+
   it("GET /shop/orders/:id returns full detail for shop A staff on shop A's own order", async () => {
     const orderId = await seedOrder(shopA.id, OrderStatus.WAITING_FOR_SHOP);
 

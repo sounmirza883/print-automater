@@ -452,6 +452,22 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
     }
   });
 
+  it("18.21a: a WAITING job with no printer can be reassigned to a real printer (previous printer null, no 500)", async () => {
+    const { jobId, orderId } = await seedQueuedOrderWithJob();
+    await prisma.$executeRaw`UPDATE print_jobs SET status = 'WAITING', printer_id = NULL, blocked_reason = 'NO_ONLINE_PRINTER' WHERE id = ${jobId}`;
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/print-jobs/${jobId}/reassign`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({ printerId: printerB.id, reason: "unblock" });
+    expect(res.status).toBe(200);
+    expect(res.body.printerId).toBe(printerB.id);
+    const audit = await prisma.auditLog.findFirst({
+      where: { resourceType: "print_job", resourceId: res.body.id, action: "JOB_REASSIGNED" },
+    });
+    expect(audit?.metadata).toMatchObject({ previousPrinterId: null, orderId });
+  });
+
   it("SHOP_COUNTER (no ASSIGN_JOBS permission) is refused", async () => {
     const { jobId } = await seedQueuedOrderWithJob();
 

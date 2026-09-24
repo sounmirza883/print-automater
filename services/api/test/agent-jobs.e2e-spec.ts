@@ -339,6 +339,47 @@ describe("Agent job long-poll & claim (9.7, e2e)", () => {
     expect(res.body.error_code).toBe("JOB_ALREADY_CLAIMED");
   });
 
+  it("18.21b: a FOREIGN agent claiming another device's already-CLAIMED job still gets 404 JOB_NOT_FOUND (existence hidden), never 409", async () => {
+    const owner = await registerAndAuthenticate();
+    const printer = await createPrinterForAgent(owner.deviceId);
+    const jobId = await seedQueuedJob(printer.id, await seedOrder(OrderStatus.QUEUED_FOR_PRINT));
+    await request(app.getHttpServer())
+      .post(`/v1/agents/jobs/${jobId}/claim`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(200);
+
+    const stranger = await registerAndAuthenticate();
+    const res = await request(app.getHttpServer())
+      .post(`/v1/agents/jobs/${jobId}/claim`)
+      .set("Authorization", `Bearer ${stranger.accessToken}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error_code).toBe("JOB_NOT_FOUND");
+    expect((await prisma.printJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe(
+      PrintJobStatus.CLAIMED,
+    );
+  });
+
+  it("18.21b: claiming a job id that does not exist is 404 JOB_NOT_FOUND", async () => {
+    const { accessToken } = await registerAndAuthenticate();
+    const res = await request(app.getHttpServer())
+      .post(`/v1/agents/jobs/${randomUUID()}/claim`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error_code).toBe("JOB_NOT_FOUND");
+  });
+
+  it("18.21b: the rightful agent claiming its own job that is no longer QUEUED (e.g. PRINTED) gets 409 JOB_ALREADY_CLAIMED, as before 18.1", async () => {
+    const { deviceId, accessToken } = await registerAndAuthenticate();
+    const printer = await createPrinterForAgent(deviceId);
+    const jobId = await seedQueuedJob(printer.id, await seedOrder(OrderStatus.PRINTED));
+    await prisma.$executeRaw`UPDATE print_jobs SET status = 'PRINTED' WHERE id = ${jobId}`;
+    const res = await request(app.getHttpServer())
+      .post(`/v1/agents/jobs/${jobId}/claim`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("JOB_ALREADY_CLAIMED");
+  });
+
   it("§17/18/18.8: a HIGH-priority job queued AFTER a NORMAL one is still claimed first", async () => {
     const { deviceId, accessToken } = await registerAndAuthenticate();
     const printer = await createPrinterForAgent(deviceId);
