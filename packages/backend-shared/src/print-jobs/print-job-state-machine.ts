@@ -175,8 +175,9 @@ export interface JobTransitionContext {
   /** ALLOCATE: the printer this job is being assigned to. UNALLOCATE: null
    * clears it. */
   printerId?: string | null;
-  /** BLOCK only: why allocation failed (packages/types' BlockedReason). */
-  blockedReason?: string;
+  /** BLOCK/UNALLOCATE: why allocation failed (packages/types' BlockedReason).
+   * `null` clears it (ALLOCATE out of WAITING: the job is no longer blocked). */
+  blockedReason?: string | null;
   /** Agent status reports carry the OS-level job id (9.11). */
   osJobId?: string;
   /** Evaluated under the row lock, before the write -- lets a caller

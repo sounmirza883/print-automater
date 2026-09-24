@@ -7,6 +7,7 @@ import {
   PrismaService,
   QUEUE_NAMES,
   REDIS_CLIENT,
+  reallocateWaitingJobs,
   reevaluatePrinterJobs,
   signalAgentDevice,
 } from "@print-automated/backend-shared";
@@ -39,7 +40,9 @@ export class PrinterOfflineSweepProcessor extends WorkerHost {
     super();
   }
 
-  async process(_job: Job): Promise<{ markedOfflineCount: number; failoverErrors: number }> {
+  async process(
+    _job: Job,
+  ): Promise<{ markedOfflineCount: number; failoverErrors: number; reallocatedCount: number }> {
     const staleThreshold = new Date(Date.now() - MISSED_HEARTBEAT_THRESHOLD_MS);
     // UPDATE .. RETURNING (not updateMany): only the rows THIS statement flipped
     // come back, so two racing sweeps (or a heartbeat that flips a printer back
@@ -68,7 +71,44 @@ export class PrinterOfflineSweepProcessor extends WorkerHost {
     }
 
     const failoverErrors = await this.failOverJustOfflinePrinters(flipped);
-    return { markedOfflineCount: flipped.length, failoverErrors };
+    // After failover, so a job it just parked is only retried on a LATER tick
+    // (its own printer is OFFLINE and cannot qualify; a healthy one would
+    // already have taken it).
+    const reallocatedCount = await this.recoverWaitingJobs();
+    return { markedOfflineCount: flipped.length, failoverErrors, reallocatedCount };
+  }
+
+  /** 19.15. Nothing else re-allocates a WAITING job that failover (or a blocked
+   * dispatch) parked, so each tick gives availability-blocked jobs of opted-in
+   * shops another chance; a printer coming back online is picked up here on the
+   * next tick. Contained: a failure here must not fail the tick that already
+   * marked printers offline. */
+  private async recoverWaitingJobs(): Promise<number> {
+    try {
+      const result = await reallocateWaitingJobs({
+        prisma: this.prisma,
+        jobMachine: this.jobStateMachine,
+        onError: (jobId, err) =>
+          this.logger.error(
+            { jobId, err },
+            "Queue recovery could not re-allocate one job; continuing with the rest.",
+          ),
+      });
+      await Promise.all(
+        result.notifyDeviceIds.map((deviceId) => signalAgentDevice(this.redis, deviceId)),
+      );
+      const allocated = result.outcomes.filter((o) => o.action === "ALLOCATED").length;
+      if (allocated > 0) {
+        this.logger.log(
+          { metric: "queue.recovered", count: allocated },
+          `Queue recovery: re-allocated ${allocated} waiting job(s).`,
+        );
+      }
+      return allocated;
+    } catch (error) {
+      this.logger.error({ err: error }, "Queue recovery failed; the next tick retries.");
+      return 0;
+    }
   }
 
   /** 19.14 (PRD 25/122). Automatic failover is opt-in per shop

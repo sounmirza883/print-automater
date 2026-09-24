@@ -5,9 +5,11 @@ import { PrinterOfflineSweepProcessor } from "./printer-offline-sweep.processor.
 
 const reevaluate = jest.fn();
 const signal = jest.fn();
+const reallocate = jest.fn();
 jest.mock("@print-automated/backend-shared", () => ({
   ...jest.requireActual("@print-automated/backend-shared"),
   reevaluatePrinterJobs: (...args: unknown[]) => reevaluate(...args),
+  reallocateWaitingJobs: (...args: unknown[]) => reallocate(...args),
   signalAgentDevice: (...args: unknown[]) => signal(...args),
 }));
 
@@ -33,7 +35,9 @@ describe("PrinterOfflineSweepProcessor failover wiring (19.14)", () => {
   beforeEach(() => {
     reevaluate.mockReset();
     signal.mockReset();
+    reallocate.mockReset();
     reevaluate.mockResolvedValue({ outcomes: [], errors: [], notifyDeviceIds: [] });
+    reallocate.mockResolvedValue({ outcomes: [], errors: [], notifyDeviceIds: [] });
   });
 
   it("does nothing beyond the flip when no printer changed state (no failover)", async () => {
@@ -41,6 +45,7 @@ describe("PrinterOfflineSweepProcessor failover wiring (19.14)", () => {
     await expect(processor.process(fakeJob)).resolves.toEqual({
       markedOfflineCount: 0,
       failoverErrors: 0,
+      reallocatedCount: 0,
     });
     expect(reevaluate).not.toHaveBeenCalled();
   });
@@ -74,7 +79,22 @@ describe("PrinterOfflineSweepProcessor failover wiring (19.14)", () => {
       ["s"],
     );
     const result = await processor.process(fakeJob);
-    expect(result).toEqual({ markedOfflineCount: 2, failoverErrors: 1 });
+    expect(result).toEqual({ markedOfflineCount: 2, failoverErrors: 1, reallocatedCount: 0 });
     expect(signal).toHaveBeenCalledTimes(2);
+  });
+
+  it("19.15: wakes the agents of re-allocated jobs, and a failing recovery cannot fail the tick", async () => {
+    reallocate.mockResolvedValueOnce({
+      outcomes: [{ jobId: "j", action: "ALLOCATED", printerId: "p" }],
+      errors: [],
+      notifyDeviceIds: ["dev-9"],
+    });
+    const processor = build([], []);
+    await expect(processor.process(fakeJob)).resolves.toMatchObject({ reallocatedCount: 1 });
+    expect(signal).toHaveBeenCalledTimes(1);
+    expect(signal.mock.calls[0]?.[1]).toBe("dev-9");
+
+    reallocate.mockRejectedValueOnce(new Error("db down"));
+    await expect(build([], []).process(fakeJob)).resolves.toMatchObject({ reallocatedCount: 0 });
   });
 });

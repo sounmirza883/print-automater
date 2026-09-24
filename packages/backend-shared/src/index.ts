@@ -108,3 +108,9 @@ export {
   type ReevaluationOutcome,
   type ReevaluationResult,
 } from "./print-jobs/reevaluate-printer-jobs.js";
+export {
+  AVAILABILITY_BLOCKED_REASONS,
+  reallocateWaitingJobs,
+  type ReallocationOutcome,
+  type ReallocationResult,
+} from "./print-jobs/reallocate-waiting-jobs.js";
