@@ -10,6 +10,14 @@ export const PrintJobStatus = {
   UNKNOWN: "UNKNOWN",
   TIMEOUT: "TIMEOUT",
   CANCELLED: "CANCELLED",
+  // 18.1 (§65's fuller lifecycle). Added to Prisma then but missing here
+  // until the Phase 18 review. CLAIMED and PRINTED keep their names
+  // rather than becoming the PRD's "Assigned"/"Completed": those strings
+  // cross the agent wire (frozen in 15.6).
+  CREATED: "CREATED",
+  WAITING: "WAITING",
+  PAUSED: "PAUSED",
+  REASSIGNED: "REASSIGNED",
 } as const;
 
 export type PrintJobStatus = (typeof PrintJobStatus)[keyof typeof PrintJobStatus];
