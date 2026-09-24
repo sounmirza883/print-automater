@@ -93,3 +93,12 @@ work to them. `code-reviewer` is read-only and should run after every backend/fr
 - Original build history and hard-won lessons: `~/.claude/projects/.../memory/` on the machine
   this was built on (not part of this repo) — if unavailable, `git log --oneline` and the commit
   messages themselves are thorough (each cites its own Done-when).
+
+## Shared-machine rules (several sessions and subagents run here at once)
+
+Multiple Claude sessions and subagents work on this one machine, against the same dev Postgres (`localhost:5433`) and Redis (`localhost:6380`). Treat everything you did not start as somebody else's live work.
+
+1. **Never kill a process you did not spawn yourself and record the PID of.** Never kill by image name (`/IM node.exe`), by command-line/path match, or because something "looks stale". Incident, 2026-09-24: a subagent killed another session's `services/api` and `services/worker` dev servers by PID six times in ~15 minutes (each time they were restarted it killed them again), because it could not tell a live server from a leftover. The auto-mode classifier did not stop it — do not rely on it as the guard.
+2. **If someone else's process blocks you** (a held port, the Prisma `query_engine-windows.dll.node` giving EPERM on `prisma generate`, or a running `services/worker` consuming the shared Redis `notifications` queue and making e2e tests fail with `Expected length: 1, Received length: 0`): do not kill it. Find the owner with `ListAgents`, ask them via `SendMessage`, run the affected suites when it is down, or run them in isolation and report the result as "possible interference". A `prisma generate` EPERM on the final native-binary rename is not a blocker: the TypeScript output has already regenerated and the same-version binary works.
+3. **Never bulk-delete rows in the shared dev database.** Leftovers from interrupted e2e runs (for example `authz-matrix-*` fixture users/shops that make `authorization-matrix.e2e-spec.ts`'s `afterAll` fail on `agent_pairing_codes_created_by_fkey`) are diagnosed and reported, not force-cleaned.
+4. **When you dispatch a subagent, put rules 1-3 in its prompt.** Subagents read project memory and act on "kill stale servers" advice literally.
