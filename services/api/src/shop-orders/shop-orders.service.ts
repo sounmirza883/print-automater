@@ -743,16 +743,6 @@ export class ShopOrdersService {
     }
   }
 
-  private async syncOrderIgnoringIllegal(orderId: string, actorId: string): Promise<void> {
-    try {
-      await this.orderStateMachine.syncFromJobs(orderId, { id: actorId });
-    } catch (error) {
-      if (!(error instanceof AppException && error.errorCode === "ILLEGAL_ORDER_TRANSITION")) {
-        throw error;
-      }
-    }
-  }
-
   /** §49/10.4: staff's own "Change Printer" choice, resolving a
    * PRINT_FAILED order by naming a *specific* replacement rather than
    * letting dispatchToPrinter() auto-select "any available printer." */
@@ -817,67 +807,137 @@ export class ShopOrdersService {
     orderId: string,
     actorId: string,
     resolution: ResolveUnknownPrintInput["resolution"],
+    jobId?: string,
   ): Promise<ShopOrderResponse> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) {
       throw new NotFoundException("Order not found.");
     }
-    // §47/10.3: all three resolutions were only ever legal from
-    // PRINT_STATUS_UNKNOWN under the old RESOLVE_UNKNOWN_* events --
-    // now that they're plain application logic rather than order-
-    // machine table entries, this endpoint has to enforce that
-    // precondition itself, up front, the same 409 either way.
+    const illegal = (message: string) =>
+      new AppException(HttpStatus.CONFLICT, "ILLEGAL_ORDER_TRANSITION", message, false);
+    // Fast, unlocked pre-check for a clear error only. The AUTHORITATIVE check
+    // is `guard` below, evaluated inside the job machine's transaction after
+    // it has locked the orders row (18.26), for all three resolutions.
     if (order.orderStatus !== OrderStatus.PRINT_STATUS_UNKNOWN) {
+      throw illegal(
+        `Cannot resolve an unknown print outcome for an order in ${order.orderStatus}.`,
+      );
+    }
+
+    const unknownJobs = await this.prisma.printJob.findMany({
+      where: { orderId, status: PrintJobStatus.UNKNOWN, supersededAt: null },
+      select: { id: true, orderItemId: true },
+      orderBy: { id: "asc" },
+    });
+    if (unknownJobs.length === 0) {
+      if (resolution === "RETRY" && (await this.hasNoLiveJobs(orderId))) {
+        // Legacy/no-history order (moved to this status without any job row):
+        // nothing to supersede, so re-dispatch every item as before 18.26.
+        return this.retryWithoutJobHistory(orderId, actorId);
+      }
+      throw illegal("This order has no print job with an unknown outcome to resolve.");
+    }
+    let target = unknownJobs[0]!;
+    if (jobId !== undefined) {
+      const named = unknownJobs.find((job) => job.id === jobId);
+      if (!named) {
+        throw illegal("That job is not one of this order's UNKNOWN print jobs.");
+      }
+      target = named;
+    } else if (unknownJobs.length > 1) {
+      // Each unknown job may have a different real-world outcome, so one
+      // answer must never silently apply to all of them.
       throw new AppException(
         HttpStatus.CONFLICT,
-        "ILLEGAL_ORDER_TRANSITION",
-        `Cannot resolve an unknown print outcome for an order in ${order.orderStatus}.`,
+        "UNKNOWN_JOB_ID_REQUIRED",
+        `This order has ${unknownJobs.length} print jobs with an unknown outcome; resolve one at a time by passing jobId. UNKNOWN job ids: ${unknownJobs
+          .map((job) => job.id)
+          .join(", ")}`,
         false,
       );
     }
 
-    if (resolution === "RETRY") {
-      let notifyDeviceIds: string[] = [];
-      let pendingEmail: SendEmailJob | undefined;
-      await this.prisma.$transaction(async (tx) => {
-        const status = await this.lockOrderStatus(tx, orderId);
-        if (status !== OrderStatus.PRINT_STATUS_UNKNOWN) {
-          return;
-        }
-        const itemIds = await this.supersedeJobsForRetry(tx, orderId, [PrintJobStatus.UNKNOWN]);
-        notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, undefined, itemIds))
-          .notifyDeviceIds;
-        pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
-      });
-      await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
-      await this.notifyDevices(notifyDeviceIds);
-      return this.getOrder(orderId);
-    }
-
-    const jobEvent =
+    const guard = async (tx: Prisma.TransactionClient): Promise<void> => {
+      const rows = await tx.$queryRaw<Array<{ order_status: OrderStatus }>>`
+        SELECT order_status FROM orders WHERE id = ${orderId}
+      `;
+      if (rows[0]?.order_status !== OrderStatus.PRINT_STATUS_UNKNOWN) {
+        throw illegal(
+          `Cannot resolve an unknown print outcome for an order in ${rows[0]?.order_status}.`,
+        );
+      }
+    };
+    const event =
       resolution === "CONFIRMED_PRINTED"
         ? PrintJobEvent.RESOLVE_PRINTED
-        : PrintJobEvent.RESOLVE_FAILED;
+        : resolution === "MARK_FAILED"
+          ? PrintJobEvent.RESOLVE_FAILED
+          : PrintJobEvent.RESOLVE_RETRY;
 
-    const unknownJob = await this.prisma.printJob.findFirst({
-      where: { orderId, status: PrintJobStatus.UNKNOWN, supersededAt: null },
-      orderBy: { createdAt: "desc" },
-    });
-    if (unknownJob) {
-      try {
-        await this.jobStateMachine.transition(
-          unknownJob.id,
-          jobEvent,
-          { id: actorId },
-          { metadata: { resolution } },
-        );
-      } catch (error) {
-        if (!(error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION")) {
-          throw error;
-        }
+    let notifyDeviceIds: string[] = [];
+    try {
+      // One transaction, orders row locked first: the job write, (for RETRY)
+      // the replacement dispatch, and the order sync commit together. Never a
+      // 200 when nothing was resolved: a job that is no longer UNKNOWN is a
+      // 409 like any other lost race.
+      await this.jobStateMachine.transition(
+        target.id,
+        event,
+        { id: actorId },
+        {
+          metadata: { resolution },
+          guard,
+          beforeSync:
+            resolution === "RETRY"
+              ? async (tx) => {
+                  notifyDeviceIds = (
+                    await this.dispatchToPrinter(
+                      tx,
+                      orderId,
+                      undefined,
+                      target.orderItemId ? new Set([target.orderItemId]) : undefined,
+                    )
+                  ).notifyDeviceIds;
+                }
+              : undefined,
+        },
+      );
+    } catch (error) {
+      if (error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION") {
+        throw illegal("This print job is no longer awaiting resolution.");
       }
+      throw error;
     }
-    await this.syncOrderIgnoringIllegal(orderId, actorId);
+
+    await this.notifyDevices(notifyDeviceIds);
+    return this.getOrder(orderId);
+  }
+
+  private async hasNoLiveJobs(orderId: string): Promise<boolean> {
+    return (await this.prisma.printJob.count({ where: { orderId, supersededAt: null } })) === 0;
+  }
+
+  private async retryWithoutJobHistory(
+    orderId: string,
+    actorId: string,
+  ): Promise<ShopOrderResponse> {
+    let notifyDeviceIds: string[] = [];
+    let pendingEmail: SendEmailJob | undefined;
+    await this.prisma.$transaction(async (tx) => {
+      const status = await this.lockOrderStatus(tx, orderId);
+      if (status !== OrderStatus.PRINT_STATUS_UNKNOWN) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "ILLEGAL_ORDER_TRANSITION",
+          `Cannot resolve an unknown print outcome for an order in ${status}.`,
+          false,
+        );
+      }
+      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
+      pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
+    });
+    await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
+    await this.notifyDevices(notifyDeviceIds);
     return this.getOrder(orderId);
   }
 

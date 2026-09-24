@@ -8,6 +8,9 @@ import { z } from "zod";
  * MARK_FAILED followed by 10.1's own Retry once that lands. */
 export const resolveUnknownPrintSchema = z.object({
   resolution: z.enum(["CONFIRMED_PRINTED", "RETRY", "MARK_FAILED"]),
+  /** 18.26: which UNKNOWN job the resolution is about. Required (409 otherwise)
+   * when the order has more than one UNKNOWN job. */
+  jobId: z.string().min(1).optional(),
 });
 
 export type ResolveUnknownPrintInput = z.infer<typeof resolveUnknownPrintSchema>;

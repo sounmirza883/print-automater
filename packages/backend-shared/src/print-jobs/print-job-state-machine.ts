@@ -36,6 +36,11 @@ export const PrintJobEvent = {
   // UNKNOWN -> PRINTED|FAILED: staff's own resolution (§47/10.3).
   RESOLVE_PRINTED: "RESOLVE_PRINTED",
   RESOLVE_FAILED: "RESOLVE_FAILED",
+  // UNKNOWN -> REASSIGNED (18.26): staff's RETRY resolution supersedes the
+  // unknown job (supersededAt set) so a replacement can be dispatched; kept
+  // as its own event so the audit row (PRINT_JOB_RESOLVE_RETRY) carries the
+  // actor and resolution like the other two resolutions.
+  RESOLVE_RETRY: "RESOLVE_RETRY",
   // QUEUED|CLAIMED|WAITING -> PAUSED, PAUSED -> WAITING (21.1):
   // resuming re-enters the allocation queue rather than assuming the
   // same printer/claim state still applies.
@@ -112,6 +117,7 @@ const JOB_TRANSITIONS: Record<PrintJobStatus, Partial<Record<PrintJobEvent, Prin
   UNKNOWN: {
     [PrintJobEvent.RESOLVE_PRINTED]: "PRINTED",
     [PrintJobEvent.RESOLVE_FAILED]: "FAILED",
+    [PrintJobEvent.RESOLVE_RETRY]: "REASSIGNED",
   },
   TIMEOUT: {},
   CANCELLED: {},
@@ -161,6 +167,11 @@ export interface JobTransitionContext {
    * synced with the replacement already present. Without this a crash
    * between "supersede" and "create" strands the item with no live job. */
   successor?: { printerId: string };
+  /** 18.26: runs inside the transaction after every job write and BEFORE the
+   * order sync, with the orders row already locked first (so it cannot invert
+   * lock order). Used by RESOLVE_RETRY to dispatch the replacement job
+   * atomically with the supersede; a throw rolls the whole transition back. */
+  beforeSync?: (tx: Prisma.TransactionClient, results: JobTransitionResult[]) => Promise<void>;
 }
 
 export interface JobTransitionResult {
@@ -395,6 +406,10 @@ export class PrintJobStateMachine {
             successorJobId,
             requiresSync: true,
           });
+        }
+
+        if (ctx.beforeSync) {
+          await ctx.beforeSync(tx, results);
         }
 
         // 18.16: sync the order in THIS transaction (orders row already

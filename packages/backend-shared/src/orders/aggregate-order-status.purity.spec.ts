@@ -42,7 +42,7 @@ const JOB_TRANSITION_TARGETS: Record<PrintJobStatus, PrintJobStatus[]> = {
   PRINTED: [],
   PAUSED: [PrintJobStatus.WAITING, PrintJobStatus.CANCELLED],
   FAILED: [],
-  UNKNOWN: [PrintJobStatus.PRINTED, PrintJobStatus.FAILED],
+  UNKNOWN: [PrintJobStatus.PRINTED, PrintJobStatus.FAILED, PrintJobStatus.REASSIGNED],
   TIMEOUT: [],
   CANCELLED: [],
   REASSIGNED: [],

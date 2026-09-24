@@ -205,7 +205,7 @@ export class ShopOrdersController {
     @Param("id") id: string,
     @Body() dto: ResolveUnknownPrintDto,
   ): Promise<ShopOrderResponse> {
-    return this.shopOrdersService.resolveUnknownPrint(id, req.user!.id, dto.resolution);
+    return this.shopOrdersService.resolveUnknownPrint(id, req.user!.id, dto.resolution, dto.jobId);
   }
 
   /** §49/10.4: staff's own "Change Printer" choice. */
