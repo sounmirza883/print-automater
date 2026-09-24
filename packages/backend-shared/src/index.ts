@@ -8,6 +8,8 @@ export {
   type RedisWithRateLimit,
 } from "./redis/sliding-window-rate-limit.command.js";
 
+export { agentJobSignalKey, signalAgentDevice } from "./redis/agent-job-signal.js";
+
 export { S3_CLIENT, STORAGE_BUCKET } from "./storage/storage.tokens.js";
 export { StorageModule, type StorageModuleOptions } from "./storage/storage.module.js";
 export { StorageService } from "./storage/storage.service.js";

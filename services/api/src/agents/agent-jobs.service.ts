@@ -5,6 +5,7 @@ import { PrintJobStatus } from "@prisma/client";
 import type { PrintConfiguration } from "@print-automated/types";
 import type { ReportJobStatusInput } from "@print-automated/validation";
 import {
+  agentJobSignalKey,
   AppException,
   OrderStateMachine,
   PrintJobEvent,
@@ -12,6 +13,7 @@ import {
   PrismaService,
   reevaluatePrinterJobs,
   REDIS_CLIENT,
+  signalAgentDevice,
   type FailoverTrigger,
 } from "@print-automated/backend-shared";
 
@@ -31,7 +33,7 @@ export interface PrintJobSummary {
 }
 
 function signalKey(deviceId: string): string {
-  return `agent-job-signal:${deviceId}`;
+  return agentJobSignalKey(deviceId);
 }
 
 const REPORTED_STATUS_TO_JOB_EVENT: Record<ReportJobStatusInput["status"], PrintJobEvent> = {
@@ -81,8 +83,7 @@ export class AgentJobsService implements OnModuleDestroy {
    * offline agent accumulating accepted orders doesn't grow this list
    * without bound; the DB check makes any trimmed-away signal harmless. */
   async notify(deviceId: string): Promise<void> {
-    const key = signalKey(deviceId);
-    await this.redis.multi().lpush(key, "1").ltrim(key, 0, 49).expire(key, 3600).exec();
+    await signalAgentDevice(this.redis, deviceId);
   }
 
   /** 19.4: a printer became unsuitable. Delegates to the shared
