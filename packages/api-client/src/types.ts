@@ -108,6 +108,13 @@ export interface PrinterResponse {
   capabilities: PrinterCapabilities | null;
   status: PrinterStatus;
   createdAt: string;
+  /** 19.2 (PRD 41). `remainingAllowance` is null when enforcement is
+   * disabled or no limit is set. */
+  pageLimit: number | null;
+  pageLimitEnabled: boolean;
+  pageLimitPeriod: "DAILY" | "WEEKLY" | "MONTHLY";
+  pagesUsedInPeriod: number;
+  remainingAllowance: number | null;
 }
 
 /** Mirrors services/api's `ShopStaffService.MyShopMembership`. */

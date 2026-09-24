@@ -32,6 +32,11 @@ export interface PrinterCandidate {
    * function (18.4's own "zero clock reads" requirement). */
   registeredAt: number;
   pageLimitReached?: boolean;
+  /** 19.2: pages left in the current period, or null/undefined when the
+   * limit is disabled or unset (never blocks). Remaining-vs-used>=limit: a
+   * 10-page job must not be accepted by a printer with 3 pages left, which
+   * used>=limit would allow. */
+  pageLimitRemaining?: number | null;
   paperAvailable?: boolean;
   operatorAvailable?: boolean;
   requiresManualApproval?: boolean;
@@ -39,8 +44,8 @@ export interface PrinterCandidate {
 
 export interface AllocationRequest {
   printConfiguration: PrintConfiguration;
-  /** Pages this specific job would consume -- checked against a
-   * candidate's own `maxJobPages`. */
+  /** Pages this specific job would consume (`jobPages()`: pages x copies)
+   * -- checked against `maxJobPages` and the page allowance. */
   pageCount: number;
   /** false for the automatic path (15.2's own "guessing on the
    * customer/order's behalf" reasoning: an unprobed printer is
@@ -149,7 +154,13 @@ function blockedReasonFor(
   if (candidate.maxJobPages !== null && request.pageCount > candidate.maxJobPages) {
     return BlockedReason.NO_COMPATIBLE_PRINTER;
   }
-  if (candidate.pageLimitReached) {
+  // Manual assignment overrides automation (PRD 20): a human naming this
+  // printer is an informed choice, so the automatic allowance never blocks it.
+  if (
+    !request.requestedPrinterId &&
+    (candidate.pageLimitReached ||
+      (candidate.pageLimitRemaining != null && request.pageCount > candidate.pageLimitRemaining))
+  ) {
     return BlockedReason.PAGE_LIMIT_REACHED;
   }
   if (candidate.paperAvailable === false) {

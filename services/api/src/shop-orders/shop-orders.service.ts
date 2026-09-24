@@ -22,14 +22,15 @@ import type {
 import {
   allocatePrinter,
   AppException,
+  buildPrinterCandidates,
   explodeOrderItems,
+  jobPages,
   OrderEvent,
   OrderStateMachine,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
   type AllocationResult,
-  type PrinterCandidate,
   type SendEmailJob,
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
@@ -462,9 +463,10 @@ export class ShopOrdersService {
       })),
     );
 
-    const { candidates, deviceIdsByPrinterId } = await this.buildPrinterCandidates(
+    const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
       tx,
       freshOrder.shopId,
+      new Date(),
     );
     const notifyDeviceIds = new Set<string>();
     const itemQuantity = new Map(items.map((item) => [item.id, item.quantity]));
@@ -474,14 +476,17 @@ export class ShopOrdersService {
         where: { id: draft.documentId },
         select: { pageCount: true },
       });
+      // One measure everywhere (jobPages): pages x copies, so maxJobPages,
+      // the page allowance, queue load and accrual agree.
       const pageCount = document?.pageCount ?? 1;
+      const pages = jobPages(pageCount, itemQuantity.get(draft.orderItemId));
       const attempt = await tx.printJob.count({ where: { orderItemId: draft.orderItemId } });
       const idempotencyToken = `${draft.orderItemId}:${attempt + 1}`;
 
       const allocation = allocatePrinter(
         {
           printConfiguration: draft.printConfiguration,
-          pageCount,
+          pageCount: pages,
           allowUnknownCapabilities: requestedPrinterId !== undefined,
           requestedPrinterId,
         },
@@ -507,7 +512,7 @@ export class ShopOrdersService {
           // queue depth for tie-breaking, rather than every item in one
           // multi-item order racing to the same "least loaded" printer.
           printer.queuedJobs += 1;
-          printer.queuedPages += pageCount * (itemQuantity.get(draft.orderItemId) ?? 1);
+          printer.queuedPages += pages;
           const deviceId = deviceIdsByPrinterId.get(printer.id);
           if (deviceId) {
             notifyDeviceIds.add(deviceId);
@@ -540,68 +545,6 @@ export class ShopOrdersService {
     return { notifyDeviceIds: [...notifyDeviceIds] };
   }
 
-  /** Local to one dispatchToPrinter() call -- deliberately NOT an
-   * instance field, since ShopOrdersService is a singleton and two
-   * concurrent accepts (different orders, or even different agents'
-   * printers on the same shop) dispatching at once would otherwise race
-   * on shared mutable state and could notify the wrong device entirely.
-   * `deviceIdsByPrinterId` is a plain lookup from printerId to the
-   * owning agent's deviceId, since PrinterCandidate itself (18.4, pure,
-   * zero-Prisma) deliberately carries no agent/device concept. */
-  private async buildPrinterCandidates(
-    tx: Prisma.TransactionClient,
-    shopId: string,
-  ): Promise<{ candidates: PrinterCandidate[]; deviceIdsByPrinterId: Map<string, string> }> {
-    const printers = await tx.printer.findMany({
-      where: { shopId },
-      include: { agent: { select: { deviceId: true } } },
-    });
-    const deviceIdsByPrinterId = new Map(
-      printers.filter((p) => p.agent).map((p) => [p.id, p.agent!.deviceId]),
-    );
-
-    const activeJobs = await tx.printJob.findMany({
-      where: {
-        shopId,
-        // 18.25: a superseded job (retry/reassign history) is not load.
-        supersededAt: null,
-        printerId: { not: null },
-        status: { in: [PrintJobStatus.QUEUED, PrintJobStatus.CLAIMED, PrintJobStatus.PRINTING] },
-      },
-      select: {
-        printerId: true,
-        orderItem: { select: { quantity: true, document: { select: { pageCount: true } } } },
-        order: { select: { document: { select: { pageCount: true } } } },
-      },
-    });
-    // Page-load measure, used here AND in dispatchToPrinter's in-loop update:
-    // pages a job will consume = document pageCount x item quantity (copies).
-    const load = new Map<string, { pages: number; jobs: number }>();
-    for (const job of activeJobs) {
-      const pages =
-        (job.orderItem?.document.pageCount ?? job.order.document.pageCount ?? 1) *
-        (job.orderItem?.quantity ?? 1);
-      const entry = load.get(job.printerId!) ?? { pages: 0, jobs: 0 };
-      entry.pages += pages;
-      entry.jobs += 1;
-      load.set(job.printerId!, entry);
-    }
-
-    const candidates = printers.map((printer) => ({
-      id: printer.id,
-      status: printer.status,
-      hasAgent: printer.agentId !== null,
-      capabilities: printer.capabilities as PrinterCandidate["capabilities"],
-      supportedSizes: printer.supportedSizes,
-      supportedPaperTypes: printer.supportedPaperTypes,
-      maxJobPages: printer.maxJobPages,
-      queuedPages: load.get(printer.id)?.pages ?? 0,
-      queuedJobs: load.get(printer.id)?.jobs ?? 0,
-      registeredAt: printer.createdAt.getTime(),
-    }));
-    return { candidates, deviceIdsByPrinterId };
-  }
-
   /** Preserves the exact pre-18.5 error contract for
    * `multiItemEnabled: false` orders -- the equivalence this phase
    * gates on. `candidateExists` distinguishes 10.4's own two manual-
@@ -620,7 +563,11 @@ export class ShopOrdersService {
       return new AppException(
         HttpStatus.CONFLICT,
         "NO_PRINTER_AVAILABLE",
-        "No printer is available to accept this order.",
+        // 19.2: the typed code is unchanged; the reason is visible in the
+        // message so staff know it is a page limit, not an outage.
+        allocation.blockedReason === "PAGE_LIMIT_REACHED"
+          ? "No printer is available to accept this order: every suitable printer has reached its page limit."
+          : "No printer is available to accept this order.",
         true,
       );
     }

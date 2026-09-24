@@ -1,0 +1,89 @@
+import { PrintJobStatus, type Prisma } from "@prisma/client";
+import { periodStart } from "../printers/page-limit-period.js";
+import type { PrinterCandidate } from "./allocate-printer.js";
+import { jobPages } from "./job-pages.js";
+
+export interface PrinterCandidateSet {
+  candidates: PrinterCandidate[];
+  /** printerId -> owning agent's deviceId (PrinterCandidate stays pure and
+   * carries no device concept). */
+  deviceIdsByPrinterId: Map<string, string>;
+}
+
+/** 19.2/19.4. Builds allocation candidates for every printer in a shop from
+ * live rows: queue load (QUEUED/CLAIMED/PRINTING, non-superseded, measured
+ * with `jobPages()`) and, only when `pageLimitEnabled` AND `pageLimit` is
+ * set, the remaining allowance from the current period's usage row. Lives in
+ * backend-shared so the worker's offline sweep (19.5) can reuse it. `now` is
+ * passed in. Queued-but-unprinted pages are deliberately NOT subtracted from
+ * the allowance: usage counts completed pages only (accrual is on PRINTED). */
+export async function buildPrinterCandidates(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  now: Date,
+): Promise<PrinterCandidateSet> {
+  const printers = await tx.printer.findMany({
+    where: { shopId },
+    include: { agent: { select: { deviceId: true } } },
+  });
+  const deviceIdsByPrinterId = new Map(
+    printers.filter((p) => p.agent).map((p) => [p.id, p.agent!.deviceId]),
+  );
+
+  const activeJobs = await tx.printJob.findMany({
+    where: {
+      shopId,
+      supersededAt: null,
+      printerId: { not: null },
+      status: { in: [PrintJobStatus.QUEUED, PrintJobStatus.CLAIMED, PrintJobStatus.PRINTING] },
+    },
+    select: {
+      printerId: true,
+      orderItem: { select: { quantity: true, document: { select: { pageCount: true } } } },
+      order: { select: { document: { select: { pageCount: true } } } },
+    },
+  });
+  const load = new Map<string, { pages: number; jobs: number }>();
+  for (const job of activeJobs) {
+    const pages = jobPages(
+      job.orderItem?.document.pageCount ?? job.order.document.pageCount,
+      job.orderItem?.quantity,
+    );
+    const entry = load.get(job.printerId!) ?? { pages: 0, jobs: 0 };
+    entry.pages += pages;
+    entry.jobs += 1;
+    load.set(job.printerId!, entry);
+  }
+
+  const limited = printers.filter((p) => p.pageLimitEnabled && p.pageLimit !== null);
+  const usage = new Map<string, number>();
+  for (const printer of limited) {
+    const row = await tx.printerPageUsage.findUnique({
+      where: {
+        printerId_periodStart: {
+          printerId: printer.id,
+          periodStart: periodStart(printer.pageLimitPeriod, now),
+        },
+      },
+      select: { pagesUsed: true },
+    });
+    usage.set(printer.id, row?.pagesUsed ?? 0);
+  }
+
+  const candidates: PrinterCandidate[] = printers.map((printer) => ({
+    id: printer.id,
+    status: printer.status,
+    hasAgent: printer.agentId !== null,
+    capabilities: printer.capabilities as PrinterCandidate["capabilities"],
+    supportedSizes: printer.supportedSizes,
+    supportedPaperTypes: printer.supportedPaperTypes,
+    maxJobPages: printer.maxJobPages,
+    queuedPages: load.get(printer.id)?.pages ?? 0,
+    queuedJobs: load.get(printer.id)?.jobs ?? 0,
+    registeredAt: printer.createdAt.getTime(),
+    pageLimitRemaining: usage.has(printer.id)
+      ? Math.max(0, printer.pageLimit! - usage.get(printer.id)!)
+      : null,
+  }));
+  return { candidates, deviceIdsByPrinterId };
+}

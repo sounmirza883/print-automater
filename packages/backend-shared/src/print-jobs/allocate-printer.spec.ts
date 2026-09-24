@@ -293,3 +293,45 @@ describe("allocatePrinter (18.4)", () => {
     });
   });
 });
+
+describe("allocatePrinter page allowance (19.2)", () => {
+  it("excludes a printer whose remaining allowance is below the job's pages", () => {
+    const result = allocatePrinter(request({ pageCount: 5 }), [
+      candidate({ id: "a", pageLimitRemaining: 4 }),
+      candidate({ id: "b", queuedPages: 100 }),
+    ]);
+    expect(result).toEqual({ outcome: "ALLOCATED", printerId: "b" });
+  });
+
+  it("allows a job that exactly consumes the remaining allowance", () => {
+    const result = allocatePrinter(request({ pageCount: 5 }), [
+      candidate({ id: "a", pageLimitRemaining: 5 }),
+    ]);
+    expect(result).toEqual({ outcome: "ALLOCATED", printerId: "a" });
+  });
+
+  it("null/undefined remaining never blocks (enforcement disabled)", () => {
+    expect(allocatePrinter(request(), [candidate({ pageLimitRemaining: null })]).outcome).toBe(
+      "ALLOCATED",
+    );
+  });
+
+  it("reports PAGE_LIMIT_REACHED when the limit is the only exclusion", () => {
+    const result = allocatePrinter(request(), [
+      candidate({ id: "a", pageLimitRemaining: 0 }),
+      candidate({ id: "b", pageLimitRemaining: 1 }),
+    ]);
+    expect(result).toEqual({
+      outcome: "BLOCKED",
+      blockedReason: BlockedReason.PAGE_LIMIT_REACHED,
+    });
+  });
+
+  it("manual assignment ignores the limit (PRD 20)", () => {
+    const result = allocatePrinter(
+      request({ requestedPrinterId: "a", allowUnknownCapabilities: true }),
+      [candidate({ id: "a", pageLimitRemaining: 0 })],
+    );
+    expect(result).toEqual({ outcome: "ALLOCATED", printerId: "a" });
+  });
+});

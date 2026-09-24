@@ -12,6 +12,11 @@ export const updatePrinterSchema = z
     name: z.string().min(1).max(200).optional(),
     enabled: z.boolean().optional(),
     capabilities: printerCapabilitiesSchema.optional(),
+    /** 19.2: null clears the limit. Enforcement only applies when
+     * `pageLimitEnabled` is true AND a limit is set. */
+    pageLimit: z.number().int().positive().max(10_000_000).nullable().optional(),
+    pageLimitEnabled: z.boolean().optional(),
+    pageLimitPeriod: z.enum(["DAILY", "WEEKLY", "MONTHLY"]).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "At least one field must be provided.",

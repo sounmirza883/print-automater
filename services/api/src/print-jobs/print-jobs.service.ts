@@ -5,6 +5,7 @@ import {
   allocatePrinter,
   AppException,
   AuditService,
+  jobPages,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
@@ -162,12 +163,16 @@ export class PrintJobsService {
     }
     const item = await this.prisma.orderItem.findUniqueOrThrow({
       where: { id: orderItemId },
-      select: { printConfiguration: true, document: { select: { pageCount: true } } },
+      select: {
+        printConfiguration: true,
+        quantity: true,
+        document: { select: { pageCount: true } },
+      },
     });
     const allocation = allocatePrinter(
       {
         printConfiguration: item.printConfiguration as unknown as PrintConfiguration,
-        pageCount: item.document.pageCount ?? 1,
+        pageCount: jobPages(item.document.pageCount, item.quantity),
         allowUnknownCapabilities: true,
         requestedPrinterId: printerId,
       },

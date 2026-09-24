@@ -93,3 +93,8 @@ export {
   type SmtpEmailTransportOptions,
 } from "./notifications/smtp-email-transport.js";
 export { periodStart, type PageLimitPeriod } from "./printers/page-limit-period.js";
+export { jobPages } from "./print-jobs/job-pages.js";
+export {
+  buildPrinterCandidates,
+  type PrinterCandidateSet,
+} from "./print-jobs/printer-candidates.js";

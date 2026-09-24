@@ -1,7 +1,18 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { type Prisma, type Printer, PrinterStatus, PrintJobStatus } from "@prisma/client";
+import {
+  type PageLimitPeriod,
+  type Prisma,
+  type Printer,
+  PrinterStatus,
+  PrintJobStatus,
+} from "@prisma/client";
 import type { PrinterCapabilities } from "@print-automated/types";
-import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
+import {
+  AppException,
+  AuditService,
+  periodStart,
+  PrismaService,
+} from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import type { RegisterPrinterInput, UpdatePrinterInput } from "@print-automated/validation";
@@ -13,6 +24,12 @@ export interface PrinterResponse {
   capabilities: PrinterCapabilities | null;
   status: PrinterStatus;
   createdAt: Date;
+  pageLimit: number | null;
+  pageLimitEnabled: boolean;
+  pageLimitPeriod: PageLimitPeriod;
+  pagesUsedInPeriod: number;
+  /** null when enforcement is disabled or no limit is set. */
+  remainingAllowance: number | null;
 }
 
 /** §110/10.2's own "may still be physically printing, unresolved"
@@ -45,7 +62,7 @@ export class PrintersService {
       where: { shopId },
       orderBy: { createdAt: "asc" },
     });
-    return printers.map((printer) => this.toResponse(printer));
+    return Promise.all(printers.map((printer) => this.toResponseWithUsage(printer)));
   }
 
   async register(requestingUserId: string, input: RegisterPrinterInput): Promise<PrinterResponse> {
@@ -68,7 +85,7 @@ export class PrintersService {
       metadata: { shopId: printer.shopId, name: printer.name },
     });
 
-    return this.toResponse(printer);
+    return this.toResponseWithUsage(printer);
   }
 
   /** §38/8.4: `enabled` toggles only to/from DISABLED -- ONLINE/ERROR
@@ -102,6 +119,9 @@ export class PrintersService {
         name: input.name,
         capabilities: input.capabilities as unknown as Prisma.InputJsonValue | undefined,
         status,
+        pageLimit: input.pageLimit,
+        pageLimitEnabled: input.pageLimitEnabled,
+        pageLimitPeriod: input.pageLimitPeriod,
       },
     });
 
@@ -110,10 +130,19 @@ export class PrintersService {
       action: AuditAction.PRINTER_UPDATED,
       resourceType: "printer",
       resourceId: printerId,
-      metadata: { from: { name: existing.name, status: existing.status }, to: input },
+      metadata: {
+        from: {
+          name: existing.name,
+          status: existing.status,
+          pageLimit: existing.pageLimit,
+          pageLimitEnabled: existing.pageLimitEnabled,
+          pageLimitPeriod: existing.pageLimitPeriod,
+        },
+        to: input,
+      },
     });
 
-    return this.toResponse(updated);
+    return this.toResponseWithUsage(updated);
   }
 
   /** §38/8.4's own Done-when: "deleting a printer with an active job
@@ -158,7 +187,32 @@ export class PrintersService {
     }
   }
 
-  private toResponse(printer: Printer): PrinterResponse {
+  /** 19.2: usage for the CURRENT period (UTC), read live so the figure
+   * rolls over with no reset job. */
+  private async toResponseWithUsage(printer: Printer): Promise<PrinterResponse> {
+    const usage = await this.prisma.printerPageUsage.findUnique({
+      where: {
+        printerId_periodStart: {
+          printerId: printer.id,
+          periodStart: periodStart(printer.pageLimitPeriod, new Date()),
+        },
+      },
+      select: { pagesUsed: true },
+    });
+    const pagesUsedInPeriod = usage?.pagesUsed ?? 0;
+    return {
+      ...this.toResponse(printer),
+      pagesUsedInPeriod,
+      remainingAllowance:
+        printer.pageLimitEnabled && printer.pageLimit !== null
+          ? Math.max(0, printer.pageLimit - pagesUsedInPeriod)
+          : null,
+    };
+  }
+
+  private toResponse(
+    printer: Printer,
+  ): Omit<PrinterResponse, "pagesUsedInPeriod" | "remainingAllowance"> {
     return {
       id: printer.id,
       shopId: printer.shopId,
@@ -166,6 +220,9 @@ export class PrintersService {
       capabilities: printer.capabilities as unknown as PrinterCapabilities | null,
       status: printer.status,
       createdAt: printer.createdAt,
+      pageLimit: printer.pageLimit,
+      pageLimitEnabled: printer.pageLimitEnabled,
+      pageLimitPeriod: printer.pageLimitPeriod,
     };
   }
 }
