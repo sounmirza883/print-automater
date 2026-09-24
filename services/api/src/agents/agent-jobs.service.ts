@@ -1,7 +1,8 @@
 import { HttpStatus, Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import { NotFoundException } from "@nestjs/common";
 import type Redis from "ioredis";
-import { PrintJobStatus } from "@prisma/client";
+import { PrintJobStatus, type Prisma } from "@prisma/client";
+import { BlockedReason } from "@print-automated/types";
 import type { PrintConfiguration } from "@print-automated/types";
 import type { ReportJobStatusInput } from "@print-automated/validation";
 import {
@@ -12,6 +13,7 @@ import {
   PrintJobStateMachine,
   PrismaService,
   reevaluatePrinterJobs,
+  redactMetadata,
   REDIS_CLIENT,
   signalAgentDevice,
   type FailoverTrigger,
@@ -354,6 +356,11 @@ export class AgentJobsService implements OnModuleDestroy {
     orderId: string,
     input: ReportJobStatusInput,
   ): Promise<void> {
+    // 19.18: hold the live successor BEFORE recording the late report, so the
+    // window in which it could still be claimed is as small as possible.
+    if (input.status === "PRINTED") {
+      await this.holdSuccessorsOfLatePrint(jobId, orderId);
+    }
     try {
       const applied = await this.jobStateMachine.transition(
         jobId,
@@ -384,6 +391,112 @@ export class AgentJobsService implements OnModuleDestroy {
           "An agent reported PRINTED for a job in a state that cannot record it.",
         );
       }
+    }
+  }
+
+  /** 19.18 (duplicate printing is the cardinal rule). A late PRINTED on a
+   * job that left the live path means paper for that item may already exist.
+   * If a successor for the same order item is still waiting to print (WAITING
+   * or QUEUED) it would print a second copy, so it is PAUSED through the job
+   * machine (MANUAL_APPROVAL_REQUIRED: staff resume it, or resolve the old job
+   * as printed and cancel this one). A successor already CLAIMED/PRINTING (or
+   * PRINTED) is in the agent's hands and is left alone. Either way one audit
+   * row (PRINT_JOB_LATE_PRINT_SUCCESSOR, on the OLD job) records what was found
+   * and whether it was held, so it is never silent. The pause is atomic under
+   * the orders/job locks: if the successor is claimed first the pause is
+   * refused and the row says held:false. Never throws into the agent's report. */
+  private async holdSuccessorsOfLatePrint(jobId: string, orderId: string): Promise<void> {
+    try {
+      const old = await this.prisma.printJob.findUnique({
+        where: { id: jobId },
+        select: { status: true, orderItemId: true },
+      });
+      if (
+        !old?.orderItemId ||
+        (old.status !== PrintJobStatus.TIMEOUT &&
+          old.status !== PrintJobStatus.FAILED &&
+          old.status !== PrintJobStatus.REASSIGNED)
+      ) {
+        return;
+      }
+      const successors = await this.prisma.printJob.findMany({
+        where: {
+          orderItemId: old.orderItemId,
+          id: { not: jobId },
+          status: {
+            in: [
+              PrintJobStatus.WAITING,
+              PrintJobStatus.QUEUED,
+              PrintJobStatus.CLAIMED,
+              PrintJobStatus.PRINTING,
+              PrintJobStatus.PRINTED,
+            ],
+          },
+        },
+        select: { id: true, status: true },
+      });
+      for (const successor of successors) {
+        let held = false;
+        let foundStatus: PrintJobStatus = successor.status;
+        if (
+          successor.status === PrintJobStatus.WAITING ||
+          successor.status === PrintJobStatus.QUEUED
+        ) {
+          try {
+            await this.jobStateMachine.transition(
+              successor.id,
+              PrintJobEvent.PAUSE,
+              { id: null },
+              {
+                printerId: null,
+                blockedReason: BlockedReason.MANUAL_APPROVAL_REQUIRED,
+                metadata: { reason: "LATE_PRINTED_ON_SUPERSEDED_JOB", supersededJobId: jobId },
+              },
+            );
+            held = true;
+          } catch (err) {
+            if (!(err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION")) {
+              throw err;
+            }
+            const now = await this.prisma.printJob.findUnique({
+              where: { id: successor.id },
+              select: { status: true },
+            });
+            foundStatus = now?.status ?? foundStatus;
+          }
+        }
+        await this.prisma.auditLog.create({
+          data: {
+            actorId: null,
+            action: "PRINT_JOB_LATE_PRINT_SUCCESSOR",
+            resourceType: "print_job",
+            resourceId: jobId,
+            metadata: redactMetadata({
+              orderId,
+              successorJobId: successor.id,
+              successorStatus: foundStatus,
+              held,
+            }) as Prisma.InputJsonValue,
+          },
+        });
+        this.logger.warn(
+          {
+            metric: "print.late_print_successor",
+            jobId,
+            orderId,
+            successorJobId: successor.id,
+            held,
+          },
+          held
+            ? "A late PRINTED arrived for a superseded job; its successor was paused so staff can decide."
+            : "A late PRINTED arrived for a superseded job whose successor is already in progress; duplicate paper is possible.",
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        { jobId, orderId, err },
+        "Could not hold the successor after a late PRINTED report.",
+      );
     }
   }
 
