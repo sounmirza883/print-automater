@@ -309,6 +309,12 @@ export class AgentJobsService implements OnModuleDestroy {
       // Idempotent repair: the earlier report's own sync may have been
       // lost; re-deriving is a no-op when the order is already right.
       await this.syncOrderIgnoringIllegal(job.orderId);
+      // 19.13: the report was illegal because the job already left the live
+      // path. A "PRINTED"/"UNKNOWN" claim there means paper may exist, so it
+      // must be recorded, not swallowed.
+      if (input.status === "PRINTED" || input.status === "UNKNOWN") {
+        await this.recordLateReport(job.id, job.orderId, input);
+      }
     }
 
     // 19.4 trigger (b), strictly AFTER the commit and outside the try above
@@ -332,6 +338,51 @@ export class AgentJobsService implements OnModuleDestroy {
         { metric: "print.status_unknown", jobId: job.id, orderId: job.orderId },
         "Print job status unknown.",
       );
+    }
+  }
+
+  /** 19.13 (duplicate printing is the cardinal rule). A late PRINTED/UNKNOWN
+   * report on a TIMEOUT/FAILED/REASSIGNED job moves it to UNKNOWN through the
+   * job machine (audited as PRINT_JOB_LATE_REPORT, order re-derived inside the
+   * same transaction), so staff must resolve it instead of blind-retrying a
+   * job whose paper already exists. Any other state (already PRINTED/UNKNOWN,
+   * i.e. a replay, or CANCELLED) is legitimately not applicable: logged, never
+   * an error to the agent. */
+  private async recordLateReport(
+    jobId: string,
+    orderId: string,
+    input: ReportJobStatusInput,
+  ): Promise<void> {
+    try {
+      const applied = await this.jobStateMachine.transition(
+        jobId,
+        PrintJobEvent.LATE_REPORT,
+        { id: null },
+        { osJobId: input.osJobId, metadata: { reported: input.status, late: true } },
+      );
+      this.logger.warn(
+        { metric: "print.late_report", jobId, orderId, reported: input.status, to: applied.status },
+        "A late agent report arrived for a job that had left the live path; recorded as UNKNOWN for staff to resolve.",
+      );
+    } catch (err) {
+      if (!(err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION")) {
+        throw err;
+      }
+      const current = await this.prisma.printJob.findUnique({
+        where: { id: jobId },
+        select: { status: true },
+      });
+      if (
+        input.status === "PRINTED" &&
+        current &&
+        current.status !== PrintJobStatus.PRINTED &&
+        current.status !== PrintJobStatus.UNKNOWN
+      ) {
+        this.logger.warn(
+          { metric: "print.report_not_applicable", jobId, orderId, currentStatus: current.status },
+          "An agent reported PRINTED for a job in a state that cannot record it.",
+        );
+      }
     }
   }
 

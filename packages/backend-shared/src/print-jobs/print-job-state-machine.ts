@@ -61,6 +61,12 @@ export const PrintJobEvent = {
   // creates starts its own lifecycle fresh at CREATED, never reuses
   // this one.
   SUPERSEDE: "SUPERSEDE",
+  // TIMEOUT|FAILED|REASSIGNED -> UNKNOWN (19.13): an agent reports PRINTED (or
+  // that it lost track) for a job that already left the live path -- timed
+  // out, failed, or failed over to another printer. Paper may have come out,
+  // so the evidence is recorded as UNKNOWN (staff must resolve it) rather than
+  // dropped, which would let a blind Retry print a duplicate.
+  LATE_REPORT: "LATE_REPORT",
 } as const;
 export type PrintJobEvent = (typeof PrintJobEvent)[keyof typeof PrintJobEvent];
 
@@ -121,15 +127,15 @@ const JOB_TRANSITIONS: Record<PrintJobStatus, Partial<Record<PrintJobEvent, Prin
     [PrintJobEvent.RESUME]: "WAITING",
     [PrintJobEvent.CANCEL]: "CANCELLED",
   },
-  FAILED: {},
+  FAILED: { [PrintJobEvent.LATE_REPORT]: "UNKNOWN" },
   UNKNOWN: {
     [PrintJobEvent.RESOLVE_PRINTED]: "PRINTED",
     [PrintJobEvent.RESOLVE_FAILED]: "FAILED",
     [PrintJobEvent.RESOLVE_RETRY]: "REASSIGNED",
   },
-  TIMEOUT: {},
+  TIMEOUT: { [PrintJobEvent.LATE_REPORT]: "UNKNOWN" },
   CANCELLED: {},
-  REASSIGNED: {},
+  REASSIGNED: { [PrintJobEvent.LATE_REPORT]: "UNKNOWN" },
 };
 
 /** Every (from, event, to) edge of the REAL transition table, so specs (the

@@ -1,5 +1,5 @@
 import type { JobTransitionContext } from "./print-job-state-machine.js";
-import { PrintJobStateMachine } from "./print-job-state-machine.js";
+import { jobTransitionEdges, PrintJobStateMachine } from "./print-job-state-machine.js";
 
 /** 18.1's own Done-when: "a test proves PrintJobStateMachine's public
  * API has no parameter through which a caller could pass an existing
@@ -39,5 +39,27 @@ describe("PrintJobStateMachine (18.1): no caller-supplied transaction", () => {
       "guard",
     ];
     expect(declaredKeys).not.toContain("tx");
+  });
+});
+
+/** 19.13. Duplicate printing is this product's cardinal rule. A report that
+ * paper came out (or that the agent lost track) on a job that already left the
+ * live path must be RECORDED as UNKNOWN evidence, never silently dropped. */
+describe("PrintJobStateMachine (19.13): late agent reports land as UNKNOWN", () => {
+  const lateEdges = jobTransitionEdges().filter((edge) => edge.event === "LATE_REPORT");
+
+  it("LATE_REPORT exists and is legal from exactly TIMEOUT, FAILED and REASSIGNED, always to UNKNOWN", () => {
+    expect(lateEdges.map((edge) => `${edge.from}->${edge.to}`).sort()).toEqual([
+      "FAILED->UNKNOWN",
+      "REASSIGNED->UNKNOWN",
+      "TIMEOUT->UNKNOWN",
+    ]);
+  });
+
+  it("never opens from a job that genuinely printed, is live, or was cancelled", () => {
+    const from = new Set(lateEdges.map((edge) => edge.from));
+    for (const status of ["PRINTED", "UNKNOWN", "CANCELLED", "QUEUED", "CLAIMED", "PRINTING"]) {
+      expect(from.has(status as never)).toBe(false);
+    }
   });
 });
