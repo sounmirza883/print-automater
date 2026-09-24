@@ -53,6 +53,11 @@ export class PrintTimeoutProcessor extends WorkerHost {
     });
 
     let timedOutCount = 0;
+    // 18.27: one persistently failing (poison) job must not block the jobs
+    // behind it on every tick, so each job has its own try/catch; failures
+    // are remembered and surfaced once AFTER the loop so the tick is still
+    // logged as failed and retried.
+    const failures: unknown[] = [];
     for (const stuckJob of stale) {
       try {
         // 18.16: the TIMEOUT write and the order sync commit together
@@ -71,9 +76,13 @@ export class PrintTimeoutProcessor extends WorkerHost {
         // report, or a previous/overlapping tick) between the query
         // above and this transition's row lock -- the guarantee
         // working, not a bug. Anything else (a transient sync failure,
-        // a DB error) propagates so it is logged and retried next tick.
+        // a DB error) is remembered and rethrown after the loop so the tick is logged and retried.
         if (!(error instanceof AppException && error.errorCode === "ILLEGAL_JOB_TRANSITION")) {
-          throw error;
+          this.logger.error(
+            `Print job ${stuckJob.id} could not be timed out: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          failures.push(error);
+          continue;
         }
         this.logger.debug(
           `Print job ${stuckJob.id} was no longer timeout-eligible by the time it was locked -- skipped.`,
@@ -82,6 +91,15 @@ export class PrintTimeoutProcessor extends WorkerHost {
     }
 
     this.logger.log(`Print timeout sweep: ${timedOutCount}/${stale.length} job(s) timed out.`);
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        `Print timeout sweep: ${failures.length} of ${stale.length} job(s) failed to time out.`,
+      );
+    }
     return { timedOutCount, consideredCount: stale.length };
   }
 

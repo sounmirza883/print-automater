@@ -141,7 +141,14 @@ describe("Print timeout sweep (10.5, e2e)", () => {
   it("§109: a QUEUED_FOR_PRINT order whose job is past the timeout fails to PRINT_FAILED and its job is marked TIMEOUT; a recent one and a different-status one are untouched", async () => {
     const stale = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 999, PrintJobStatus.QUEUED);
     const fresh = await createOrder(OrderStatus.QUEUED_FOR_PRINT, 1, PrintJobStatus.QUEUED);
-    const differentStatus = await createOrder(OrderStatus.SHOP_ACCEPTED, 999);
+    // 18.27: a REAL stale job under an order that is not (yet) derived from
+    // jobs. The sweep is job-level: the job times out, but the order sync is
+    // ILLEGAL for SHOP_ACCEPTED (tolerated), so the order stays SHOP_ACCEPTED.
+    const differentStatus = await createOrder(
+      OrderStatus.SHOP_ACCEPTED,
+      999,
+      PrintJobStatus.QUEUED,
+    );
 
     await processor.process(fakeJob);
 
@@ -153,9 +160,45 @@ describe("Print timeout sweep (10.5, e2e)", () => {
     expect(staleOrder.orderStatus).toBe(OrderStatus.PRINT_FAILED);
     expect(freshOrder.orderStatus).toBe(OrderStatus.QUEUED_FOR_PRINT);
     expect(differentStatusOrder.orderStatus).toBe(OrderStatus.SHOP_ACCEPTED);
+    expect(
+      (await prisma.printJob.findUniqueOrThrow({ where: { id: differentStatus.jobId! } })).status,
+    ).toBe(PrintJobStatus.TIMEOUT);
+    // The order-level sync ran exactly once for the failed order, never for the
+    // fresh or the SHOP_ACCEPTED one.
+    const syncs = (orderId: string) =>
+      prisma.auditLog.count({
+        where: { resourceType: "order", resourceId: orderId, action: "ORDER_SYNC_JOBS" },
+      });
+    expect(await syncs(stale.orderId)).toBe(1);
+    expect(await syncs(fresh.orderId)).toBe(0);
+    expect(await syncs(differentStatus.orderId)).toBe(0);
 
     const staleJob = await prisma.printJob.findUniqueOrThrow({ where: { id: stale.jobId! } });
     expect(staleJob.status).toBe(PrintJobStatus.TIMEOUT);
+  });
+
+  it.each([
+    [OrderStatus.PRINTING, OrderStatus.PRINT_FAILED, "a stale QUEUED job fails a PRINTING order"],
+    [OrderStatus.PAUSED, OrderStatus.PRINT_FAILED, "a PAUSED order fails too"],
+    [
+      OrderStatus.CANCELLED,
+      OrderStatus.CANCELLED,
+      "a CANCELLED order stays cancelled (job still times out)",
+    ],
+  ])("18.27: stale QUEUED job under a %s order -> order %s (%s)", async (start, expected, _why) => {
+    const { orderId, jobId } = await createOrder(start, 999, PrintJobStatus.QUEUED);
+    await processor.process(fakeJob);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).orderStatus).toBe(
+      expected,
+    );
+    expect((await prisma.printJob.findUniqueOrThrow({ where: { id: jobId! } })).status).toBe(
+      PrintJobStatus.TIMEOUT,
+    );
+    expect(
+      await prisma.auditLog.count({
+        where: { resourceType: "order", resourceId: orderId, action: "ORDER_SYNC_JOBS" },
+      }),
+    ).toBe(expected === start ? 0 : 1);
   });
 
   it("§109: a job an agent claimed but never reported on also times out (not just an unclaimed one)", async () => {
