@@ -13,7 +13,12 @@ import {
 } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { PrinterOfflineSweepProcessor } from "../src/printer-offline-sweep/printer-offline-sweep.processor.js";
-import { createSweepFixture, STALE_MS, type SweepFixture } from "./helpers/sweep-fixture.js";
+import {
+  createSweepFixture,
+  STALE_MS,
+  waitForNotificationsDrained,
+  type SweepFixture,
+} from "./helpers/sweep-fixture.js";
 
 /** 19.15. A job parked WAITING because printers were unavailable (offline,
  * disabled, at their page limit) is re-allocated once one qualifies again,
@@ -40,6 +45,7 @@ describe("Queue recovery: WAITING jobs re-allocate when capacity returns (19.15,
     for (const fx of fixtures) {
       await fx.cleanup().catch((e: unknown) => errors.push(e));
     }
+    await waitForNotificationsDrained(redis);
     await app.close();
     if (errors.length > 0) {
       throw new AggregateError(errors, "cleanup failed");

@@ -8,7 +8,12 @@ import { PrintJobStatus, PrinterStatus } from "@prisma/client";
 import { PrismaService, REDIS_CLIENT } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { PrinterOfflineSweepProcessor } from "../src/printer-offline-sweep/printer-offline-sweep.processor.js";
-import { createSweepFixture, STALE_MS, type SweepFixture } from "./helpers/sweep-fixture.js";
+import {
+  createSweepFixture,
+  STALE_MS,
+  waitForNotificationsDrained,
+  type SweepFixture,
+} from "./helpers/sweep-fixture.js";
 
 /** 19.14 (PRD 25/122). The offline sweep learns WHICH printers it just flipped
  * (UPDATE .. RETURNING), and only for shops that opted in (auto_failover_enabled)
@@ -33,6 +38,7 @@ describe("Printer offline sweep failover (19.14, e2e)", () => {
     for (const fx of fixtures) {
       await fx.cleanup().catch((e: unknown) => errors.push(e));
     }
+    await waitForNotificationsDrained(redis);
     await app.close();
     if (errors.length > 0) {
       throw new AggregateError(errors, "cleanup failed");

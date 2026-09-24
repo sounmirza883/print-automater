@@ -14,7 +14,12 @@ import {
 import { AppModule } from "../src/app.module.js";
 import { PrintTimeoutProcessor } from "../src/print-timeout/print-timeout.processor.js";
 import { PrinterOfflineSweepProcessor } from "../src/printer-offline-sweep/printer-offline-sweep.processor.js";
-import { createSweepFixture, STALE_MS, type SweepFixture } from "./helpers/sweep-fixture.js";
+import {
+  createSweepFixture,
+  STALE_MS,
+  waitForNotificationsDrained,
+  type SweepFixture,
+} from "./helpers/sweep-fixture.js";
 
 /** 19.16. The REAL sweep processors racing a staff reassign of the same job,
  * fired with Promise.all. (The retry-print endpoint lives in the API; its race
@@ -41,6 +46,7 @@ describe("Sweeps racing a staff reassign (19.16, e2e)", () => {
     for (const fx of fixtures) {
       await fx.cleanup().catch((e: unknown) => errors.push(e));
     }
+    await waitForNotificationsDrained(redis);
     await app.close();
     if (errors.length > 0) {
       throw new AggregateError(errors, "cleanup failed");

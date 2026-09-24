@@ -197,3 +197,24 @@ export async function createSweepFixture(
 }
 
 export type SweepFixture = Awaited<ReturnType<typeof createSweepFixture>>;
+
+/** The sweeps under test change order status, which enqueues customer emails on
+ * the shared `notifications` queue. Leaving them behind hands them to the NEXT
+ * suite's worker, and an email job still in flight when that suite's app closes
+ * hangs `app.close()` (the stale-backlog hang CONTEXT.md rule 5 describes). So
+ * every suite that drives a sweep waits, in its own afterAll and before closing
+ * its app, until its own app's worker has drained the queue. */
+export async function waitForNotificationsDrained(redis: Redis, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [wait, active, delayed] = await Promise.all([
+      redis.llen("bull:notifications:wait"),
+      redis.llen("bull:notifications:active"),
+      redis.zcard("bull:notifications:delayed"),
+    ]);
+    if (wait + active + delayed === 0 || Date.now() > deadline) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
