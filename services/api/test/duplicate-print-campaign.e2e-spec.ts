@@ -432,6 +432,14 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
     const syncAudits = await prisma.auditLog.count({
       where: { resourceType: "order", resourceId: orderId, action: "ORDER_SYNC_JOBS" },
     });
-    expect(syncAudits).toBe(1);
+    // 18.24: the job was still CLAIMED, so the report self-heals through START
+    // first -- exactly the OLD START_PRINT then FINISH_PRINT pair, i.e. TWO
+    // order transitions (PRINTING, then PRINTED) ONCE, not once per replay.
+    // (Before 18.24 this asserted 1, which encoded the lost PRINT_STARTED.)
+    expect(syncAudits).toBe(2);
+    const jobStartAudits = await prisma.auditLog.count({
+      where: { resourceType: "print_job", resourceId: jobId, action: "PRINT_JOB_START" },
+    });
+    expect(jobStartAudits).toBe(1);
   });
 });
