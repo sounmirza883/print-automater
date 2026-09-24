@@ -270,7 +270,9 @@ describe("Shop orders API (8.2, e2e)", () => {
       .get(`/v1/shop/orders?shopId=${shopA.id}`)
       .set("Authorization", `Bearer ${counterATokan}`);
     expect(list.status).toBe(200);
-    const listed = list.body.printing.find((o: { id: string }) => o.id === orderId);
+    // 19.12: an order with a blocked WAITING job is STRANDED, so it is listed
+    // under needsAttention (it used to be `printing`).
+    const listed = list.body.needsAttention.find((o: { id: string }) => o.id === orderId);
     expect(listed.printerName).toBeNull();
     expect(listed.printJobs).toEqual([
       { id: job.id, status: "WAITING", printerName: null, blockedReason: "NO_ONLINE_PRINTER" },

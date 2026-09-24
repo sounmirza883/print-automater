@@ -152,6 +152,29 @@ export const GROUP_BY_STATUS: Record<OrderStatus, keyof ShopOrdersGrouped | "hid
   [OrderStatus.CANCELLED]: "failed",
 };
 
+/** 19.12: the group an order is shown in. PRECEDENCE:
+ *   1. "hidden" (customer/payment-side only) is never overridden.
+ *   2. A NON-TERMINAL, in-production order (base group "printing") that has at
+ *      least one non-superseded job that is WAITING with a blockedReason is
+ *      STRANDED -- a human has to act (e.g. failover parked it, or nothing
+ *      qualified at dispatch) -- so it is "needsAttention" whatever its derived
+ *      status (PREPARING, QUEUED_FOR_PRINT, PRINTING, ...).
+ *   3. Everything else keeps its GROUP_BY_STATUS group: terminal orders
+ *      (ready/completed/failed) and orders already needing attention never move,
+ *      and an order with no blocked job (every single-job order today) is
+ *      unchanged. GROUP_BY_STATUS stays total and typed; this only refines it.
+ * Callers pass only the order's NON-superseded jobs (SHOP_ORDER_INCLUDE). */
+export function groupForOrder(
+  status: OrderStatus,
+  jobs: ReadonlyArray<{ status: string; blockedReason: string | null }>,
+): keyof ShopOrdersGrouped | "hidden" {
+  const base = GROUP_BY_STATUS[status];
+  if (base === "printing" && jobs.some((job) => job.status === "WAITING" && job.blockedReason)) {
+    return "needsAttention";
+  }
+  return base;
+}
+
 export const SHOP_VISIBLE_STATUSES = (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter(
   (status) => GROUP_BY_STATUS[status] !== "hidden",
 );
@@ -230,7 +253,7 @@ export class ShopOrdersService {
       failed: [],
     };
     for (const order of orders) {
-      const group = GROUP_BY_STATUS[order.orderStatus];
+      const group = groupForOrder(order.orderStatus, order.printJobs);
       if (group && group !== "hidden") {
         grouped[group].push(this.toResponse(order));
       }
