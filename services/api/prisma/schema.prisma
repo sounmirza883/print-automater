@@ -126,6 +126,8 @@ model Shop {
   capabilities        Json?
   // 19.4: opt-in automatic handoff when a printer becomes unsuitable.
   autoFailoverEnabled Boolean    @default(false) @map("auto_failover_enabled")
+  // 20.3 (PRD 28): opt-in paper-availability gate + consumption. Default false.
+  inventoryTrackingEnabled Boolean @default(false) @map("inventory_tracking_enabled")
   // 15.4: both default false, so no existing shop's behaviour changes
   // the moment this column exists. qualityCheckEnabled is §68/21.3's
   // per-business QC toggle; multiItemEnabled gates Phase 18's order-

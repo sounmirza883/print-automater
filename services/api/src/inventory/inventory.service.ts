@@ -11,6 +11,7 @@ import type {
   ListInventoryMovementsQueryInput,
   RecordInventoryMovementInput,
   UpdateInventoryItemInput,
+  UpdateInventorySettingsInput,
 } from "@print-automated/validation";
 import {
   AppException,
@@ -20,6 +21,7 @@ import {
   isLowStock,
 } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
+import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 
 export interface Page<T> {
@@ -47,6 +49,11 @@ export interface InventoryItemResponse {
   lowStock: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface InventorySettingsResponse {
+  shopId: string;
+  trackingEnabled: boolean;
 }
 
 export interface InventoryMovementResponse {
@@ -111,6 +118,7 @@ export class InventoryService {
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
     private readonly audit: AuditService,
+    private readonly agentJobs: AgentJobsService,
   ) {}
 
   async listItems(
@@ -297,7 +305,43 @@ export class InventoryService {
         item: await tx.inventoryItem.findUniqueOrThrow({ where: { id: itemId } }),
       };
     });
+    if (movement.quantityDelta > 0) {
+      // 20.3: stock went up; jobs parked NO_PAPER may now allocate (opt-in, post-commit).
+      await this.agentJobs.recoverPaperBlockedJobs(existing.shopId);
+    }
     return { movement: toMovementResponse(movement), item: toItemResponse(item) };
+  }
+
+  async getSettings(shopId: string, userId: string): Promise<InventorySettingsResponse> {
+    await this.assertMember(shopId, userId);
+    const shop = await this.prisma.shop.findUniqueOrThrow({
+      where: { id: shopId },
+      select: { inventoryTrackingEnabled: true },
+    });
+    return { shopId, trackingEnabled: shop.inventoryTrackingEnabled };
+  }
+
+  async updateSettings(
+    input: UpdateInventorySettingsInput,
+    userId: string,
+  ): Promise<InventorySettingsResponse> {
+    await this.assertMember(input.shopId, userId);
+    await this.prisma.shop.update({
+      where: { id: input.shopId },
+      data: { inventoryTrackingEnabled: input.trackingEnabled },
+    });
+    await this.audit.record({
+      actorId: userId,
+      action: AuditAction.INVENTORY_TRACKING_CHANGED,
+      resourceType: "shop",
+      resourceId: input.shopId,
+      metadata: { enabled: input.trackingEnabled },
+    });
+    if (!input.trackingEnabled) {
+      // The gate is released: NO_PAPER jobs are no longer blocked by anything.
+      await this.agentJobs.recoverPaperBlockedJobs(input.shopId);
+    }
+    return { shopId: input.shopId, trackingEnabled: input.trackingEnabled };
   }
 
   async listMovements(

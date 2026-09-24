@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -22,6 +23,8 @@ import { ShopScoped, ShopScopedField } from "../auth/shop-scoped.decorator.js";
 import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.js";
 import {
   CreateInventoryItemDto,
+  GetInventorySettingsQueryDto,
+  UpdateInventorySettingsDto,
   ListInventoryItemsQueryDto,
   ListInventoryMovementsQueryDto,
   RecordInventoryMovementDto,
@@ -32,6 +35,7 @@ import {
   InventoryService,
   type InventoryItemResponse,
   type InventoryMovementResponse,
+  type InventorySettingsResponse,
   type Page,
 } from "./inventory.service.js";
 
@@ -52,6 +56,26 @@ import {
 @RequirePermission(Permission.VIEW_INVENTORY)
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
+
+  @Get("settings")
+  @ShopScopedField("query", "shopId")
+  getSettings(
+    @Req() req: RequestWithUser,
+    @Query() query: GetInventorySettingsQueryDto,
+  ): Promise<InventorySettingsResponse> {
+    return this.inventory.getSettings(query.shopId, req.user!.id);
+  }
+
+  /** PRD 28: switch paper-availability gating and consumption on/off (default off). */
+  @Put("settings")
+  @RequirePermission(Permission.MANAGE_INVENTORY)
+  @ShopScopedField("body", "shopId")
+  updateSettings(
+    @Req() req: RequestWithUser,
+    @Body() dto: UpdateInventorySettingsDto,
+  ): Promise<InventorySettingsResponse> {
+    return this.inventory.updateSettings(dto, req.user!.id);
+  }
 
   @Get("items")
   @ShopScopedField("query", "shopId")

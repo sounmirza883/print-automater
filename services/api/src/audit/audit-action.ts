@@ -42,6 +42,8 @@ export const AuditAction = {
   // INVENTORY_MOVEMENT; these two cover the item's own metadata.
   INVENTORY_ITEM_CREATED: "INVENTORY_ITEM_CREATED",
   INVENTORY_ITEM_UPDATED: "INVENTORY_ITEM_UPDATED",
+  // 28/20.3: the shop-level tracking toggle.
+  INVENTORY_TRACKING_CHANGED: "INVENTORY_TRACKING_CHANGED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

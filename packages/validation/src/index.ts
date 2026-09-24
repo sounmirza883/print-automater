@@ -115,4 +115,8 @@ export {
   type ListInventoryMovementsQueryInput,
   recordInventoryMovementSchema,
   type RecordInventoryMovementInput,
+  getInventorySettingsQuerySchema,
+  type GetInventorySettingsQueryInput,
+  updateInventorySettingsSchema,
+  type UpdateInventorySettingsInput,
 } from "./inventory/index.js";

@@ -7,6 +7,7 @@ import type { PrismaService } from "../prisma/prisma.service.js";
 import { allocatePrinter } from "./allocate-printer.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
+import { paperNeedFor, withPaperAvailability } from "../inventory/paper-availability.js";
 import { PrintJobEvent, type PrintJobStateMachine } from "./print-job-state-machine.js";
 import { buildPrinterCandidates } from "./printer-candidates.js";
 
@@ -62,8 +63,16 @@ export async function reallocateWaitingJobs(
     afterCandidatesRead?: () => Promise<void>;
     onError?: (jobId: string, error: unknown) => void;
   },
-  input: { shopId?: string } = {},
+  input: {
+    shopId?: string;
+    /** Blocked reasons to recover (default: the availability set). 20.3 passes
+     * [NO_PAPER] after a restock, still behind the shop's opt-in. */
+    reasons?: readonly string[];
+    /** Audit label (default PRINTER_RECOVERED). */
+    trigger?: string;
+  } = {},
 ): Promise<ReallocationResult> {
+  const recoverable = input.reasons ?? AVAILABILITY_BLOCKED_REASONS;
   const { prisma, jobMachine } = deps;
   const now = (deps.now ?? (() => new Date()))();
   const result: ReallocationResult = { outcomes: [], errors: [], notifyDeviceIds: [] };
@@ -84,7 +93,7 @@ export async function reallocateWaitingJobs(
       printerId: null,
       supersededAt: null,
       orderItemId: { not: null },
-      blockedReason: { in: [...AVAILABILITY_BLOCKED_REASONS] },
+      blockedReason: { in: [...recoverable] },
     },
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }, { id: "asc" }],
     select: {
@@ -125,11 +134,10 @@ export async function reallocateWaitingJobs(
         allowUnknownCapabilities: false,
       };
       // Rebuilt per job: each allocation changes queue load for the next one.
-      const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
-        prisma,
-        job.shopId,
-        now,
-      );
+      const built = await buildPrinterCandidates(prisma, job.shopId, now);
+      const { deviceIdsByPrinterId } = built;
+      const need = paperNeedFor(config, jp);
+      const candidates = await withPaperAvailability(prisma, job.shopId, built.candidates, need);
       const allocation = allocatePrinter(request, candidates);
       if (allocation.outcome !== "ALLOCATED") {
         result.outcomes.push({ jobId: job.id, action: "STILL_BLOCKED" });
@@ -146,7 +154,7 @@ export async function reallocateWaitingJobs(
           locked.status !== PrintJobStatus.WAITING ||
           locked.printerId !== null ||
           locked.blockedReason === null ||
-          !AVAILABILITY_BLOCKED_REASONS.includes(locked.blockedReason)
+          !recoverable.includes(locked.blockedReason)
         ) {
           throw new AppException(
             HttpStatus.CONFLICT,
@@ -172,9 +180,10 @@ export async function reallocateWaitingJobs(
         }
         await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
         const fresh = await buildPrinterCandidates(tx, job.shopId, now);
+        const freshCandidates = await withPaperAvailability(tx, job.shopId, fresh.candidates, need);
         const recheck = allocatePrinter(
           request,
-          fresh.candidates.filter((c) => c.id === targetId),
+          freshCandidates.filter((c) => c.id === targetId),
         );
         if (recheck.outcome === "BLOCKED") {
           throw new AppException(
@@ -195,7 +204,11 @@ export async function reallocateWaitingJobs(
             guard,
             printerId: targetId,
             blockedReason: null,
-            metadata: { automatic: true, trigger: "PRINTER_RECOVERED", toPrinterId: targetId },
+            metadata: {
+              automatic: true,
+              trigger: input.trigger ?? "PRINTER_RECOVERED",
+              toPrinterId: targetId,
+            },
           },
         );
       } catch (error) {

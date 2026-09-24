@@ -122,3 +122,12 @@ export {
   type StockMovementResult,
 } from "./inventory/stock-movement.js";
 export { isLowStock } from "./inventory/low-stock.js";
+export {
+  availablePaperSheets,
+  isInventoryTrackingEnabled,
+  paperItemMatches,
+  paperNeedFor,
+  sheetsForJob,
+  withPaperAvailability,
+  type PaperNeed,
+} from "./inventory/paper-availability.js";

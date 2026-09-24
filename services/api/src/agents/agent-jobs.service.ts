@@ -12,6 +12,7 @@ import {
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
+  reallocateWaitingJobs,
   reevaluatePrinterJobs,
   redactMetadata,
   REDIS_CLIENT,
@@ -124,6 +125,33 @@ export class AgentJobsService implements OnModuleDestroy {
         { printerId, trigger, err: error },
         "Automatic failover re-evaluation failed.",
       );
+    }
+  }
+
+  /** 20.3: stock was added (restock, purchase receipt, correction upward) or the
+   * shop switched inventory tracking off, so a
+   * job parked NO_PAPER may now be allocatable. Same shape and guarantees as
+   * `reevaluatePrinter`: delegates to the shared recovery primitive (a no-op
+   * unless the shop opted in to automatic recovery, PRD 122 -- staff can always
+   * reassign by hand), wakes receiving agents only AFTER every move committed,
+   * and never throws into the caller (the stock change already committed). */
+  async recoverPaperBlockedJobs(shopId: string): Promise<void> {
+    try {
+      const result = await reallocateWaitingJobs(
+        {
+          prisma: this.prisma,
+          jobMachine: this.jobStateMachine,
+          onError: (jobId, err) =>
+            this.logger.error(
+              { jobId, shopId, err },
+              "Restock recovery could not re-allocate one job; continuing with the rest.",
+            ),
+        },
+        { shopId, reasons: [BlockedReason.NO_PAPER], trigger: "STOCK_RESTORED" },
+      );
+      await Promise.all(result.notifyDeviceIds.map((deviceId) => this.notify(deviceId)));
+    } catch (error) {
+      this.logger.error({ shopId, err: error }, "Restock recovery failed.");
     }
   }
 

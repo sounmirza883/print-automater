@@ -7,6 +7,7 @@ import type { PrismaService } from "../prisma/prisma.service.js";
 import { allocatePrinter } from "./allocate-printer.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
+import { paperNeedFor, withPaperAvailability } from "../inventory/paper-availability.js";
 import { PrintJobEvent, type PrintJobStateMachine } from "./print-job-state-machine.js";
 import { buildPrinterCandidates } from "./printer-candidates.js";
 
@@ -124,11 +125,15 @@ export async function reevaluatePrinterJobs(
         }),
       );
       const pages = jp.total;
-      const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
-        prisma,
-        input.shopId,
-        now,
+      const built = await buildPrinterCandidates(prisma, input.shopId, now);
+      const { deviceIdsByPrinterId } = built;
+      // 20.3: the paper gate applies to failover's automatic re-allocation too
+      // (a no-op unless the shop enabled inventory tracking).
+      const need = paperNeedFor(
+        job.orderItem.printConfiguration as unknown as PrintConfiguration,
+        jp,
       );
+      const candidates = await withPaperAvailability(prisma, input.shopId, built.candidates, need);
 
       await deps.afterCandidatesRead?.();
 
@@ -213,9 +218,15 @@ export async function reevaluatePrinterJobs(
             await guard(tx, locked);
             await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
             const fresh = await buildPrinterCandidates(tx, input.shopId, now);
+            const freshCandidates = await withPaperAvailability(
+              tx,
+              input.shopId,
+              fresh.candidates,
+              need,
+            );
             const recheck = allocatePrinter(
               request,
-              fresh.candidates.filter((c) => c.id === targetId),
+              freshCandidates.filter((c) => c.id === targetId),
             );
             if (recheck.outcome === "BLOCKED") {
               staleReason = recheck.blockedReason;

@@ -23,6 +23,8 @@ import {
   allocatePrinter,
   AppException,
   buildPrinterCandidates,
+  paperNeedFor,
+  withPaperAvailability,
   explodeOrderItems,
   jobPages,
   logJobPagesFallback,
@@ -513,6 +515,18 @@ export class ShopOrdersService {
       const attempt = await tx.printJob.count({ where: { orderItemId: draft.orderItemId } });
       const idempotencyToken = `${draft.orderItemId}:${attempt + 1}`;
 
+      // 20.3 (PRD 28): the paper gate is an AUTOMATIC-path check; a staff member
+      // naming a printer overrides automation. A no-op (same array back) unless
+      // the shop enabled inventory tracking.
+      const allocationCandidates =
+        requestedPrinterId === undefined
+          ? await withPaperAvailability(
+              tx,
+              freshOrder.shopId,
+              candidates,
+              paperNeedFor(draft.printConfiguration, jp),
+            )
+          : candidates;
       const allocation = allocatePrinter(
         {
           printConfiguration: draft.printConfiguration,
@@ -521,7 +535,7 @@ export class ShopOrdersService {
           allowUnknownCapabilities: requestedPrinterId !== undefined,
           requestedPrinterId,
         },
-        candidates,
+        allocationCandidates,
       );
 
       if (allocation.outcome === "ALLOCATED") {
@@ -598,7 +612,9 @@ export class ShopOrdersService {
         // message so staff know it is a page limit, not an outage.
         allocation.blockedReason === "PAGE_LIMIT_REACHED"
           ? "No printer is available to accept this order: every suitable printer has reached its page limit."
-          : "No printer is available to accept this order.",
+          : allocation.blockedReason === "NO_PAPER"
+            ? "No printer is available to accept this order: the required paper is out of stock."
+            : "No printer is available to accept this order.",
         true,
       );
     }

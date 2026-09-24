@@ -124,3 +124,13 @@ export const recordInventoryMovementSchema = z
     { message: "An adjustment or correction needs a reason.", path: ["reason"] },
   );
 export type RecordInventoryMovementInput = z.infer<typeof recordInventoryMovementSchema>;
+
+/** 20.3 (PRD 28): the shop-level inventory-tracking toggle (default off). */
+export const getInventorySettingsQuerySchema = z.object({ shopId: z.string().uuid() });
+export type GetInventorySettingsQueryInput = z.infer<typeof getInventorySettingsQuerySchema>;
+
+export const updateInventorySettingsSchema = z.object({
+  shopId: z.string().uuid(),
+  trackingEnabled: z.boolean(),
+});
+export type UpdateInventorySettingsInput = z.infer<typeof updateInventorySettingsSchema>;
