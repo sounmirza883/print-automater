@@ -92,3 +92,4 @@ export {
   SmtpEmailTransport,
   type SmtpEmailTransportOptions,
 } from "./notifications/smtp-email-transport.js";
+export { periodStart, type PageLimitPeriod } from "./printers/page-limit-period.js";

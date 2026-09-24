@@ -123,6 +123,8 @@ model Shop {
   status              ShopStatus @default(CLOSED)
   openingHours        Json?      @map("opening_hours")
   capabilities        Json?
+  // 19.4: opt-in automatic handoff when a printer becomes unsuitable.
+  autoFailoverEnabled Boolean    @default(false) @map("auto_failover_enabled")
   // 15.4: both default false, so no existing shop's behaviour changes
   // the moment this column exists. qualityCheckEnabled is §68/21.3's
   // per-business QC toggle; multiItemEnabled gates Phase 18's order-
@@ -784,12 +786,17 @@ model Printer {
   // getting out of sync; free text avoids both.
   maintenanceStatus   String?       @map("maintenance_status")
   lastStatusAt        DateTime?     @map("last_status_at")
+  // 19.1: opt-in page limit (PRD 23). Enforcement only when enabled AND set.
+  pageLimit           Int?          @map("page_limit")
+  pageLimitEnabled    Boolean       @default(false) @map("page_limit_enabled")
+  pageLimitPeriod     PageLimitPeriod @default(DAILY) @map("page_limit_period")
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
   shop      Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
   agent     PrinterAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   printJobs PrintJob[]
+  pageUsage PrinterPageUsage[]
 
   @@index([shopId])
   @@index([agentId])
@@ -983,4 +990,26 @@ model AgentPairingCode {
 
   @@index([shopId])
   @@map("agent_pairing_codes")
+}
+
+enum PageLimitPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// 19.1: usage per printer per UTC period. period_start is part of the key,
+// so rollover needs no reset job.
+model PrinterPageUsage {
+  id          String   @id @default(uuid())
+  printerId   String   @map("printer_id")
+  periodStart DateTime @map("period_start")
+  pagesUsed   Int      @default(0) @map("pages_used")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  printer Printer @relation(fields: [printerId], references: [id], onDelete: Cascade)
+
+  @@unique([printerId, periodStart])
+  @@map("printer_page_usage")
 }
