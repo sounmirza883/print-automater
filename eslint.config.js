@@ -7,6 +7,41 @@ import eslintConfigPrettier from "eslint-config-prettier";
 
 const REACT_APP_FILES = ["apps/customer-web/**/*.{ts,tsx}", "apps/shop-mobile/**/*.{ts,tsx}"];
 
+const SERVER_FILES = [
+  "services/api/src/**/*.ts",
+  "services/worker/src/**/*.ts",
+  "packages/backend-shared/src/**/*.ts",
+];
+
+// 5.4: a direct `orders.order_status` write outside OrderStateMachine
+// bypasses the transition table entirely -- no legality check, no row
+// lock, no audit row. Matches any `.update`/`.updateMany` call that sets
+// `orderStatus`. `create()` is deliberately not covered: setting an
+// order's *initial* status is not a transition between existing states,
+// and Prisma's own `@default(DRAFT)` already governs it.
+const ORDER_STATUS_WRITE = {
+  selector:
+    "CallExpression[callee.property.name=/^(update|updateMany)$/] Property[key.name='orderStatus']",
+  message:
+    "Order status may only be written by OrderStateMachine.transition() (packages/backend-shared/src/orders/order-state-machine.ts) -- a direct write here bypasses the legality check, row lock, and audit trail.",
+};
+
+// 18.1: a direct `print_jobs.status` write outside PrintJobStateMachine
+// bypasses its legality check, its structural orders-row-then-job-row
+// lock ordering, and its audit trail. Scoped to `printJob` delegates --
+// `status` alone is far too generic (Printer/Document/Payment/User/
+// PrinterAgent all have one). The second alternative catches a
+// destructured delegate (`const { printJob } = tx; printJob.update(...)`),
+// which the first form (`<anything>.printJob.update`) misses. `upsert`
+// is covered too. `create()` is not: an initial status is not a
+// transition. Raw SQL (`$executeRaw`) is invisible to any AST selector.
+const PRINT_JOB_STATUS_WRITE = {
+  selector:
+    "CallExpression[callee.object.property.name='printJob'][callee.property.name=/^(update|updateMany|upsert)$/] Property[key.name='status'], CallExpression[callee.object.name='printJob'][callee.property.name=/^(update|updateMany|upsert)$/] Property[key.name='status']",
+  message:
+    "print_jobs.status may only be written by PrintJobStateMachine (packages/backend-shared/src/print-jobs/print-job-state-machine.ts) -- a direct write here bypasses the legality check, the mandatory orders-row-first lock ordering, and the audit trail.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -50,63 +85,36 @@ export default tseslint.config(
     },
   },
   {
-    // 5.4's own Done-when: a direct `orders.order_status` write outside
-    // OrderStateMachine.transition() bypasses the transition table
-    // entirely -- no legality check, no row lock, no audit row. This
-    // catches every `prisma.order.update`/`updateMany` call anywhere in
-    // services/api, services/worker or backend-shared that sets
-    // `orderStatus`, except inside the state machine itself (5.6 moved
-    // it into packages/backend-shared, since services/worker's own
-    // expiration sweep needs it too, not just services/api). `create()`
-    // is deliberately not covered -- setting an order's *initial*
-    // status is not a transition between existing states, and Prisma's
-    // own `@default(DRAFT)` already governs it.
-    files: [
-      "services/api/src/**/*.ts",
-      "services/worker/src/**/*.ts",
-      "packages/backend-shared/src/**/*.ts",
-    ],
-    ignores: ["packages/backend-shared/src/orders/order-state-machine.ts"],
+    // Single-writer guards: `orders.order_status` (5.4) and
+    // `print_jobs.status` (18.1). ESLint flat config REPLACES a rule's
+    // options when a later block sets the same rule for the same file --
+    // it does not merge them. 18.1 originally added the print_jobs guard
+    // as a second block with identical `files`, which silently switched
+    // the order_status guard OFF for every server file: a probe that wrote
+    // both columns linted clean on the order_status line (found in the
+    // Phase 18 review). So both selectors live in ONE block, and each
+    // state machine's own file is exempted by a narrower block below that
+    // re-lists only the OTHER selector. `pnpm lint` also runs
+    // scripts/verify-lint-guards.mjs, which lints deliberately-violating
+    // snippets and fails if either guard stops firing -- a disabled rule
+    // produces no output, so a plain lint run cannot notice it.
+    files: SERVER_FILES,
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "CallExpression[callee.property.name=/^(update|updateMany)$/] Property[key.name='orderStatus']",
-          message:
-            "Order status may only be written by OrderStateMachine.transition() (packages/backend-shared/src/orders/order-state-machine.ts) -- a direct write here bypasses the legality check, row lock, and audit trail.",
-        },
-      ],
+      "no-restricted-syntax": ["error", ORDER_STATUS_WRITE, PRINT_JOB_STATUS_WRITE],
     },
   },
   {
-    // 18.1's own Done-when, mirroring the orderStatus rule immediately
-    // above exactly (same server-package scoping, same single-file
-    // `ignores` mechanism): a direct `print_jobs.status` write outside
-    // PrintJobStateMachine bypasses its legality check, its structural
-    // orders-row-then-job-row lock ordering, and its own audit trail.
-    // Scoped specifically to `<anything>.printJob.update`/`updateMany`
-    // calls -- `status` alone is far too generic a property name
-    // (Printer.status, Document.status, Payment.status, User.status,
-    // PrinterAgent.status all exist in this same schema) to match on
-    // its own without flooding every one of those with false positives.
-    files: [
-      "services/api/src/**/*.ts",
-      "services/worker/src/**/*.ts",
-      "packages/backend-shared/src/**/*.ts",
-    ],
-    ignores: ["packages/backend-shared/src/print-jobs/print-job-state-machine.ts"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "CallExpression[callee.object.property.name='printJob'][callee.property.name=/^(update|updateMany)$/] Property[key.name='status']",
-          message:
-            "print_jobs.status may only be written by PrintJobStateMachine (packages/backend-shared/src/print-jobs/print-job-state-machine.ts) -- a direct write here bypasses the legality check, the mandatory orders-row-first lock ordering, and the audit trail.",
-        },
-      ],
-    },
+    // OrderStateMachine IS the one place orders.order_status is written,
+    // but it must never write print_jobs.status.
+    files: ["packages/backend-shared/src/orders/order-state-machine.ts"],
+    rules: { "no-restricted-syntax": ["error", PRINT_JOB_STATUS_WRITE] },
+  },
+  {
+    // PrintJobStateMachine IS the one place print_jobs.status is written,
+    // but it must never write orders.order_status (it calls the order
+    // machine instead -- "the job writer calls the order writer").
+    files: ["packages/backend-shared/src/print-jobs/print-job-state-machine.ts"],
+    rules: { "no-restricted-syntax": ["error", ORDER_STATUS_WRITE] },
   },
   {
     // React 19's automatic JSX runtime needs no `import React` in scope
