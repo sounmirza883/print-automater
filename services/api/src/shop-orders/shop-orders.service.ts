@@ -154,6 +154,10 @@ export const SHOP_VISIBLE_STATUSES = (Object.keys(GROUP_BY_STATUS) as OrderStatu
   (status) => GROUP_BY_STATUS[status] !== "hidden",
 );
 
+/** 18.17: the job statuses a PRINT_FAILED order's retry/change-printer
+ * acts on -- FAILED and TIMEOUT are the two that derive PRINT_FAILED. */
+const RETRYABLE_FAILURES: PrintJobStatus[] = [PrintJobStatus.FAILED, PrintJobStatus.TIMEOUT];
+
 @Injectable()
 export class ShopOrdersService {
   private readonly logger = new Logger(ShopOrdersService.name);
@@ -384,6 +388,7 @@ export class ShopOrdersService {
     tx: Prisma.TransactionClient,
     orderId: string,
     requestedPrinterId?: string,
+    onlyItemIds?: ReadonlySet<string>,
   ): Promise<{ notifyDeviceIds: string[] }> {
     const freshOrder = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
@@ -433,6 +438,11 @@ export class ShopOrdersService {
         },
       });
       items = [synthetic];
+    }
+
+    // 18.17: a retry re-dispatches only the items it superseded a job for.
+    if (onlyItemIds) {
+      items = items.filter((item) => onlyItemIds.has(item.id));
     }
 
     const drafts = explodeOrderItems(
@@ -646,18 +656,51 @@ export class ShopOrdersService {
     return status;
   }
 
-  /** Every currently-active (non-superseded) job for this order is
-   * superseded before a retry/reassignment attempt creates its
-   * replacement -- what makes SHOP_ORDER_INCLUDE's own `supersededAt:
-   * null` filter (18.5) mean "the current attempt" and what keeps
-   * aggregateOrderStatus() from ever seeing a stale FAILED job
-   * alongside the fresh QUEUED one it's about to derive PRINT_FAILED
-   * from all over again. */
-  private async supersedeActiveJobs(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+  /** 18.17: retry / change-printer / resolve-unknown act ONLY on the
+   * items whose current (non-superseded) job is in `statuses` --
+   * FAILED/TIMEOUT for retry and change-printer, UNKNOWN for resolve-
+   * unknown's RETRY. Just those jobs are superseded (what keeps
+   * SHOP_ORDER_INCLUDE's `supersededAt: null` filter meaning "the
+   * current attempt" and stops aggregateOrderStatus() seeing a stale
+   * FAILED job next to its replacement); PRINTED, PRINTING, CLAIMED,
+   * QUEUED, PAUSED and WAITING siblings are left byte-for-byte alone, so
+   * a retry can never reprint a finished item or orphan an in-flight
+   * one. Returns the item ids to re-dispatch, or `undefined` meaning "all
+   * items" for a legacy job that has no order item (single-item orders
+   * behave exactly as before). Throws 409 NO_RETRYABLE_ITEMS if nothing
+   * qualifies. */
+  private async supersedeJobsForRetry(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    statuses: PrintJobStatus[],
+  ): Promise<Set<string> | undefined> {
+    const eligible = await tx.printJob.findMany({
+      where: { orderId, supersededAt: null, status: { in: statuses } },
+      select: { id: true, orderItemId: true },
+    });
+    if (eligible.length === 0) {
+      // No job history at all (an order moved to this status without any
+      // job row): nothing to protect, so re-dispatch every item exactly
+      // as the pre-18.17 code did.
+      const liveJobs = await tx.printJob.count({ where: { orderId, supersededAt: null } });
+      if (liveJobs === 0) {
+        return undefined;
+      }
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "NO_RETRYABLE_ITEMS",
+        "No item of this order has a job that can be retried.",
+        false,
+      );
+    }
     await tx.printJob.updateMany({
-      where: { orderId, supersededAt: null },
+      where: { id: { in: eligible.map((job) => job.id) } },
       data: { supersededAt: new Date() },
     });
+    if (eligible.some((job) => job.orderItemId === null)) {
+      return undefined;
+    }
+    return new Set(eligible.map((job) => job.orderItemId as string));
   }
 
   /** 18.16: re-derive the order INSIDE the caller's transaction, so the
@@ -713,8 +756,9 @@ export class ShopOrdersService {
       if (status !== OrderStatus.PRINT_FAILED) {
         return;
       }
-      await this.supersedeActiveJobs(tx, orderId);
-      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, printerId)).notifyDeviceIds;
+      const itemIds = await this.supersedeJobsForRetry(tx, orderId, RETRYABLE_FAILURES);
+      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, printerId, itemIds))
+        .notifyDeviceIds;
       pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
     });
 
@@ -736,8 +780,9 @@ export class ShopOrdersService {
       if (status !== OrderStatus.PRINT_FAILED) {
         return;
       }
-      await this.supersedeActiveJobs(tx, orderId);
-      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
+      const itemIds = await this.supersedeJobsForRetry(tx, orderId, RETRYABLE_FAILURES);
+      notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, undefined, itemIds))
+        .notifyDeviceIds;
       pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
     });
 
@@ -786,8 +831,9 @@ export class ShopOrdersService {
         if (status !== OrderStatus.PRINT_STATUS_UNKNOWN) {
           return;
         }
-        await this.supersedeActiveJobs(tx, orderId);
-        notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId)).notifyDeviceIds;
+        const itemIds = await this.supersedeJobsForRetry(tx, orderId, [PrintJobStatus.UNKNOWN]);
+        notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, undefined, itemIds))
+          .notifyDeviceIds;
         pendingEmail = await this.syncOrderWithin(tx, orderId, actorId);
       });
       await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
