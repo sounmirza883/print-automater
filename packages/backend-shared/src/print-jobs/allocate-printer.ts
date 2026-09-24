@@ -55,6 +55,11 @@ export interface AllocationRequest {
    * ONLY this printer (still subject to every other check) instead of
    * picking automatically from every eligible candidate. */
   requestedPrinterId?: string;
+  /** 18.25: printers this allocation must never pick (e.g. the one that
+   * just failed this item). Default empty. An excluded printer is ignored
+   * entirely -- including for the blocked reason and as a
+   * `requestedPrinterId`. */
+  excludePrinterIds?: readonly string[];
 }
 
 export type AllocationResult =
@@ -165,10 +170,38 @@ function blockedReasonFor(
  * (`registeredAt` ascending), then `id` ascending -- exhaustively
  * proven with a deliberately-ambiguous candidate set in this file's
  * own spec. */
+/** 18.25: when NO candidate is eligible, the reported reason is the one
+ * "closest to eligible" across ALL candidates, i.e. the most actionable
+ * for staff, by this fixed precedence (first = most actionable) -- NOT the
+ * first non-null in caller array order, which was DB findMany order:
+ *   a human/flag gate that clears quickly (approval, operator, paper,
+ *   page limit) > printer offline (a heartbeat away) > incompatible
+ *   (needs different hardware) > DISABLED (a deliberate staff switch-off,
+ *   the least likely to change). Unknown reasons rank last. */
+const BLOCKED_REASON_PRECEDENCE: readonly BlockedReason[] = [
+  BlockedReason.MANUAL_APPROVAL_REQUIRED,
+  BlockedReason.OPERATOR_UNAVAILABLE,
+  BlockedReason.NO_PAPER,
+  BlockedReason.PAGE_LIMIT_REACHED,
+  BlockedReason.PRINTER_OFFLINE,
+  BlockedReason.NO_COMPATIBLE_PRINTER,
+  BlockedReason.PRINTER_DISABLED,
+];
+
+function mostActionableReason(reasons: readonly BlockedReason[]): BlockedReason | undefined {
+  const rank = (reason: BlockedReason): number => {
+    const index = BLOCKED_REASON_PRECEDENCE.indexOf(reason);
+    return index === -1 ? BLOCKED_REASON_PRECEDENCE.length : index;
+  };
+  return [...reasons].sort((a, b) => rank(a) - rank(b))[0];
+}
+
 export function allocatePrinter(
   request: AllocationRequest,
-  candidates: readonly PrinterCandidate[],
+  allCandidates: readonly PrinterCandidate[],
 ): AllocationResult {
+  const excluded = new Set(request.excludePrinterIds ?? []);
+  const candidates = allCandidates.filter((c) => !excluded.has(c.id));
   if (request.requestedPrinterId) {
     const requested = candidates.find((c) => c.id === request.requestedPrinterId);
     if (!requested) {
@@ -185,10 +218,12 @@ export function allocatePrinter(
     // Report the single most common/fundamental reason across every
     // candidate that was considered, defaulting to NO_COMPATIBLE_PRINTER
     // when there were no candidates to begin with.
-    const firstReason = candidates.map((c) => blockedReasonFor(c, request)).find((r) => r !== null);
+    const reasons = candidates
+      .map((c) => blockedReasonFor(c, request))
+      .filter((r): r is BlockedReason => r !== null);
     return {
       outcome: "BLOCKED",
-      blockedReason: firstReason ?? BlockedReason.NO_COMPATIBLE_PRINTER,
+      blockedReason: mostActionableReason(reasons) ?? BlockedReason.NO_COMPATIBLE_PRINTER,
     };
   }
 

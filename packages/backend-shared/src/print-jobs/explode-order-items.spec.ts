@@ -65,4 +65,15 @@ describe("explodeOrderItems (18.3)", () => {
       "item-4",
     ]);
   });
+
+  it("18.25d: drafts hold a deep copy -- mutating a draft cannot change the item", () => {
+    const items: OrderItemLike[] = [
+      { id: "item-1", documentId: "doc-1", printConfiguration: config(), required: true },
+    ];
+    const drafts = explodeOrderItems(items);
+    expect(drafts[0]!.printConfiguration).not.toBe(items[0]!.printConfiguration);
+    drafts[0]!.printConfiguration.copies = 99;
+    drafts[0]!.printConfiguration.pages = { mode: "range", ranges: "1-2" } as never;
+    expect(items[0]!.printConfiguration).toEqual(config());
+  });
 });

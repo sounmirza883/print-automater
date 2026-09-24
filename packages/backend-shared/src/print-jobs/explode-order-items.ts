@@ -35,7 +35,9 @@ export function explodeOrderItems(items: readonly OrderItemLike[]): PrintJobDraf
   return items.map((item) => ({
     orderItemId: item.id,
     documentId: item.documentId,
-    printConfiguration: item.printConfiguration,
+    // 18.25: deep copy -- a draft must never alias (and so be able to mutate)
+    // the item it was exploded from.
+    printConfiguration: structuredClone(item.printConfiguration),
     required: item.required,
     attempt: 1,
   }));

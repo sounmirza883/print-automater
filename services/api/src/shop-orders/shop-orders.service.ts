@@ -467,6 +467,7 @@ export class ShopOrdersService {
       freshOrder.shopId,
     );
     const notifyDeviceIds = new Set<string>();
+    const itemQuantity = new Map(items.map((item) => [item.id, item.quantity]));
 
     for (const draft of drafts) {
       const document = await tx.document.findUnique({
@@ -506,7 +507,7 @@ export class ShopOrdersService {
           // queue depth for tie-breaking, rather than every item in one
           // multi-item order racing to the same "least loaded" printer.
           printer.queuedJobs += 1;
-          printer.queuedPages += pageCount;
+          printer.queuedPages += pageCount * (itemQuantity.get(draft.orderItemId) ?? 1);
           const deviceId = deviceIdsByPrinterId.get(printer.id);
           if (deviceId) {
             notifyDeviceIds.add(deviceId);
@@ -562,6 +563,8 @@ export class ShopOrdersService {
     const activeJobs = await tx.printJob.findMany({
       where: {
         shopId,
+        // 18.25: a superseded job (retry/reassign history) is not load.
+        supersededAt: null,
         printerId: { not: null },
         status: { in: [PrintJobStatus.QUEUED, PrintJobStatus.CLAIMED, PrintJobStatus.PRINTING] },
       },
@@ -571,6 +574,8 @@ export class ShopOrdersService {
         order: { select: { document: { select: { pageCount: true } } } },
       },
     });
+    // Page-load measure, used here AND in dispatchToPrinter's in-loop update:
+    // pages a job will consume = document pageCount x item quantity (copies).
     const load = new Map<string, { pages: number; jobs: number }>();
     for (const job of activeJobs) {
       const pages =

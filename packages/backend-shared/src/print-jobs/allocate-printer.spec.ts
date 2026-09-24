@@ -224,4 +224,72 @@ describe("allocatePrinter (18.4)", () => {
       });
     });
   });
+
+  describe("18.25: blocked reason is order-independent (stated precedence)", () => {
+    function permutations<T>(items: T[]): T[][] {
+      if (items.length <= 1) return [items];
+      return items.flatMap((item, index) =>
+        permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [
+          item,
+          ...rest,
+        ]),
+      );
+    }
+
+    it("every permutation of [DISABLED, ONLINE-no-paper] reports the same reason: NO_PAPER (closer to eligible than a deliberate DISABLED)", () => {
+      const set = [
+        candidate({ id: "a", status: PrinterStatus.DISABLED }),
+        candidate({ id: "b", paperAvailable: false }),
+      ];
+      const reasons = permutations(set).map((p) => allocatePrinter(request(), p));
+      for (const result of reasons) {
+        expect(result).toEqual({ outcome: "BLOCKED", blockedReason: BlockedReason.NO_PAPER });
+      }
+    });
+
+    it("a mixed set of every reason yields one reason across ALL permutations", () => {
+      const set = [
+        candidate({ id: "a", status: PrinterStatus.DISABLED }),
+        candidate({ id: "b", status: PrinterStatus.OFFLINE }),
+        candidate({ id: "c", capabilities: { color: false, duplex: false, a4: false, a3: false } }),
+        candidate({ id: "d", pageLimitReached: true }),
+        candidate({ id: "e", requiresManualApproval: true }),
+      ];
+      const seen = new Set(
+        permutations(set).map((p) => {
+          const result = allocatePrinter(request(), p);
+          return result.outcome === "BLOCKED" ? result.blockedReason : "ALLOCATED";
+        }),
+      );
+      expect([...seen]).toEqual([BlockedReason.MANUAL_APPROVAL_REQUIRED]);
+    });
+  });
+
+  describe("18.25: excludePrinterIds", () => {
+    it("skips an excluded printer even when it would otherwise win", () => {
+      const result = allocatePrinter(request({ excludePrinterIds: ["a"] }), [
+        candidate({ id: "a", queuedPages: 0 }),
+        candidate({ id: "b", queuedPages: 50 }),
+      ]);
+      expect(result).toEqual({ outcome: "ALLOCATED", printerId: "b" });
+    });
+
+    it("blocks (NO_COMPATIBLE_PRINTER) when exclusion leaves nobody, and rejects an excluded requestedPrinterId", () => {
+      expect(
+        allocatePrinter(request({ excludePrinterIds: ["a"] }), [candidate({ id: "a" })]),
+      ).toEqual({ outcome: "BLOCKED", blockedReason: BlockedReason.NO_COMPATIBLE_PRINTER });
+      expect(
+        allocatePrinter(request({ excludePrinterIds: ["a"], requestedPrinterId: "a" }), [
+          candidate({ id: "a" }),
+        ]),
+      ).toEqual({ outcome: "BLOCKED", blockedReason: BlockedReason.NO_COMPATIBLE_PRINTER });
+    });
+
+    it("default (absent/empty) changes nothing", () => {
+      const set = [candidate({ id: "a" })];
+      expect(allocatePrinter(request({ excludePrinterIds: [] }), set)).toEqual(
+        allocatePrinter(request(), set),
+      );
+    });
+  });
 });
