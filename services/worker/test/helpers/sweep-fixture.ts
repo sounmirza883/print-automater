@@ -134,7 +134,7 @@ export async function createSweepFixture(
       },
     });
     if (extra.ageMinutes) {
-      await prisma.$executeRaw`UPDATE print_jobs SET updated_at = now() - make_interval(mins => ${extra.ageMinutes}) WHERE id = ${job.id}`;
+      await prisma.$executeRaw`UPDATE print_jobs SET updated_at = now() - make_interval(mins => ${extra.ageMinutes}::int) WHERE id = ${job.id}`;
     }
     return { jobId: job.id, itemId: item.id, orderId: order.id };
   }
