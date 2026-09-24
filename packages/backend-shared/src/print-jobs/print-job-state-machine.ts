@@ -131,6 +131,23 @@ const JOB_TRANSITIONS: Record<PrintJobStatus, Partial<Record<PrintJobEvent, Prin
   REASSIGNED: {},
 };
 
+/** Every (from, event, to) edge of the REAL transition table, so specs (the
+ * order-status purity/rank properties) derive from it instead of hand-copying
+ * it and silently missing a new edge. */
+export function jobTransitionEdges(): Array<{
+  from: PrintJobStatus;
+  event: PrintJobEvent;
+  to: PrintJobStatus;
+}> {
+  const edges: Array<{ from: PrintJobStatus; event: PrintJobEvent; to: PrintJobStatus }> = [];
+  for (const [from, byEvent] of Object.entries(JOB_TRANSITIONS)) {
+    for (const [event, to] of Object.entries(byEvent)) {
+      edges.push({ from: from as PrintJobStatus, event: event as PrintJobEvent, to });
+    }
+  }
+  return edges;
+}
+
 export interface JobTransitionActor {
   /** null for system-driven transitions (print-timeout sweep, an
    * agent's own unauthenticated-by-a-human status report). */

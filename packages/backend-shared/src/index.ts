@@ -60,6 +60,7 @@ export {
 } from "./orders/aggregate-order-status.js";
 
 export {
+  jobTransitionEdges,
   PrintJobEvent,
   PrintJobStateMachine,
   type JobTransitionActor,

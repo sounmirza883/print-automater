@@ -1,51 +1,35 @@
 import { OrderStatus, PrintJobStatus } from "@prisma/client";
 import { QualityCheckStatus } from "@print-automated/types";
 import { aggregateOrderStatus } from "./aggregate-order-status.js";
+import { jobTransitionEdges, PrintJobEvent } from "../print-jobs/print-job-state-machine.js";
 
 const ALL_STATUSES = Object.values(PrintJobStatus);
 const ALL_QC = Object.values(QualityCheckStatus);
 const ALL_ORDER_STATUSES = new Set<string>(Object.values(OrderStatus));
 
-/** Independently hand-written here (not imported from
- * print-job-state-machine.ts) -- the same "don't check the
- * implementation against itself" reasoning order-state-machine.e2e-
- * spec.ts's own EXPECTED matrix already established. Every legal
- * TARGET a job of a given status could move to, per JOB_TRANSITIONS. */
-const JOB_TRANSITION_TARGETS: Record<PrintJobStatus, PrintJobStatus[]> = {
-  CREATED: [PrintJobStatus.QUEUED, PrintJobStatus.WAITING, PrintJobStatus.CANCELLED],
-  WAITING: [
-    PrintJobStatus.QUEUED,
-    PrintJobStatus.WAITING,
-    PrintJobStatus.PAUSED,
-    PrintJobStatus.CANCELLED,
-    PrintJobStatus.REASSIGNED,
-  ],
-  QUEUED: [
-    PrintJobStatus.CLAIMED,
-    PrintJobStatus.PRINTED,
-    PrintJobStatus.FAILED,
-    PrintJobStatus.UNKNOWN,
-    PrintJobStatus.TIMEOUT,
-    PrintJobStatus.PAUSED,
-    PrintJobStatus.CANCELLED,
-    PrintJobStatus.REASSIGNED,
-  ],
-  CLAIMED: [
-    PrintJobStatus.PRINTING,
-    PrintJobStatus.PRINTED,
-    PrintJobStatus.FAILED,
-    PrintJobStatus.UNKNOWN,
-    PrintJobStatus.TIMEOUT,
-    PrintJobStatus.REASSIGNED,
-  ],
-  PRINTING: [PrintJobStatus.PRINTED, PrintJobStatus.FAILED, PrintJobStatus.UNKNOWN],
-  PRINTED: [],
-  PAUSED: [PrintJobStatus.WAITING, PrintJobStatus.CANCELLED],
-  FAILED: [],
-  UNKNOWN: [PrintJobStatus.PRINTED, PrintJobStatus.FAILED, PrintJobStatus.REASSIGNED],
-  TIMEOUT: [],
-  CANCELLED: [],
-  REASSIGNED: [],
+/** Derived FROM the real transition table (never hand-copied): a hand copy
+ * silently ignored 19.4's QUEUED -> WAITING edge, so a new edge could escape
+ * every property below. */
+const EDGES = jobTransitionEdges();
+
+const JOB_TRANSITION_TARGETS: Record<PrintJobStatus, PrintJobStatus[]> = Object.fromEntries(
+  ALL_STATUSES.map((status) => [
+    status,
+    [...new Set(EDGES.filter((edge) => edge.from === status).map((edge) => edge.to))],
+  ]),
+) as Record<PrintJobStatus, PrintJobStatus[]>;
+
+/** Events that may lower (or drop out of) an order's progress rank BY DESIGN.
+ * Every one needs a justification; anything else must be rank-preserving. */
+const RANK_LOWERING_BY_DESIGN: Partial<Record<PrintJobEvent, string>> = {
+  SUPERSEDE:
+    "staff/automatic reassignment: the old job leaves the live set and a fresh QUEUED successor joins, changing WHICH jobs count, not job progress",
+  RESOLVE_RETRY:
+    "staff retry of an UNKNOWN job supersedes it and dispatches a replacement (same as SUPERSEDE)",
+  CANCEL: "a cancelled job leaves the live set",
+  PAUSE: "a deliberate operator hold; escalates to PAUSED attention when all live jobs are paused",
+  UNALLOCATE:
+    "19.4 failover found no other printer: a QUEUED job returns to WAITING (blocked), so the order honestly drops from QUEUED_FOR_PRINT to PREPARING (nothing is queued for print any more)",
 };
 
 /** Every multiset of size 1..maxSize drawn (with repetition, order
@@ -199,14 +183,11 @@ describe("aggregateOrderStatus exhaustive purity matrix (18.10)", () => {
           continue;
         }
         for (let i = 0; i < multiset.length; i += 1) {
-          for (const target of JOB_TRANSITION_TARGETS[multiset[i]!]) {
-            if (
-              target === PrintJobStatus.CANCELLED ||
-              target === PrintJobStatus.REASSIGNED ||
-              target === PrintJobStatus.PAUSED
-            ) {
+          for (const edge of EDGES.filter((e) => e.from === multiset[i])) {
+            if (edge.event in RANK_LOWERING_BY_DESIGN) {
               continue;
             }
+            const target = edge.to;
             const after = [...multiset];
             after[i] = target;
             const result = aggregateOrderStatus(toJobs(after), { qualityCheck: qc });
@@ -225,6 +206,26 @@ describe("aggregateOrderStatus exhaustive purity matrix (18.10)", () => {
       }
     }
     expect(checked).toBeGreaterThan(0);
+  });
+
+  it("every event in the real table is either rank-checked above or listed, with a reason, as lowering by design", () => {
+    const eventsInTable = new Set(EDGES.map((edge) => edge.event));
+    for (const event of Object.values(PrintJobEvent)) {
+      // An event with no edge at all would be silently uncovered.
+      expect({ event, hasEdge: eventsInTable.has(event) }).toEqual({ event, hasEdge: true });
+    }
+    for (const event of Object.keys(RANK_LOWERING_BY_DESIGN)) {
+      expect(eventsInTable.has(event as PrintJobEvent)).toBe(true);
+    }
+  });
+
+  it("19.4 UNALLOCATE is real and lowers a lone queued job's order from QUEUED_FOR_PRINT to PREPARING (pinned)", () => {
+    expect(EDGES).toContainEqual({ from: "QUEUED", event: "UNALLOCATE", to: "WAITING" });
+    const qc = { qualityCheck: QualityCheckStatus.NOT_REQUIRED };
+    expect(aggregateOrderStatus(toJobs([PrintJobStatus.QUEUED]), qc)).toBe(
+      OrderStatus.QUEUED_FOR_PRINT,
+    );
+    expect(aggregateOrderStatus(toJobs([PrintJobStatus.WAITING]), qc)).toBe(OrderStatus.PREPARING);
   });
 
   it("18.15: a PRINTED job among unfinished live jobs keeps the order PRINTING", () => {
