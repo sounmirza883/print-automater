@@ -426,18 +426,26 @@ export class ShopOrdersService {
     let items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { sequence: "asc" } });
     if (items.length === 0) {
       const config = freshOrder.printConfiguration as unknown as PrintConfiguration;
-      const synthetic = await tx.orderItem.create({
-        data: {
-          orderId,
-          documentId: freshOrder.documentId,
-          printConfiguration: freshOrder.printConfiguration as Prisma.InputJsonValue,
-          quantity: config.copies ?? 1,
-          itemType: OrderItemType.PRINT,
-          required: true,
-          sequence: 0,
-        },
+      // 18.19: `order_items(order_id, sequence)` is unique. createMany with
+      // skipDuplicates is INSERT .. ON CONFLICT DO NOTHING: a concurrent
+      // first-dispatch that lost the race inserts nothing (a plain create
+      // would abort the whole Postgres transaction on the violation), and
+      // both then re-read the single winning row.
+      await tx.orderItem.createMany({
+        data: [
+          {
+            orderId,
+            documentId: freshOrder.documentId,
+            printConfiguration: freshOrder.printConfiguration as Prisma.InputJsonValue,
+            quantity: config.copies ?? 1,
+            itemType: OrderItemType.PRINT,
+            required: true,
+            sequence: 0,
+          },
+        ],
+        skipDuplicates: true,
       });
-      items = [synthetic];
+      items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { sequence: "asc" } });
     }
 
     // 18.17: a retry re-dispatches only the items it superseded a job for.

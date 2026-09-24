@@ -896,6 +896,7 @@ model OrderItem {
   document  Document   @relation(fields: [documentId], references: [id])
   printJobs PrintJob[]
 
+  @@unique([orderId, sequence])
   @@index([orderId])
   @@index([documentId])
   @@map("order_items")
