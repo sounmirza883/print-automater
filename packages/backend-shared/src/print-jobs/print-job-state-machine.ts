@@ -4,6 +4,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
 import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js";
+import { periodStart } from "../printers/page-limit-period.js";
+import { jobPages } from "./job-pages.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -254,6 +256,50 @@ export class PrintJobStateMachine {
     return this.applyTransaction(jobIds, event, actor, ctx);
   }
 
+  /** 19.3. Runs inside the SAME transaction as the transition into PRINTED
+   * (PRINTED and RESOLVE_PRINTED both land here), so the count commits or
+   * rolls back with the status and a job can only reach PRINTED once: a
+   * replay hits ILLEGAL_JOB_TRANSITION before this line. Atomic
+   * INSERT .. ON CONFLICT increment, never read-modify-write, so
+   * concurrent completions on one printer sum exactly. Accrues regardless
+   * of `page_limit_enabled` so enabling a limit later starts from truth.
+   * The period is the printer's own, in UTC (periodStart). */
+  private async accruePageUsage(
+    tx: Prisma.TransactionClient,
+    jobId: string,
+    printerId: string | null,
+  ): Promise<void> {
+    if (!printerId) {
+      return;
+    }
+    const printer = await tx.printer.findUnique({
+      where: { id: printerId },
+      select: { pageLimitPeriod: true },
+    });
+    if (!printer) {
+      return;
+    }
+    const job = await tx.printJob.findUniqueOrThrow({
+      where: { id: jobId },
+      select: {
+        orderItem: { select: { quantity: true, document: { select: { pageCount: true } } } },
+        order: { select: { document: { select: { pageCount: true } } } },
+      },
+    });
+    const pages = jobPages(
+      job.orderItem?.document.pageCount ?? job.order.document.pageCount,
+      job.orderItem?.quantity,
+    );
+    const start = periodStart(printer.pageLimitPeriod, new Date());
+    await tx.$executeRaw`
+      INSERT INTO printer_page_usage (id, printer_id, period_start, pages_used, created_at, updated_at)
+      VALUES (gen_random_uuid()::text, ${printerId}, ${start}, ${pages}, now(), now())
+      ON CONFLICT (printer_id, period_start)
+      DO UPDATE SET pages_used = printer_page_usage.pages_used + EXCLUDED.pages_used,
+                    updated_at = now()
+    `;
+  }
+
   private async applyTransaction(
     jobIds: string[],
     event: PrintJobEvent,
@@ -345,6 +391,10 @@ export class PrintJobStateMachine {
               ...(nextStatus === "REASSIGNED" ? { supersededAt: new Date() } : {}),
             },
           });
+
+          if (nextStatus === "PRINTED") {
+            await this.accruePageUsage(tx, job.id, job.printerId);
+          }
 
           let successorJobId: string | undefined;
           if (ctx.successor) {
