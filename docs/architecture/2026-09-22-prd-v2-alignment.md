@@ -294,3 +294,13 @@ Shipped as `8d9bb2c`..`e300a0b`; review fixes are numbered 19.6-19.9 (19.5, the 
 - **e2e now runs in its own Redis logical database (DB 9)** by default (commit `906f67c`; `services/*/jest.setup.cjs`), so dev workers and stale backlogs on DB 0 cannot interfere with tests or be drained by them. This removes the Redis half of Phase 25's "isolate the e2e infrastructure" item; **Postgres isolation (a separate test database) remains for Phase 25.**
 - The `notifications` backlog on DB 0 was drained by a peer session's dev worker (1,567 -> 0); ~7,100 stale completed-job keys remain there, harmless.
 - 19.5 is therefore no longer blocked: worker e2e can be run (direct jest under `timeout`, as in CONTEXT.md rule 6).
+
+## Phase 19 complete (2026-09-24 night): 19.10-19.19
+
+- 19.10-19.12: e2e hardening, per-job failover containment, needsAttention grouping (independently verified).
+- 19.13-19.17 (worker sweeps, §78): `LATE_REPORT` event (TIMEOUT/FAILED/REASSIGNED -> UNKNOWN); offline sweep uses `UPDATE..RETURNING` and fails over only opted-in shops (`auto_failover_enabled`), waking receiving agents; `reallocateWaitingJobs` recovers WAITING jobs for availability reasons only; Promise.all sweep-race suites; worker e2e suites drain the notifications queue before closing.
+- Review (read-only, 8bf279e..2cd2e98): no critical findings; single-writer invariants and lock order hold.
+- 19.18 (`05eff3d`): a late PRINTED on a superseded job now PAUSES the live successor (MANUAL_APPROVAL_REQUIRED) so it cannot print a second copy; audit `PRINT_JOB_LATE_PRINT_SUCCESSOR`. 19.19 (`cc33330`): recovery re-checks the failover opt-in under lock.
+- **Carry-forward to 21.1:** there is no staff pause/resume endpoint yet; after RESUME a job is WAITING with `blockedReason` still MANUAL_APPROVAL_REQUIRED, so the endpoint must set a fresh reason/printer. Staff need a "held by late print" indicator (blockedReason + that audit action) in 23.8. `Notification` is customer-only; no staff notification model exists (consider in 23.7). `reevaluatePrinterJobs` reads the opt-in once (same pattern; low risk).
+- **Incident:** a drift check with the dev DB as shadow DB wiped the shared dev schema (only seed data restored). CONTEXT.md rule 7.
+- Environment: worker e2e "afterAll 5000ms" timeouts in a full run = stale notifications backlog in Redis DB 9; FLUSHDB it. NEXT: Phase 20.
