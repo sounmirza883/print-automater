@@ -46,7 +46,8 @@ export interface ReallocationResult {
  * availability-type) is re-checked UNDER the orders/job row locks, so a staff
  * reassign, pause or cancel that wins the race makes this a skipped no-op, and
  * two overlapping recovery ticks serialise on the orders lock with the loser
- * finding the job already QUEUED. The chosen target is re-validated under the
+ * finding the job already QUEUED. The shop's opt-in is re-read under the locks
+ * too (19.19), so a toggle switched off mid-tick is honoured. The chosen target is re-validated under the
  * locks too (FOR SHARE on its row), like failover, so a printer that just went
  * offline is never handed a job. Jobs still blocked are left untouched: no
  * write, no audit row per tick. Contained per job. Pure of Nest/Redis: waking
@@ -56,6 +57,9 @@ export async function reallocateWaitingJobs(
     prisma: PrismaService;
     jobMachine: PrintJobStateMachine;
     now?: () => Date;
+    /** Test seam: runs after the allocation decision and before the machine
+     * call, to force a deterministic interleaving. Never set in production. */
+    afterCandidatesRead?: () => Promise<void>;
     onError?: (jobId: string, error: unknown) => void;
   },
   input: { shopId?: string } = {},
@@ -132,6 +136,7 @@ export async function reallocateWaitingJobs(
         continue;
       }
       const targetId = allocation.printerId;
+      await deps.afterCandidatesRead?.();
 
       const guard = async (
         tx: Prisma.TransactionClient,
@@ -147,6 +152,21 @@ export async function reallocateWaitingJobs(
             HttpStatus.CONFLICT,
             "RECOVERY_JOB_MOVED",
             "The job is no longer waiting for a printer.",
+            false,
+          );
+        }
+        // 19.19 (PRD 122): the opt-in was read once, before the loop. A shop that
+        // turned the toggle off mid-tick must not be auto-allocated, so re-read it
+        // here under the locks (FOR SHARE: a concurrent toggle write waits for
+        // this commit or has already committed and is seen).
+        const optIn = await tx.$queryRaw<Array<{ enabled: boolean }>>`
+          SELECT auto_failover_enabled AS enabled FROM shops WHERE id = ${job.shopId} FOR SHARE
+        `;
+        if (optIn[0]?.enabled !== true) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "RECOVERY_OPTED_OUT",
+            "The shop no longer has automatic failover enabled.",
             false,
           );
         }
@@ -182,6 +202,7 @@ export async function reallocateWaitingJobs(
         if (
           error instanceof AppException &&
           (error.errorCode === "RECOVERY_JOB_MOVED" ||
+            error.errorCode === "RECOVERY_OPTED_OUT" ||
             error.errorCode === "RECOVERY_TARGET_STALE" ||
             error.errorCode === "ILLEGAL_JOB_TRANSITION")
         ) {
