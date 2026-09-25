@@ -11,6 +11,9 @@ describe("Purchase orders (20.7, e2e)", () => {
 
   beforeAll(async () => {
     fx = await createInventoryFixture("po", { multiItemEnabled: true, documentPages: 5 });
+    // Listen once: with an un-listening app supertest starts and CLOSES a server per
+    // request, so concurrent requests reset each other (ECONNRESET).
+    await fx.app.listen(0);
     supplierId = (
       await fx.prisma.supplier.create({ data: { shopId: fx.shop.id, name: "Paper Co" } })
     ).id;

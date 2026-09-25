@@ -10,6 +10,9 @@ describe("Inventory API (20.2, e2e)", () => {
 
   beforeAll(async () => {
     fx = await createInventoryFixture("inv-api");
+    // Listen once: with an un-listening app supertest starts and CLOSES a server per
+    // request, so concurrent requests reset each other (ECONNRESET).
+    await fx.app.listen(0);
   });
   afterAll(async () => {
     await fx?.cleanup();
