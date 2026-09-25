@@ -10,6 +10,11 @@ describe("resolveBackendPath", () => {
       ok: true,
       backendPath: "/v1/notifications/unread-count",
     });
+    // Job-level actions (pause, resume, reassign, reprint ...) live under /v1/print-jobs.
+    expect(resolveBackendPath(["print-jobs", "j1", "resume"])).toEqual({
+      ok: true,
+      backendPath: "/v1/print-jobs/j1/resume",
+    });
     expect(resolveBackendPath(["admin", "dashboard"])).toEqual({
       ok: true,
       backendPath: "/v1/admin/dashboard",

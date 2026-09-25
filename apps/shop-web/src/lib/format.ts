@@ -27,7 +27,7 @@ const THREE_DECIMAL = new Set(["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"])
 
 /** How many decimal places one major unit has in `currency`, or null for
  * something that is not a three-letter code. */
-function minorUnitDigits(currency: string): number | null {
+export function minorUnitDigits(currency: string): number | null {
   if (!/^[A-Z]{3}$/.test(currency)) {
     return null;
   }
@@ -123,4 +123,30 @@ export function priorityLabel(priority: number): string {
     }
   }
   return "Normal";
+}
+
+/** "125.50" -> 12550 in `currency`, or null when the text is not a
+ * plain non-negative amount with no more decimals than the currency has.
+ * The inverse of `formatMoney`, for amount fields (reprint cost, delivery fee). */
+export function parseMoneyToMinor(text: string, currency: string): number | null {
+  const digits = minorUnitDigits(currency) ?? 2;
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const match = /^(\d{1,9})(?:\.(\d+))?$/.exec(trimmed);
+  if (match === null) {
+    return null;
+  }
+  const fraction = match[2] ?? "";
+  if (fraction.length > digits) {
+    return null;
+  }
+  return Number(match[1]) * 10 ** digits + Number(fraction.padEnd(digits, "0") || "0");
+}
+
+/** Minor units -> the text an amount field shows ("12550" -> "125.50"). */
+export function minorToInput(minor: number, currency: string): string {
+  const digits = minorUnitDigits(currency) ?? 2;
+  return (minor / 10 ** digits).toFixed(digits);
 }

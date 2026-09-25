@@ -1,4 +1,12 @@
-import { formatAge, formatBytes, formatMoney, humanizeEnum, priorityLabel } from "./format";
+import {
+  formatAge,
+  formatBytes,
+  formatMoney,
+  humanizeEnum,
+  minorToInput,
+  parseMoneyToMinor,
+  priorityLabel,
+} from "./format";
 
 describe("formatMoney", () => {
   it("scales integer minor units by the currency's own exponent", () => {
@@ -40,5 +48,29 @@ describe("small helpers", () => {
     expect(priorityLabel(10)).toBe("High");
     expect(priorityLabel(20)).toBe("Urgent");
     expect(priorityLabel(15)).toBe("High");
+  });
+});
+
+describe("parseMoneyToMinor", () => {
+  it("turns an amount typed in major units into integer minor units", () => {
+    expect(parseMoneyToMinor("125.50", "PKR")).toBe(12550);
+    expect(parseMoneyToMinor("125.5", "PKR")).toBe(12550);
+    expect(parseMoneyToMinor("125", "PKR")).toBe(12500);
+    expect(parseMoneyToMinor("1500", "JPY")).toBe(1500);
+    expect(parseMoneyToMinor("0.29", "USD")).toBe(29);
+  });
+
+  it("rejects anything that is not a plain amount the currency can hold", () => {
+    for (const bad of ["", "abc", "-5", "1.999", "1,000", "1e3", "12.5.1", "1500.5"]) {
+      expect(parseMoneyToMinor(bad, bad === "1500.5" ? "JPY" : "PKR")).toBeNull();
+    }
+  });
+});
+
+describe("minorToInput", () => {
+  it("is the inverse of parseMoneyToMinor", () => {
+    expect(minorToInput(12550, "PKR")).toBe("125.50");
+    expect(minorToInput(1500, "JPY")).toBe("1500");
+    expect(parseMoneyToMinor(minorToInput(29, "USD"), "USD")).toBe(29);
   });
 });

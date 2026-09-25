@@ -6,7 +6,7 @@
  * backend, so the proxy is not a general-purpose open relay to every
  * route (auth, agents, payments, documents ...). Server-side guards
  * remain the real authorization. */
-const ALLOWED_PREFIXES: readonly string[] = ["shop", "notifications", "admin"];
+const ALLOWED_PREFIXES: readonly string[] = ["shop", "print-jobs", "notifications", "admin"];
 
 export type ResolvedPath = { ok: true; backendPath: string } | { ok: false };
 
