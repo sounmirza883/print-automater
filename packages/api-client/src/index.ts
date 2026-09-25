@@ -19,6 +19,7 @@ export {
 } from "./resources/printers.resource.js";
 export { ShopStaffResource } from "./resources/shop-staff.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
+export { ReportsResource, type ReportParams } from "./resources/reports.resource.js";
 export type {
   AuthTokens,
   AuthUser,

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { OrderStatus, PaymentStatus, Prisma, PrintJobStatus } from "@prisma/client";
-import { jobPages, type JobConfig } from "@print-automated/backend-shared";
+import { jobPages } from "@print-automated/backend-shared";
 import { JOB_PAGES_JOINS, JOB_TOTAL_PAGES } from "../src/analytics/job-pages-sql.js";
 import { createPhase19Fixture, type Phase19Fixture } from "./helpers/phase19-fixture.js";
 
 /** 23.2/23.5: the aggregate SQL page measure must equal the ONE TypeScript definition
  * (`jobPages`) that allocation, queue load and usage accrual use. */
+type JobConfig = Parameters<typeof jobPages>[0];
+
 describe("JOB_TOTAL_PAGES SQL == jobPages() (23.2, e2e)", () => {
   let fx: Phase19Fixture;
   const docIds: string[] = [];

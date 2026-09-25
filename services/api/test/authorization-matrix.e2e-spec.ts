@@ -703,6 +703,41 @@ describe("Authorization matrix (12.1, e2e)", () => {
         path: "/v1/shop/dashboard/printers",
         expected: { owner: 200, manager: 200, counter: 403 },
       },
+      {
+        name: "orders report",
+        path: "/v1/shop/reports/orders",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "revenue report",
+        path: "/v1/shop/reports/revenue",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "printing-volume report",
+        path: "/v1/shop/reports/printing-volume",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "printers report",
+        path: "/v1/shop/reports/printers",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "operator-workload report",
+        path: "/v1/shop/reports/operator-workload",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "paper-consumption report",
+        path: "/v1/shop/reports/paper-consumption",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "supplier-purchases report",
+        path: "/v1/shop/reports/supplier-purchases",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
     ];
 
     describe.each(SHOP_ROUTES)("$name", ({ path, expected }) => {

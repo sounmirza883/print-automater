@@ -57,4 +57,27 @@ describe("Phase 23 ApiClient resources", () => {
       ]);
     });
   });
+  it("report routes (23.5)", async () => {
+    await withClient(async (client, seen) => {
+      await client.reports.orders("s1", { groupBy: "week" });
+      await client.reports.revenue("s1");
+      await client.reports.printingVolume("s1");
+      await client.reports.printers("s1");
+      await client.reports.operatorWorkload("s1");
+      await client.reports.paperConsumption("s1");
+      await client.reports.supplierPurchases("s1", { from: "2026-01-01T00:00:00Z" });
+      expect(seen.map((r) => r.url)).toEqual([
+        "/v1/shop/reports/orders?shopId=s1&groupBy=week",
+        "/v1/shop/reports/revenue?shopId=s1",
+        "/v1/shop/reports/printing-volume?shopId=s1",
+        "/v1/shop/reports/printers?shopId=s1",
+        "/v1/shop/reports/operator-workload?shopId=s1",
+        "/v1/shop/reports/paper-consumption?shopId=s1",
+        "/v1/shop/reports/supplier-purchases?shopId=s1&from=2026-01-01T00%3A00%3A00Z",
+      ]);
+      expect(client.reports.csvPath("revenue", "s1", { groupBy: "month" })).toBe(
+        "/v1/shop/reports/revenue?shopId=s1&format=csv&groupBy=month",
+      );
+    });
+  });
 });

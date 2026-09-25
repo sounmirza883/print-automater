@@ -125,4 +125,18 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
       expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_PRINTER_DASHBOARD");
     }
   });
+  it("reports (23.5): VIEW_REPORTS is owner and manager only; operators, printer managers, counter and customers never see them", () => {
+    for (const role of ["SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_REPORTS");
+    }
+    for (const role of [
+      "OPERATOR",
+      "PRINTER_MANAGER",
+      "SHOP_COUNTER",
+      "CUSTOMER",
+      "SUPPLIER",
+    ] as const) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_REPORTS");
+    }
+  });
 });
