@@ -10,6 +10,7 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import type { Response } from "express";
 import { UserRole } from "@prisma/client";
@@ -26,6 +27,7 @@ import type { OrderResponse } from "../orders/orders.service.js";
 import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
+import { DeliveryRedactionInterceptor } from "../deliveries/delivery-redaction.interceptor.js";
 import { QualityCheckDto } from "./dto/quality-check.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
 import { ResolveUnknownPrintDto } from "./dto/resolve-unknown-print.dto.js";
@@ -65,6 +67,7 @@ import {
   UserRole.OPERATOR,
   UserRole.PRINTER_MANAGER,
 )
+@UseInterceptors(DeliveryRedactionInterceptor)
 export class ShopOrdersController {
   constructor(
     private readonly shopOrdersService: ShopOrdersService,

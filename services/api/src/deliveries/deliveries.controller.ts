@@ -9,6 +9,7 @@ import {
   Put,
   Req,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Permission } from "@print-automated/types";
@@ -20,6 +21,7 @@ import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped } from "../auth/shop-scoped.decorator.js";
 import { OrderShopResolver } from "../shop-orders/order-shop.resolver.js";
+import { DeliveryRedactionInterceptor } from "./delivery-redaction.interceptor.js";
 import { DeliveryStatusDto, SaveDeliveryDto } from "./dto/delivery.dto.js";
 import { DeliveriesService, type DeliveryResponse } from "./deliveries.service.js";
 
@@ -36,6 +38,7 @@ import { DeliveriesService, type DeliveryResponse } from "./deliveries.service.j
   UserRole.OPERATOR,
   UserRole.PRINTER_MANAGER,
 )
+@UseInterceptors(DeliveryRedactionInterceptor)
 export class DeliveriesController {
   constructor(private readonly deliveries: DeliveriesService) {}
 

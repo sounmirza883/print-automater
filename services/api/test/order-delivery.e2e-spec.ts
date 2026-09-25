@@ -252,4 +252,41 @@ describe("Order delivery (21.5, e2e)", () => {
       .set("Authorization", `Bearer ${other.token}`);
     expect([403, 404]).toContain(readDenied.status);
   });
+
+  it("21.8 data minimisation: roles without MANAGE_DELIVERY (operator) never receive the address, in the order detail, the order list or GET delivery; roles with it do", async () => {
+    const orderId = await readyOrder();
+    await put(orderId, {
+      address: ADDRESS,
+      courier: "TCS",
+      trackingNumber: "T-1",
+      feeMinor: 200,
+    }).expect(200);
+    const get = (path: string, token: string) =>
+      request(fx.app.getHttpServer()).get(path).set("Authorization", `Bearer ${token}`).expect(200);
+
+    for (const token of [operatorToken]) {
+      const detail = await get(`/v1/shop/orders/${orderId}`, token);
+      expect(detail.body.delivery).toMatchObject({
+        status: "PENDING",
+        courier: "TCS",
+        feeMinor: 200,
+        address: null,
+        addressRedacted: true,
+      });
+      const direct = await get(`/v1/shop/orders/${orderId}/delivery`, token);
+      expect(direct.body).toMatchObject({ address: null, addressRedacted: true, courier: "TCS" });
+      const list = await get(`/v1/shop/orders?shopId=${fx.shop.id}`, token);
+      const all = Object.values(list.body).flat() as Array<{ id: string; delivery: unknown }>;
+      const listed = all.find((o) => o.id === orderId);
+      expect(listed?.delivery).toMatchObject({ address: null, addressRedacted: true });
+      expect(JSON.stringify(list.body)).not.toContain("Model Town");
+    }
+    for (const token of [counterToken, fx.token]) {
+      const detail = await get(`/v1/shop/orders/${orderId}`, token);
+      expect(detail.body.delivery).toMatchObject({ address: ADDRESS });
+      expect(detail.body.delivery.addressRedacted).toBeUndefined();
+      const direct = await get(`/v1/shop/orders/${orderId}/delivery`, token);
+      expect(direct.body.address).toBe(ADDRESS);
+    }
+  });
 });

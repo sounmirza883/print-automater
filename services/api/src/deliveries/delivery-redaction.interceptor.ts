@@ -1,0 +1,57 @@
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import { ModuleRef, Reflector } from "@nestjs/core";
+import { Permission } from "@print-automated/types";
+import { ROLE_PERMISSIONS } from "@print-automated/backend-shared";
+import { Observable, from, map, switchMap } from "rxjs";
+import { resolveEffectiveRole } from "../auth/resolve-effective-role.js";
+import { ShopMembershipService } from "../auth/shop-membership.service.js";
+
+/** True for a delivery record (the shape DeliveriesService returns). */
+function isDelivery(value: object): boolean {
+  return "address" in value && "trackingNumber" in value && "feeMinor" in value;
+}
+
+/** Replaces the address of every delivery record found in `body` (a single
+ * order, a grouped list, or a delivery itself) with null and flags it. */
+export function redactDeliveryAddresses(body: unknown): unknown {
+  if (Array.isArray(body)) {
+    return body.map(redactDeliveryAddresses);
+  }
+  if (body === null || typeof body !== "object" || body instanceof Date) {
+    return body;
+  }
+  if (isDelivery(body)) {
+    return { ...body, address: null, addressRedacted: true };
+  }
+  return Object.fromEntries(
+    Object.entries(body).map(([key, value]) => [key, redactDeliveryAddresses(value)]),
+  );
+}
+
+/** 21.8 (data minimisation). The delivery address is personal data that only
+ * roles able to manage a delivery need. For every other role (operator, printer
+ * manager) it is omitted from the order responses and from GET delivery, decided
+ * from the SAME effective role and ROLE_PERMISSIONS data the permission guard
+ * uses, never a role branch. */
+@Injectable()
+export class DeliveryRedactionInterceptor implements NestInterceptor {
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly moduleRef: ModuleRef,
+    private readonly shopMembership: ShopMembershipService,
+  ) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    return from(
+      resolveEffectiveRole(context, this.reflector, this.moduleRef, this.shopMembership),
+    ).pipe(
+      switchMap((role) => {
+        const allowed = role
+          ? (ROLE_PERMISSIONS[role] ?? []).includes(Permission.MANAGE_DELIVERY)
+          : false;
+        const stream = next.handle();
+        return allowed ? stream : stream.pipe(map(redactDeliveryAddresses));
+      }),
+    );
+  }
+}
