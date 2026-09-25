@@ -30,4 +30,6 @@ export const QUEUE_NAMES = {
   // there has no other source; nothing else in this codebase ever calls
   // BullMQ's own getJobCounts().
   QUEUE_METRICS: "queue-metrics",
+  // 20.5/§32: repeatable low-stock alert sweep (raises and resolves alerts).
+  LOW_STOCK_ALERTS: "low-stock-alerts",
 } as const;

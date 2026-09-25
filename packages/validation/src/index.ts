@@ -119,4 +119,8 @@ export {
   type GetInventorySettingsQueryInput,
   updateInventorySettingsSchema,
   type UpdateInventorySettingsInput,
+  listInventoryAlertsQuerySchema,
+  type ListInventoryAlertsQueryInput,
+  inventorySummaryQuerySchema,
+  type InventorySummaryQueryInput,
 } from "./inventory/index.js";

@@ -149,6 +149,7 @@ model Shop {
   products          Product[]
   inventoryItems    InventoryItem[]
   inventoryMovements InventoryMovement[]
+  inventoryAlerts    InventoryAlert[]
 
   @@map("shops")
 }
@@ -1052,11 +1053,14 @@ model InventoryItem {
   location      String?
   unitCostMinor Int?     @map("unit_cost_minor")
   active        Boolean  @default(true)
+  // 20.5: dedupe latch for low-stock alerts (set on raise, cleared on recovery).
+  lowStockAlertedAt DateTime? @map("low_stock_alerted_at")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
   shop      Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
   movements InventoryMovement[]
+  alerts    InventoryAlert[]
 
   @@unique([shopId, sku])
   @@index([shopId])
@@ -1091,4 +1095,29 @@ model InventoryMovement {
   @@index([shopId, createdAt])
   @@index([printJobId])
   @@map("inventory_movements")
+}
+
+enum InventoryAlertStatus {
+  OPEN
+  RESOLVED
+}
+
+// 20.5/§32: a low-stock alert. One OPEN alert per item at a time (guarded by
+// inventory_items.low_stock_alerted_at); resolved when stock recovers.
+model InventoryAlert {
+  id              String               @id @default(uuid())
+  shopId          String               @map("shop_id")
+  inventoryItemId String               @map("inventory_item_id")
+  status          InventoryAlertStatus @default(OPEN)
+  quantityAtAlert Int                  @map("quantity_at_alert")
+  minQuantity     Int                  @map("min_quantity")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  resolvedAt      DateTime?            @map("resolved_at")
+
+  shop Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  item InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status, createdAt])
+  @@index([inventoryItemId, status])
+  @@map("inventory_alerts")
 }

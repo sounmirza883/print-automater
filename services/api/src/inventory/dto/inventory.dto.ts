@@ -6,6 +6,8 @@ import {
   recordInventoryMovementSchema,
   updateInventoryItemSchema,
   getInventorySettingsQuerySchema,
+  inventorySummaryQuerySchema,
+  listInventoryAlertsQuerySchema,
   updateInventorySettingsSchema,
 } from "@print-automated/validation";
 
@@ -18,3 +20,5 @@ export class ListInventoryMovementsQueryDto extends createZodDto(
 export class RecordInventoryMovementDto extends createZodDto(recordInventoryMovementSchema) {}
 export class GetInventorySettingsQueryDto extends createZodDto(getInventorySettingsQuerySchema) {}
 export class UpdateInventorySettingsDto extends createZodDto(updateInventorySettingsSchema) {}
+export class ListInventoryAlertsQueryDto extends createZodDto(listInventoryAlertsQuerySchema) {}
+export class InventorySummaryQueryDto extends createZodDto(inventorySummaryQuerySchema) {}

@@ -134,3 +134,13 @@ export const updateInventorySettingsSchema = z.object({
   trackingEnabled: z.boolean(),
 });
 export type UpdateInventorySettingsInput = z.infer<typeof updateInventorySettingsSchema>;
+
+/** 20.5: GET /shop/inventory/alerts (paginated; status defaults to OPEN). */
+export const listInventoryAlertsQuerySchema = paginationQuerySchema.extend({
+  shopId: z.string().uuid(),
+  status: z.enum(["OPEN", "RESOLVED"]).default("OPEN"),
+});
+export type ListInventoryAlertsQueryInput = z.infer<typeof listInventoryAlertsQuerySchema>;
+
+export const inventorySummaryQuerySchema = z.object({ shopId: z.string().uuid() });
+export type InventorySummaryQueryInput = z.infer<typeof inventorySummaryQuerySchema>;

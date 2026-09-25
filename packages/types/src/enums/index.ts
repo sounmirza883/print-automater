@@ -16,3 +16,4 @@ export { BlockedReason } from "./blocked-reason.js";
 export { QualityCheckStatus } from "./quality-check-status.js";
 export { JobPriority } from "./job-priority.js";
 export { InventoryMovementType } from "./inventory-movement-type.js";
+export { InventoryAlertStatus } from "./inventory-alert-status.js";

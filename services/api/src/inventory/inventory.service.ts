@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import type {
   CreateInventoryItemInput,
+  ListInventoryAlertsQueryInput,
   ListInventoryItemsQueryInput,
   ListInventoryMovementsQueryInput,
   RecordInventoryMovementInput,
@@ -49,6 +50,32 @@ export interface InventoryItemResponse {
   lowStock: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface InventoryAlertResponse {
+  id: string;
+  shopId: string;
+  inventoryItemId: string;
+  itemName: string;
+  status: "OPEN" | "RESOLVED";
+  quantityAtAlert: number;
+  minQuantity: number;
+  /** Current stock, so a dashboard need not fetch the item. */
+  currentQuantity: number;
+  createdAt: Date;
+  resolvedAt: Date | null;
+}
+
+export interface InventorySummaryResponse {
+  shopId: string;
+  trackingEnabled: boolean;
+  activeItems: number;
+  /** Items at or below a configured minimum (live). */
+  lowStockCount: number;
+  /** Active items with zero stock. */
+  outOfStockCount: number;
+  openAlertCount: number;
+  lowStockItems: InventoryItemResponse[];
 }
 
 export interface InventorySettingsResponse {
@@ -310,6 +337,71 @@ export class InventoryService {
       await this.agentJobs.recoverPaperBlockedJobs(existing.shopId);
     }
     return { movement: toMovementResponse(movement), item: toItemResponse(item) };
+  }
+
+  async listAlerts(
+    userId: string,
+    query: ListInventoryAlertsQueryInput,
+  ): Promise<Page<InventoryAlertResponse>> {
+    await this.assertMember(query.shopId, userId);
+    const where = { shopId: query.shopId, status: query.status };
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.inventoryAlert.count({ where }),
+      this.prisma.inventoryAlert.findMany({
+        where,
+        include: { item: { select: { name: true, quantity: true } } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: query.limit,
+        skip: query.offset,
+      }),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        shopId: row.shopId,
+        inventoryItemId: row.inventoryItemId,
+        itemName: row.item.name,
+        status: row.status,
+        quantityAtAlert: row.quantityAtAlert,
+        minQuantity: row.minQuantity,
+        currentQuantity: row.item.quantity,
+        createdAt: row.createdAt,
+        resolvedAt: row.resolvedAt,
+      })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
+  }
+
+  async summary(shopId: string, userId: string): Promise<InventorySummaryResponse> {
+    await this.assertMember(shopId, userId);
+    const [shop, activeItems, outOfStockCount, openAlertCount, low] = await Promise.all([
+      this.prisma.shop.findUniqueOrThrow({
+        where: { id: shopId },
+        select: { inventoryTrackingEnabled: true },
+      }),
+      this.prisma.inventoryItem.count({ where: { shopId, active: true } }),
+      this.prisma.inventoryItem.count({ where: { shopId, active: true, quantity: 0 } }),
+      this.prisma.inventoryAlert.count({ where: { shopId, status: "OPEN" } }),
+      this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM inventory_items
+        WHERE shop_id = ${shopId} AND active AND min_quantity > 0 AND quantity <= min_quantity
+        ORDER BY quantity ASC, name ASC, id ASC
+      `,
+    ]);
+    const top = low.slice(0, 20).map((row) => row.id);
+    const rows = await this.prisma.inventoryItem.findMany({ where: { id: { in: top } } });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return {
+      shopId,
+      trackingEnabled: shop.inventoryTrackingEnabled,
+      activeItems,
+      lowStockCount: low.length,
+      outOfStockCount,
+      openAlertCount,
+      lowStockItems: top.map((id) => toItemResponse(byId.get(id)!)),
+    };
   }
 
   async getSettings(shopId: string, userId: string): Promise<InventorySettingsResponse> {

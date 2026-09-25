@@ -137,3 +137,4 @@ export {
   INVENTORY_SHORTFALL_AUDIT_ACTION,
   type PaperConsumptionResult,
 } from "./inventory/consume-paper.js";
+export { syncLowStockAlerts, type LowStockSyncResult } from "./inventory/low-stock-alerts.js";

@@ -24,6 +24,8 @@ import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.j
 import {
   CreateInventoryItemDto,
   GetInventorySettingsQueryDto,
+  InventorySummaryQueryDto,
+  ListInventoryAlertsQueryDto,
   UpdateInventorySettingsDto,
   ListInventoryItemsQueryDto,
   ListInventoryMovementsQueryDto,
@@ -35,7 +37,9 @@ import {
   InventoryService,
   type InventoryItemResponse,
   type InventoryMovementResponse,
+  type InventoryAlertResponse,
   type InventorySettingsResponse,
+  type InventorySummaryResponse,
   type Page,
 } from "./inventory.service.js";
 
@@ -75,6 +79,25 @@ export class InventoryController {
     @Body() dto: UpdateInventorySettingsDto,
   ): Promise<InventorySettingsResponse> {
     return this.inventory.updateSettings(dto, req.user!.id);
+  }
+
+  /** 32 dashboard aggregate: live counts (not dependent on the worker having ticked). */
+  @Get("summary")
+  @ShopScopedField("query", "shopId")
+  summary(
+    @Req() req: RequestWithUser,
+    @Query() query: InventorySummaryQueryDto,
+  ): Promise<InventorySummaryResponse> {
+    return this.inventory.summary(query.shopId, req.user!.id);
+  }
+
+  @Get("alerts")
+  @ShopScopedField("query", "shopId")
+  listAlerts(
+    @Req() req: RequestWithUser,
+    @Query() query: ListInventoryAlertsQueryDto,
+  ): Promise<Page<InventoryAlertResponse>> {
+    return this.inventory.listAlerts(req.user!.id, query);
   }
 
   @Get("items")

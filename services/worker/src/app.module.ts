@@ -19,6 +19,7 @@ import { WorkerConfigModule, workerEnv } from "./config/config.module.js";
 import { DocumentProcessingModule } from "./document-processing/document-processing.module.js";
 import { OrderExpirationModule } from "./order-expiration/order-expiration.module.js";
 import { NotificationsModule } from "./notifications/notifications.module.js";
+import { LowStockAlertsModule } from "./low-stock-alerts/low-stock-alerts.module.js";
 import { PrinterOfflineSweepModule } from "./printer-offline-sweep/printer-offline-sweep.module.js";
 import { PrintTimeoutModule } from "./print-timeout/print-timeout.module.js";
 import { DocumentRetentionModule } from "./document-retention/document-retention.module.js";
@@ -100,6 +101,7 @@ function buildEmailOptions(): EmailModuleOptions {
     OrderExpirationModule,
     NotificationsModule,
     PrinterOfflineSweepModule,
+    LowStockAlertsModule,
     PrintTimeoutModule,
     DocumentRetentionModule,
     QueueMetricsModule,
