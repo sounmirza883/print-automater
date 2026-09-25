@@ -173,6 +173,42 @@ describe("Notification centre (23.7, e2e)", () => {
       expect(await staffRows(fx.counter.user.id, "JOB_FAILED")).toHaveLength(0);
     });
 
+    it("a failure while raising an alert can never fail or roll back the job transition (no partial alert row)", async () => {
+      const { jobId } = await queuedJob();
+      await machine().transition(jobId, PrintJobEvent.CLAIM, { id: null }, {});
+      await machine().transition(jobId, PrintJobEvent.START, { id: null }, {});
+      const before = await fx.prisma.staffNotification.count({ where: { shopId: fx.shop.id } });
+      const res = await machine().transition(
+        jobId,
+        PrintJobEvent.FAIL,
+        { id: null },
+        {
+          staffAlertHook: async (tx) => {
+            // a partial write, then a blow-up: both must be undone, the transition must stand
+            await tx.staffNotification.create({
+              data: {
+                userId: fx.owner.id,
+                shopId: fx.shop.id,
+                type: "JOB_FAILED",
+                title: "partial",
+                body: "partial",
+                targetType: "PRINT_JOB",
+                targetId: jobId,
+              },
+            });
+            throw new Error("boom");
+          },
+        },
+      );
+      expect(res.status).toBe("FAILED");
+      expect((await fx.prisma.printJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe(
+        "FAILED",
+      );
+      expect(await fx.prisma.staffNotification.count({ where: { shopId: fx.shop.id } })).toBe(
+        before,
+      );
+    });
+
     it("a removed staff member is not notified", async () => {
       await fx.prisma.shopStaff.updateMany({
         where: { shopId: fx.shop.id, userId: fx.operator.user.id },

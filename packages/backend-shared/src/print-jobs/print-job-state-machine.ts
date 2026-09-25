@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { JobFailureReason, Prisma, PrintJobStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
@@ -236,6 +236,9 @@ export interface JobTransitionContext {
    * is set (PAUSE keeps a late-print hold instead of clearing it). Evaluated on
    * the locked row. */
   keepBlockedReasons?: readonly string[];
+  /** 23.9 TEST SEAM ONLY: runs inside the staff-alert savepoint, to prove a failure while
+   * raising an alert cannot fail or roll back the transition. Never set in production code. */
+  staffAlertHook?: (tx: Prisma.TransactionClient) => Promise<void>;
 }
 
 export interface JobTransitionResult {
@@ -284,6 +287,8 @@ export interface JobTransitionResult {
  */
 @Injectable()
 export class PrintJobStateMachine {
+  private readonly logger = new Logger(PrintJobStateMachine.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly orderStateMachine: OrderStateMachine,
@@ -321,14 +326,6 @@ export class PrintJobStateMachine {
     return this.applyTransaction(jobIds, event, actor, ctx);
   }
 
-  /** 19.3. Runs inside the SAME transaction as the transition into PRINTED
-   * (PRINTED and RESOLVE_PRINTED both land here), so the count commits or
-   * rolls back with the status and a job can only reach PRINTED once: a
-   * replay hits ILLEGAL_JOB_TRANSITION before this line. Atomic
-   * INSERT .. ON CONFLICT increment, never read-modify-write, so
-   * concurrent completions on one printer sum exactly. Accrues regardless
-   * of `page_limit_enabled` so enabling a limit later starts from truth.
-   * The period is the printer's own, in UTC (periodStart). */
   /** 23.7 (PRD 37/111): the staff-facing signals of a job transition, written in the SAME
    * transaction as the transition (so they exist exactly when the change does) but
    * contained in a savepoint (so a notification problem can never roll back a print).
@@ -342,6 +339,30 @@ export class PrintJobStateMachine {
    *    resolution (RESOLVE_FAILED) is their own act and does not notify.
    * None of the customer-notification toggles apply: these are operational. */
   private async raiseStaffAlert(
+    tx: Prisma.TransactionClient,
+    job: LockedPrintJobRow,
+    event: PrintJobEvent,
+    nextStatus: PrintJobStatus,
+    ctx: JobTransitionContext,
+  ): Promise<void> {
+    // Everything about raising an alert (the context read, building it, the inserts) runs in
+    // a savepoint: whatever goes wrong here, the job transition itself must still commit.
+    await tx.$executeRawUnsafe("SAVEPOINT job_staff_alert");
+    try {
+      await ctx.staffAlertHook?.(tx);
+      await this.buildAndRaiseStaffAlert(tx, job, event, nextStatus, ctx);
+      await tx.$executeRawUnsafe("RELEASE SAVEPOINT job_staff_alert");
+    } catch (error) {
+      await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT job_staff_alert");
+      await tx.$executeRawUnsafe("RELEASE SAVEPOINT job_staff_alert");
+      this.logger.warn(
+        { jobId: job.id, event, nextStatus, err: error },
+        "Could not raise a staff alert for a print job transition; the transition itself is unaffected.",
+      );
+    }
+  }
+
+  private async buildAndRaiseStaffAlert(
     tx: Prisma.TransactionClient,
     job: LockedPrintJobRow,
     event: PrintJobEvent,
@@ -422,6 +443,14 @@ export class PrintJobStateMachine {
     });
   }
 
+  /** 19.3. Runs inside the SAME transaction as the transition into PRINTED
+   * (PRINTED and RESOLVE_PRINTED both land here), so the count commits or
+   * rolls back with the status and a job can only reach PRINTED once: a
+   * replay hits ILLEGAL_JOB_TRANSITION before this line. Atomic
+   * INSERT .. ON CONFLICT increment, never read-modify-write, so
+   * concurrent completions on one printer sum exactly. Accrues regardless
+   * of `page_limit_enabled` so enabling a limit later starts from truth.
+   * The period is the printer's own, in UTC (periodStart). */
   private async accruePageUsage(
     tx: Prisma.TransactionClient,
     jobId: string,

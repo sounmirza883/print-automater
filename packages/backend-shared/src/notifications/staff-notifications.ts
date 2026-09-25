@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import {
   ShopStaffStatus,
   UserStatus,
@@ -18,6 +19,8 @@ import { ROLE_PERMISSIONS } from "../auth/role-permissions.js";
  * (`automaticNotifications`, channel switches) apply to them, only the per-feature
  * switches that decide whether the underlying event is raised at all (e.g. the inventory
  * alerts toggle stops the low-stock sweep from raising an alert in the first place). */
+const logger = new Logger("StaffNotifications");
+
 export interface StaffAlert {
   shopId: string;
   permission: Permission;
@@ -89,7 +92,11 @@ export async function notifyShopStaffContained(
   try {
     await notifyShopStaff(tx, alert);
     await tx.$executeRawUnsafe("RELEASE SAVEPOINT staff_notification");
-  } catch {
+  } catch (error) {
+    logger.warn(
+      { alertType: alert.type, shopId: alert.shopId, err: error },
+      "Could not raise a staff alert; the caller's transaction is unaffected.",
+    );
     await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT staff_notification");
     await tx.$executeRawUnsafe("RELEASE SAVEPOINT staff_notification");
   }
