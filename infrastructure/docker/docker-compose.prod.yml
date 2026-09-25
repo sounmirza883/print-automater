@@ -35,6 +35,9 @@ name: print-automated-prod
 
 services:
   postgres:
+    networks:
+      - default
+      - worker_isolated
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -59,6 +62,9 @@ services:
           memory: 2g
 
   redis:
+    networks:
+      - default
+      - worker_isolated
     image: redis:7-alpine
     restart: unless-stopped
     # BullMQ's queue state (job payloads, delayed/repeatable schedulers)
@@ -80,6 +86,9 @@ services:
           memory: 512m
 
   minio:
+    networks:
+      - default
+      - worker_isolated
     image: quay.io/minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -118,6 +127,9 @@ services:
       "
 
   clamav:
+    networks:
+      - default
+      - worker_isolated
     image: clamav/clamav:stable
     restart: unless-stopped
     volumes:
@@ -144,6 +156,9 @@ services:
   # the code). Which provider is a business decision this plan
   # deliberately does not make -- see infrastructure/docker/README.md.
   mailhog:
+    networks:
+      - default
+      - worker_isolated
     image: mailhog/mailhog:latest
     restart: unless-stopped
     healthcheck:
@@ -199,6 +214,15 @@ services:
           memory: 1g
 
   worker:
+    # 21.11: the worker (and therefore its LibreOffice child, which shares this
+    # network namespace) is attached ONLY to an internal network, so a DOCX that
+    # slips past the external-content gate still cannot reach the internet or
+    # the cloud metadata endpoint. It reaches just postgres, redis, minio,
+    # clamav and mailhog, which are also attached to `worker_isolated`. An
+    # external SMTP relay (SMTP_HOST) is NOT reachable from here: run a relay
+    # container on `worker_isolated` (or send mail from the api instead).
+    networks:
+      - worker_isolated
     build:
       context: ../..
       dockerfile: infrastructure/docker/worker.Dockerfile
@@ -249,12 +273,10 @@ services:
         condition: service_completed_successfully
     # 21.10: LibreOffice needs headroom (a large DOCX can take several hundred
     # MB), so the worker limit is 2g rather than 1g. Conversions run one at a
-    # time inside the worker. Network: LibreOffice is started with macros and
-    # link refresh disabled and DOCX files that reference external images,
-    # templates or OLE objects are refused before conversion, but the
-    # container-level guarantee of "no network from the converter" is an
-    # operator setting: keep this service on an internal-only network / block
-    # egress (it only needs postgres, redis, minio, clamav and the SMTP relay).
+    # time inside the worker. Network: macros and link refresh are disabled and
+    # DOCX files that reference external content are refused before conversion;
+    # the container-level guarantee is the internal-only `worker_isolated`
+    # network above.
     tmpfs:
       - /tmp:size=512m
     deploy:
@@ -288,6 +310,11 @@ services:
   # web.Dockerfile-style build, own NEXT_PUBLIC_API_BASE_URL build arg,
   # own host port), matching CONTEXT.md's locked decision that
   # apps/shop-web is a new Next.js app, not a route inside customer-web.
+
+networks:
+  # `internal: true` = no gateway, so no route to the outside world.
+  worker_isolated:
+    internal: true
 
 volumes:
   postgres_data:

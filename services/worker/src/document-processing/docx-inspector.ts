@@ -1,6 +1,8 @@
 import { inflateRawSync } from "node:zlib";
 import { DocumentRejectedError } from "./document-rejected.error.js";
 import { RejectionReason } from "./rejection-reason.js";
+import { decodeXmlBytes, XmlParseError } from "./strict-xml.js";
+import { scanRelationshipsPart, scanWordPart } from "./docx-external-content.js";
 
 /** 21.10 zip-bomb / structure limits. Every cap is enforced on MEASURED
  * inflation, not on the sizes the archive declares about itself (a
@@ -15,6 +17,8 @@ export const DOCX_LIMITS = {
   maxCompressionRatio: 100,
   ratioCheckMinBytes: 1024 * 1024,
   maxXmlPartBytes: 1024 * 1024,
+  /** word/*.xml parts (document body, headers, footers...) are scanned as they inflate. */
+  maxWordPartBytes: 30 * 1024 * 1024,
 } as const;
 
 const EOCD_SIGNATURE = 0x06054b50;
@@ -22,20 +26,6 @@ const CENTRAL_SIGNATURE = 0x02014b50;
 const LOCAL_SIGNATURE = 0x04034b50;
 
 const WORD_MAIN_CONTENT_TYPE = "wordprocessingml.document.main+xml";
-
-/** External relationship targets LibreOffice would follow (fetch or load).
- * Plain hyperlinks are just text and stay allowed. Refusing the rest is
- * the deterministic half of "no network": a DOCX cannot make the
- * converter reach out (SSRF, NTLM leak, tracking pixel). */
-const FETCHED_RELATIONSHIP_TYPES = [
-  "/attachedTemplate",
-  "/oleObject",
-  "/image",
-  "/subDocument",
-  "/frame",
-  "/externalLink",
-  "/externalLinkPath",
-];
 
 interface ZipEntry {
   name: string;
@@ -73,10 +63,9 @@ export function inspectDocx(buffer: Buffer): void {
   }
 
   // Inflate everything once, against a shared budget, keeping only the
-  // small XML parts the checks below need.
+  // content-types part; .rels and word/ parts are scanned as they inflate.
   let budget = DOCX_LIMITS.maxTotalUncompressedBytes;
   let contentTypes = "";
-  const relationshipParts: string[] = [];
   for (const entry of entries) {
     const data = inflateEntry(buffer, entry, budget);
     budget -= data.length;
@@ -86,12 +75,21 @@ export function inspectDocx(buffer: Buffer): void {
     ) {
       reject(RejectionReason.ARCHIVE_TOO_LARGE);
     }
-    const keep = entry.name === "[Content_Types].xml" || entry.name.endsWith(".rels");
-    if (keep) {
+    const lower = entry.name.toLowerCase();
+    if (entry.name === "[Content_Types].xml") {
       if (data.length > DOCX_LIMITS.maxXmlPartBytes) reject(RejectionReason.ARCHIVE_TOO_LARGE);
-      const text = data.toString("utf8");
-      if (entry.name === "[Content_Types].xml") contentTypes = text;
-      else relationshipParts.push(text);
+      try {
+        contentTypes = decodeXmlBytes(data).text;
+      } catch (error) {
+        if (error instanceof XmlParseError) reject(RejectionReason.CORRUPT_FILE);
+        throw error;
+      }
+    } else if (lower.endsWith(".rels")) {
+      if (data.length > DOCX_LIMITS.maxXmlPartBytes) reject(RejectionReason.ARCHIVE_TOO_LARGE);
+      scanRelationshipsPart(data);
+    } else if (lower.startsWith("word/") && lower.endsWith(".xml")) {
+      if (data.length > DOCX_LIMITS.maxWordPartBytes) reject(RejectionReason.ARCHIVE_TOO_LARGE);
+      scanWordPart(data);
     }
   }
 
@@ -105,20 +103,6 @@ export function inspectDocx(buffer: Buffer): void {
     !contentTypes.includes(WORD_MAIN_CONTENT_TYPE)
   ) {
     reject(RejectionReason.INVALID_FILE_TYPE);
-  }
-
-  for (const part of relationshipParts) {
-    for (const tag of part.match(/<Relationship\b[^>]*>/g) ?? []) {
-      const attributes = new Map<string, string>();
-      for (const match of tag.matchAll(/([\w:]+)\s*=\s*("([^"]*)"|'([^']*)')/g)) {
-        attributes.set(match[1]!.toLowerCase(), match[3] ?? match[4] ?? "");
-      }
-      if (attributes.get("targetmode")?.toLowerCase() !== "external") continue;
-      const type = attributes.get("type") ?? "";
-      if (FETCHED_RELATIONSHIP_TYPES.some((suffix) => type.endsWith(suffix))) {
-        reject(RejectionReason.EXTERNAL_CONTENT);
-      }
-    }
   }
 }
 

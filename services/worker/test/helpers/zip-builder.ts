@@ -83,15 +83,28 @@ export const WORD_CONTENT_TYPES =
   '<Default Extension="xml" ContentType="application/xml"/>' +
   '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
 
-/** A structurally valid (not necessarily LibreOffice-renderable) DOCX. */
-export function buildDocx(extra: ZipEntrySpec[] = [], contentTypes = WORD_CONTENT_TYPES): Buffer {
+export const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+export const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/** Body XML wrapped in a w:document with the w and r namespaces declared. */
+export function wordDocument(body: string): string {
+  return `<?xml version="1.0"?><w:document xmlns:w="${W_NS}" xmlns:r="${R_NS}"><w:body>${body}</w:body></w:document>`;
+}
+
+/** A structurally valid (not necessarily LibreOffice-renderable) DOCX.
+ * `documentXml` replaces the default word/document.xml (never duplicated). */
+export function buildDocx(
+  extra: ZipEntrySpec[] = [],
+  contentTypes = WORD_CONTENT_TYPES,
+  documentXml = wordDocument("<w:p><w:r><w:t>Hello</w:t></w:r></w:p>"),
+): Buffer {
   return buildZip([
     { name: "[Content_Types].xml", data: contentTypes },
-    { name: "_rels/.rels", data: '<?xml version="1.0"?><Relationships/>' },
     {
-      name: "word/document.xml",
-      data: '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>',
+      name: "_rels/.rels",
+      data: `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R_NS}/officeDocument" Target="word/document.xml"/></Relationships>`,
     },
+    { name: "word/document.xml", data: documentXml },
     ...extra,
   ]);
 }
