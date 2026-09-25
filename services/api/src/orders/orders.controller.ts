@@ -6,17 +6,20 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
 import type { Response } from "express";
+import type { Page } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.js";
 import { InvoicesService } from "../invoices/invoices.service.js";
 import { CreateOrderDto } from "./dto/create-order.dto.js";
 import { CreateQuoteDto } from "./dto/create-quote.dto.js";
+import { ListOrdersQueryDto } from "./dto/list-orders-query.dto.js";
 import { OrdersService, type OrderResponse, type QuoteResponse } from "./orders.service.js";
 
 @Controller("orders")
@@ -45,8 +48,11 @@ export class OrdersController {
   }
 
   @Get()
-  listOrders(@Req() req: RequestWithUser): Promise<OrderResponse[]> {
-    return this.ordersService.listOrders(req.user!.id);
+  listOrders(
+    @Req() req: RequestWithUser,
+    @Query() query: ListOrdersQueryDto,
+  ): Promise<OrderResponse[] | Page<OrderResponse>> {
+    return this.ordersService.listOrders(req.user!.id, query);
   }
 
   @Get(":id")

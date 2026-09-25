@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { ShopStatus, type Shop } from "@prisma/client";
-import { PaperSize, type PrinterCapabilities } from "@print-automated/types";
+import { ShopStatus, type Prisma, type Shop } from "@prisma/client";
+import { PaperSize, type Page, type PrinterCapabilities } from "@print-automated/types";
 import type { ListShopsQueryInput } from "@print-automated/validation";
 import { PrismaService } from "@print-automated/backend-shared";
+import { listResult, resolvePagination } from "../common/pagination.js";
 
 export interface ShopListItem {
   id: string;
@@ -29,42 +30,36 @@ export class ShopsService {
    * configuration, and only shops currently accepting orders at all
    * (§107) -- CLOSED/BUSY/TEMPORARILY_UNAVAILABLE/SUSPENDED are all
    * "cannot currently accept them" states; only OPEN qualifies. */
-  async list(query: ListShopsQueryInput): Promise<ShopListItem[]> {
-    const shops = await this.prisma.shop.findMany({
-      where: { status: ShopStatus.OPEN },
-      orderBy: { name: "asc" },
-    });
-
-    return shops.filter((shop) => matchesRequestedConfiguration(shop, query)).map(toShopListItem);
+  async list(query: ListShopsQueryInput): Promise<ShopListItem[] | Page<ShopListItem>> {
+    const pagination = resolvePagination(query);
+    // A shop with no declared capabilities can't be confirmed to support anything specific,
+    // so any requested capability excludes it (a JSON path filter never matches NULL);
+    // an unfiltered browse still includes it. The filter runs in SQL so a page is exact.
+    const capabilityFilters: Prisma.ShopWhereInput[] = [];
+    if (query.paper === PaperSize.A4) {
+      capabilityFilters.push({ capabilities: { path: ["a4"], equals: true } });
+    }
+    if (query.color === true) {
+      capabilityFilters.push({ capabilities: { path: ["color"], equals: true } });
+    }
+    if (query.duplex === true) {
+      capabilityFilters.push({ capabilities: { path: ["duplex"], equals: true } });
+    }
+    const where: Prisma.ShopWhereInput = {
+      status: ShopStatus.OPEN,
+      ...(capabilityFilters.length > 0 ? { AND: capabilityFilters } : {}),
+    };
+    const [shops, total] = await Promise.all([
+      this.prisma.shop.findMany({
+        where,
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+        take: pagination.take,
+        skip: pagination.skip,
+      }),
+      pagination.paged ? this.prisma.shop.count({ where }) : Promise.resolve(0),
+    ]);
+    return listResult(pagination, shops.map(toShopListItem), total);
   }
-}
-
-/** A shop with no declared `capabilities` yet can't be confirmed to
- * support anything specific -- it's excluded from any filtered search
- * rather than guessed into or out of the results. An entirely
- * unfiltered request (browsing before configuring a job) still
- * includes it, since nothing was actually asked of it. */
-function matchesRequestedConfiguration(shop: Shop, query: ListShopsQueryInput): boolean {
-  const hasAnyFilter = query.paper !== undefined || query.color === true || query.duplex === true;
-  if (!hasAnyFilter) {
-    return true;
-  }
-
-  const capabilities = shop.capabilities as PrinterCapabilities | null;
-  if (capabilities === null) {
-    return false;
-  }
-
-  if (query.paper === PaperSize.A4 && !capabilities.a4) {
-    return false;
-  }
-  if (query.color === true && !capabilities.color) {
-    return false;
-  }
-  if (query.duplex === true && !capabilities.duplex) {
-    return false;
-  }
-  return true;
 }
 
 function toShopListItem(shop: Shop): ShopListItem {

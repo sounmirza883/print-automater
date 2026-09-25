@@ -1,9 +1,11 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import { ShopStaffStatus, UserRole, type Prisma, type ShopStaff } from "@prisma/client";
 import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
-import type { AddShopStaffInput } from "@print-automated/validation";
+import type { Page } from "@print-automated/types";
+import type { AddShopStaffInput, ListShopStaffQueryInput } from "@print-automated/validation";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { ilike } from "../common/search.js";
 
 export interface MyShopMembership {
   id: string;
@@ -21,6 +23,14 @@ export interface ShopStaffMemberResponse {
   userId: string;
   role: UserRole;
   status: ShopStaffStatus;
+}
+
+/** 23.6: one row of `GET /shop/staff` -- a member plus the person's name and email
+ * (never a credential). */
+export interface ShopStaffListItem extends ShopStaffMemberResponse {
+  name: string;
+  email: string;
+  createdAt: Date;
 }
 
 /** The Shop app (3.4) has no notion of "which shop am I" anywhere --
@@ -61,6 +71,53 @@ export class ShopStaffService {
       name: membership.shop.name,
       role: membership.role,
     }));
+  }
+
+  /** 23.6: the business's people. REMOVED members are hidden unless asked for
+   * (`status=REMOVED`); newest first is NOT used -- alphabetical by name is the natural
+   * roster order. Always a page (limit 1-100, default 50). */
+  async listStaff(
+    actorId: string,
+    query: ListShopStaffQueryInput,
+  ): Promise<Page<ShopStaffListItem>> {
+    await this.assertMember(query.shopId, actorId);
+    const where: Prisma.ShopStaffWhereInput = {
+      shopId: query.shopId,
+      status: query.status ?? { not: ShopStaffStatus.REMOVED },
+      ...(query.role ? { role: query.role } : {}),
+      ...(query.q
+        ? {
+            user: {
+              OR: [{ name: ilike(query.q) }, { email: ilike(query.q) }],
+            },
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.shopStaff.findMany({
+        where,
+        orderBy: [{ user: { name: "asc" } }, { id: "asc" }],
+        take: query.limit,
+        skip: query.offset,
+        include: { user: { select: { name: true, email: true } } },
+      }),
+      this.prisma.shopStaff.count({ where }),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        shopId: row.shopId,
+        userId: row.userId,
+        role: row.role,
+        status: row.status,
+        name: row.user.name,
+        email: row.user.email,
+        createdAt: row.createdAt,
+      })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   /** §54/16.4: upsert on `(shopId, userId)` -- adding someone already

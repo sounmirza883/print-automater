@@ -1,6 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma, Product } from "@prisma/client";
+import type { Page } from "@print-automated/types";
 import type {
+  ListProductsQueryInput,
   ProductPaperRequirementsInput,
   PrinterCapabilitiesInput,
 } from "@print-automated/validation";
@@ -8,6 +10,8 @@ import type { CreateProductInput, UpdateProductInput } from "@print-automated/va
 import { AuditService, PrismaService } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { ilike } from "../common/search.js";
+import { listResult, resolvePagination } from "../common/pagination.js";
 
 export interface ProductResponse {
   id: string;
@@ -40,13 +44,40 @@ export class ProductsService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(requestingUserId: string, shopId: string): Promise<ProductResponse[]> {
-    await this.assertMember(shopId, requestingUserId);
-    const products = await this.prisma.product.findMany({
-      where: { shopId },
-      orderBy: { createdAt: "asc" },
-    });
-    return products.map((product) => this.toResponse(product));
+  async list(
+    requestingUserId: string,
+    query: ListProductsQueryInput,
+  ): Promise<ProductResponse[] | Page<ProductResponse>> {
+    await this.assertMember(query.shopId, requestingUserId);
+    const pagination = resolvePagination(query);
+    const where: Prisma.ProductWhereInput = {
+      shopId: query.shopId,
+      ...(query.available !== undefined ? { available: query.available } : {}),
+      ...(query.category ? { category: { equals: query.category, mode: "insensitive" } } : {}),
+      ...(query.q
+        ? {
+            OR: [
+              { name: ilike(query.q) },
+              { description: ilike(query.q) },
+              { category: ilike(query.q) },
+            ],
+          }
+        : {}),
+    };
+    const [products, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: pagination.take,
+        skip: pagination.skip,
+      }),
+      pagination.paged ? this.prisma.product.count({ where }) : Promise.resolve(0),
+    ]);
+    return listResult(
+      pagination,
+      products.map((product) => this.toResponse(product)),
+      total,
+    );
   }
 
   async create(requestingUserId: string, input: CreateProductInput): Promise<ProductResponse> {

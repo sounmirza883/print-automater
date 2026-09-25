@@ -1,4 +1,5 @@
 import type {
+  Page,
   DeliveryStatus,
   JobFailureReason,
   ReprintReason,
@@ -16,6 +17,7 @@ import type {
 // Re-exported, not redefined, so they cannot drift again. The public names
 // api-client exposes are unchanged.
 export type {
+  Page,
   DeliveryStatus,
   JobFailureReason,
   ReprintReason,

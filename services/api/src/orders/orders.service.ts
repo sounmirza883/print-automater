@@ -26,8 +26,16 @@ import {
   type PricingRule,
   type Quote,
 } from "@print-automated/pricing";
-import { ColorMode, PaperSize, Sides, type PrinterCapabilities } from "@print-automated/types";
-import type { CreateQuoteInput } from "@print-automated/validation";
+import {
+  ColorMode,
+  PaperSize,
+  Sides,
+  type Page,
+  type PrinterCapabilities,
+} from "@print-automated/types";
+import type { CreateQuoteInput, ListOrdersQueryInput } from "@print-automated/validation";
+import { listResult, resolvePagination } from "../common/pagination.js";
+import { ilike } from "../common/search.js";
 import { API_ENV } from "../config/config.module.js";
 import { DocumentsService } from "../documents/documents.service.js";
 import { RefundService } from "../payments/refund.service.js";
@@ -174,13 +182,40 @@ export class OrdersService {
    * "my orders" view (§72/§79), so it excludes COUNTER-sourced orders;
    * shop staff see those through GET /shop/orders instead, where
    * they're correctly attributed to the walk-in customerRecord. */
-  async listOrders(requestingUserId: string): Promise<OrderResponse[]> {
-    const orders = await this.prisma.order.findMany({
-      where: { customerId: requestingUserId, creationSource: OrderCreationSource.CUSTOMER_WEB },
-      orderBy: { createdAt: "desc" },
-      include: ORDER_INCLUDE,
-    });
-    return orders.map((order) => this.toOrderResponse(order));
+  async listOrders(
+    requestingUserId: string,
+    query: ListOrdersQueryInput = {},
+  ): Promise<OrderResponse[] | Page<OrderResponse>> {
+    const pagination = resolvePagination(query);
+    const where: Prisma.OrderWhereInput = {
+      customerId: requestingUserId,
+      creationSource: OrderCreationSource.CUSTOMER_WEB,
+      ...(query.status ? { orderStatus: query.status } : {}),
+      ...(query.q
+        ? {
+            OR: [
+              { publicOrderNumber: ilike(query.q) },
+              { document: { filename: ilike(query.q) } },
+              { items: { some: { document: { filename: ilike(query.q) } } } },
+            ],
+          }
+        : {}),
+    };
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        include: ORDER_INCLUDE,
+        take: pagination.take,
+        skip: pagination.skip,
+      }),
+      pagination.paged ? this.prisma.order.count({ where }) : Promise.resolve(0),
+    ]);
+    return listResult(
+      pagination,
+      orders.map((order) => this.toOrderResponse(order)),
+      total,
+    );
   }
 
   async getOrder(requestingUserId: string, orderId: string): Promise<OrderResponse> {

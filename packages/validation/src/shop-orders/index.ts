@@ -1,4 +1,5 @@
 export {
+  SHOP_ORDER_GROUPS,
   listShopOrdersQuerySchema,
   type ListShopOrdersQueryInput,
 } from "./list-shop-orders-query.schema.js";
@@ -24,3 +25,7 @@ export {
   createCounterOrderSchema,
   type CreateCounterOrderInput,
 } from "./create-counter-order.schema.js";
+export {
+  searchShopOrdersQuerySchema,
+  type SearchShopOrdersQueryInput,
+} from "./search-shop-orders-query.schema.js";

@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from "@nestjs/common";
+import type { Page } from "@print-automated/types";
 import { ListShopsQueryDto } from "./dto/list-shops-query.dto.js";
 import { ShopsService, type ShopListItem } from "./shops.service.js";
 
@@ -10,7 +11,7 @@ export class ShopsController {
   constructor(private readonly shopsService: ShopsService) {}
 
   @Get()
-  list(@Query() query: ListShopsQueryDto): Promise<ShopListItem[]> {
+  list(@Query() query: ListShopsQueryDto): Promise<ShopListItem[] | Page<ShopListItem>> {
     return this.shopsService.list(query);
   }
 }

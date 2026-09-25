@@ -9,6 +9,7 @@ import type {
 } from "@print-automated/validation";
 import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
+import { ilike } from "../common/search.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import type { Page } from "../inventory/inventory.service.js";
 
@@ -97,7 +98,7 @@ export class SuppliersService {
     await this.assertMember(query.shopId, userId);
     const where: Prisma.SupplierWhereInput = { shopId: query.shopId };
     if (query.status) where.status = query.status;
-    if (query.search) where.name = { contains: query.search, mode: "insensitive" };
+    if (query.search) where.name = ilike(query.search);
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.supplier.count({ where }),
       this.prisma.supplier.findMany({

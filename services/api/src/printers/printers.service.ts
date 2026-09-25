@@ -6,7 +6,7 @@ import {
   PrinterStatus,
   PrintJobStatus,
 } from "@prisma/client";
-import type { PrinterCapabilities } from "@print-automated/types";
+import type { Page, PrinterCapabilities } from "@print-automated/types";
 import {
   AppException,
   AuditService,
@@ -16,7 +16,13 @@ import {
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
-import type { RegisterPrinterInput, UpdatePrinterInput } from "@print-automated/validation";
+import { ilike } from "../common/search.js";
+import type {
+  ListPrintersQueryInput,
+  RegisterPrinterInput,
+  UpdatePrinterInput,
+} from "@print-automated/validation";
+import { listResult, resolvePagination } from "../common/pagination.js";
 
 export interface PrinterResponse {
   id: string;
@@ -58,13 +64,31 @@ export class PrintersService {
    * (register), never a route param -- so, like ShopOrdersService's
    * own list endpoint, membership is checked directly here rather than
    * via ShopScopeGuard's resolver mechanism. */
-  async list(requestingUserId: string, shopId: string): Promise<PrinterResponse[]> {
-    await this.assertMember(shopId, requestingUserId);
-    const printers = await this.prisma.printer.findMany({
-      where: { shopId },
-      orderBy: { createdAt: "asc" },
-    });
-    return Promise.all(printers.map((printer) => this.toResponseWithUsage(printer)));
+  async list(
+    requestingUserId: string,
+    query: ListPrintersQueryInput,
+  ): Promise<PrinterResponse[] | Page<PrinterResponse>> {
+    await this.assertMember(query.shopId, requestingUserId);
+    const pagination = resolvePagination(query);
+    const where: Prisma.PrinterWhereInput = {
+      shopId: query.shopId,
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.q
+        ? {
+            OR: [{ name: ilike(query.q) }, { model: ilike(query.q) }, { location: ilike(query.q) }],
+          }
+        : {}),
+    };
+    const [printers, total] = await Promise.all([
+      this.prisma.printer.findMany({
+        where,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: pagination.take,
+        skip: pagination.skip,
+      }),
+      pagination.paged ? this.prisma.printer.count({ where }) : Promise.resolve(0),
+    ]);
+    return listResult(pagination, await this.withUsage(printers), total);
   }
 
   async register(requestingUserId: string, input: RegisterPrinterInput): Promise<PrinterResponse> {
@@ -202,24 +226,39 @@ export class PrintersService {
    * 19.2: usage for the CURRENT period (UTC), read live so the figure
    * rolls over with no reset job. */
   private async toResponseWithUsage(printer: Printer): Promise<PrinterResponse> {
-    const usage = await this.prisma.printerPageUsage.findUnique({
+    return (await this.withUsage([printer]))[0]!;
+  }
+
+  /** One usage query for the whole page (not one per printer). */
+  private async withUsage(printers: Printer[]): Promise<PrinterResponse[]> {
+    if (printers.length === 0) {
+      return [];
+    }
+    const now = new Date();
+    const periods = new Map(
+      printers.map((printer) => [printer.id, periodStart(printer.pageLimitPeriod, now)]),
+    );
+    const usage = await this.prisma.printerPageUsage.findMany({
       where: {
-        printerId_periodStart: {
+        OR: printers.map((printer) => ({
           printerId: printer.id,
-          periodStart: periodStart(printer.pageLimitPeriod, new Date()),
-        },
+          periodStart: periods.get(printer.id)!,
+        })),
       },
-      select: { pagesUsed: true },
+      select: { printerId: true, pagesUsed: true },
     });
-    const pagesUsedInPeriod = usage?.pagesUsed ?? 0;
-    return {
-      ...this.toResponse(printer),
-      pagesUsedInPeriod,
-      remainingAllowance:
-        printer.pageLimitEnabled && printer.pageLimit !== null
-          ? Math.max(0, printer.pageLimit - pagesUsedInPeriod)
-          : null,
-    };
+    const used = new Map(usage.map((row) => [row.printerId, row.pagesUsed]));
+    return printers.map((printer) => {
+      const pagesUsedInPeriod = used.get(printer.id) ?? 0;
+      return {
+        ...this.toResponse(printer),
+        pagesUsedInPeriod,
+        remainingAllowance:
+          printer.pageLimitEnabled && printer.pageLimit !== null
+            ? Math.max(0, printer.pageLimit - pagesUsedInPeriod)
+            : null,
+      };
+    });
   }
 
   private toResponse(

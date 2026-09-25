@@ -18,12 +18,15 @@ import {
 import {
   BlockedReason,
   QualityCheckStatus,
+  type Page,
   type PrintConfiguration,
   type ReprintReason,
   type ShopRejectionReason,
 } from "@print-automated/types";
 import type {
   CreateCounterOrderInput,
+  ListShopOrdersQueryInput,
+  SearchShopOrdersQueryInput,
   QualityCheckInput,
   ResolveUnknownPrintInput,
 } from "@print-automated/validation";
@@ -45,6 +48,8 @@ import {
   type SendEmailJob,
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
+import { resolvePagination } from "../common/pagination.js";
+import { ilike } from "../common/search.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
@@ -249,6 +254,37 @@ export function groupForOrder(
   return base;
 }
 
+function statusesInGroup(...groups: Array<keyof ShopOrdersGrouped>): OrderStatus[] {
+  return (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter((status) =>
+    (groups as string[]).includes(GROUP_BY_STATUS[status]),
+  );
+}
+
+/** 23.6: the SQL form of `groupForOrder` for one group, so a paged group agrees with the
+ * grouped list: an in-production order that has a live job parked WAITING with a reason
+ * is stranded, so it belongs to needsAttention rather than printing. */
+export function whereInGroup(group: keyof ShopOrdersGrouped): Prisma.OrderWhereInput {
+  const stranded: Prisma.OrderWhereInput = {
+    printJobs: { some: { supersededAt: null, status: "WAITING", blockedReason: { not: null } } },
+  };
+  if (group === "needsAttention") {
+    return {
+      OR: [
+        { orderStatus: { in: statusesInGroup("needsAttention") } },
+        { orderStatus: { in: statusesInGroup("printing") }, ...stranded },
+      ],
+    };
+  }
+  if (group === "printing") {
+    return { orderStatus: { in: statusesInGroup("printing") }, NOT: stranded };
+  }
+  return { orderStatus: { in: statusesInGroup(group) } };
+}
+
+/** 23.6: bounds of the legacy grouped list (see listGrouped). */
+export const LIVE_QUEUE_CAP = 1000;
+export const HISTORY_GROUP_CAP = 200;
+
 export const SHOP_VISIBLE_STATUSES = (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter(
   (status) => GROUP_BY_STATUS[status] !== "hidden",
 );
@@ -291,15 +327,104 @@ export class ShopOrdersService {
   // type never hits that check.
   private static buildRepository(prisma: PrismaService) {
     return new ShopScopedRepository({
-      findMany: (args: { where: Prisma.OrderWhereInput }) =>
+      findMany: (args: { where: Prisma.OrderWhereInput; take?: number; skip?: number }) =>
         prisma.order.findMany({
           where: args.where,
           include: SHOP_ORDER_INCLUDE,
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+          take: args.take,
+          skip: args.skip,
         }),
+      count: (args: { where: Prisma.OrderWhereInput }) => prisma.order.count({ where: args.where }),
       findFirst: (args: { where: Prisma.OrderWhereInput }) =>
         prisma.order.findFirst({ where: args.where, include: SHOP_ORDER_INCLUDE }),
     });
+  }
+
+  /** 23.6 (PRD 43/44): search + filters over one shop's orders, always a page, newest
+   * first. Membership is checked like listGrouped's; every predicate is ANDed onto the
+   * repository's mandatory shopId. Search terms are LIKE-escaped bound parameters. Only
+   * shop-visible statuses are ever returned (never a customer's DRAFT). */
+  async search(
+    requestingUserId: string,
+    query: SearchShopOrdersQueryInput,
+  ): Promise<Page<ShopOrderResponse>> {
+    const { shopId } = query;
+    if (!(await this.shopMembership.isActiveStaff(shopId, requestingUserId))) {
+      throw new ForbiddenException("You do not have access to this shop's orders.");
+    }
+
+    const and: Prisma.OrderWhereInput[] = [
+      {
+        orderStatus: {
+          in: query.status
+            ? SHOP_VISIBLE_STATUSES.filter((status) => status === query.status)
+            : SHOP_VISIBLE_STATUSES,
+        },
+      },
+    ];
+    if (query.paymentStatus) and.push({ paymentStatus: query.paymentStatus });
+    if (query.from || query.to) {
+      and.push({
+        createdAt: {
+          ...(query.from ? { gte: query.from } : {}),
+          ...(query.to ? { lte: query.to } : {}),
+        },
+      });
+    }
+    if (query.customerId) and.push({ customerRecordId: query.customerId });
+    if (
+      query.printerId !== undefined ||
+      query.operatorId !== undefined ||
+      query.priority !== undefined
+    ) {
+      // One live job must satisfy every job filter together.
+      and.push({
+        printJobs: {
+          some: {
+            supersededAt: null,
+            ...(query.printerId ? { printerId: query.printerId } : {}),
+            ...(query.operatorId ? { operatorId: query.operatorId } : {}),
+            ...(query.priority !== undefined ? { priority: query.priority } : {}),
+          },
+        },
+      });
+    }
+    if (query.q) {
+      const term = query.q;
+      and.push({
+        OR: [
+          { publicOrderNumber: ilike(term) },
+          { document: { filename: ilike(term) } },
+          { items: { some: { document: { filename: ilike(term) } } } },
+          {
+            customerRecord: {
+              OR: [{ name: ilike(term) }, { phone: ilike(term) }, { email: ilike(term) }],
+            },
+          },
+          // A counter order's customerId is the STAFF account that keyed it in, so the
+          // account is only a customer identity for self-service orders.
+          {
+            creationSource: OrderCreationSource.CUSTOMER_WEB,
+            customer: {
+              OR: [{ name: ilike(term) }, { email: ilike(term) }, { phone: ilike(term) }],
+            },
+          },
+        ],
+      });
+    }
+    const where: Prisma.OrderWhereInput = { AND: and };
+
+    const [orders, total] = await Promise.all([
+      this.repository.findMany(shopId, where, { take: query.limit, skip: query.offset }),
+      this.repository.count(shopId, where),
+    ]);
+    return {
+      items: orders.map((order) => this.toResponse(order)),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   /** §82: no route param to resolve a shop id from here (this is a
@@ -309,15 +434,54 @@ export class ShopOrdersService {
    * own choice of 403 (never 404) for both "not a member" and "this
    * shop doesn't exist at all" -- distinguishing the two would leak
    * which shop ids are real to a caller with no business knowing. */
-  async listGrouped(requestingUserId: string, shopId: string): Promise<ShopOrdersGrouped> {
+  async listGrouped(
+    requestingUserId: string,
+    query: ListShopOrdersQueryInput,
+  ): Promise<ShopOrdersGrouped | Page<ShopOrderResponse>> {
+    const { shopId } = query;
     const isMember = await this.shopMembership.isActiveStaff(shopId, requestingUserId);
     if (!isMember) {
       throw new ForbiddenException("You do not have access to this shop's orders.");
     }
 
-    const orders = await this.repository.findMany(shopId, {
-      orderStatus: { in: SHOP_VISIBLE_STATUSES },
-    });
+    const pagination = resolvePagination(query);
+    if (query.group || pagination.paged) {
+      // 23.6: one flat page, newest first, of one group (or of every visible order).
+      const where: Prisma.OrderWhereInput = query.group
+        ? whereInGroup(query.group)
+        : { orderStatus: { in: SHOP_VISIBLE_STATUSES } };
+      const [orders, total] = await Promise.all([
+        this.repository.findMany(shopId, where, { take: pagination.take, skip: pagination.skip }),
+        this.repository.count(shopId, where),
+      ]);
+      return {
+        items: orders.map((order) => this.toResponse(order)),
+        total,
+        limit: pagination.limit,
+        offset: pagination.offset,
+      };
+    }
+
+    // Legacy grouped shape, now bounded: the live queue (needsAttention/printing/ready) is
+    // returned whole up to LIVE_QUEUE_CAP, while the two ever-growing history groups
+    // (completed, failed) are the newest HISTORY_GROUP_CAP each.
+    const [live, completed, failed] = await Promise.all([
+      this.repository.findMany(
+        shopId,
+        { orderStatus: { in: statusesInGroup("needsAttention", "printing", "ready") } },
+        { take: LIVE_QUEUE_CAP },
+      ),
+      this.repository.findMany(
+        shopId,
+        { orderStatus: { in: statusesInGroup("completed") } },
+        { take: HISTORY_GROUP_CAP },
+      ),
+      this.repository.findMany(
+        shopId,
+        { orderStatus: { in: statusesInGroup("failed") } },
+        { take: HISTORY_GROUP_CAP },
+      ),
+    ]);
 
     const grouped: ShopOrdersGrouped = {
       needsAttention: [],
@@ -326,11 +490,15 @@ export class ShopOrdersService {
       completed: [],
       failed: [],
     };
-    for (const order of orders) {
+    for (const order of [...live, ...completed, ...failed]) {
       const group = groupForOrder(order.orderStatus, order.printJobs);
       if (group && group !== "hidden") {
         grouped[group].push(this.toResponse(order));
       }
+    }
+    // Merged from three queries, so restore the list's newest-first order per group.
+    for (const orders of Object.values(grouped) as ShopOrderResponse[][]) {
+      orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }
     return grouped;
   }

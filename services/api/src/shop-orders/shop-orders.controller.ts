@@ -14,7 +14,7 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import { UserRole } from "@prisma/client";
-import { Permission } from "@print-automated/types";
+import { Permission, type Page } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
@@ -27,6 +27,9 @@ import type { OrderResponse } from "../orders/orders.service.js";
 import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
+import { SearchShopOrdersQueryDto } from "./dto/search-shop-orders-query.dto.js";
+import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
+import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import { DeliveryRedactionInterceptor } from "../deliveries/delivery-redaction.interceptor.js";
 import { QualityCheckDto } from "./dto/quality-check.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
@@ -80,8 +83,27 @@ export class ShopOrdersController {
   listOrders(
     @Req() req: RequestWithUser,
     @Query() query: ListShopOrdersQueryDto,
-  ): Promise<ShopOrdersGrouped> {
-    return this.shopOrdersService.listGrouped(req.user!.id, query.shopId);
+  ): Promise<ShopOrdersGrouped | Page<ShopOrderResponse>> {
+    return this.shopOrdersService.listGrouped(req.user!.id, query);
+  }
+
+  /** 23.6 (PRD 43/44): search + filters, one flat page. Declared before any `:id` route.
+   * Rate-limited per user: a leading-wildcard search is the costliest read here. */
+  @Get("search")
+  @UseGuards(RateLimitGuard)
+  @RateLimit({
+    limit: 60,
+    windowMs: 60_000,
+    keyGenerator: (request) =>
+      (request as unknown as RequestWithUser).user?.id ?? request.ip ?? "anon",
+  })
+  @RequirePermission(Permission.VIEW_ORDERS)
+  @ShopScopedField("query", "shopId")
+  searchOrders(
+    @Req() req: RequestWithUser,
+    @Query() query: SearchShopOrdersQueryDto,
+  ): Promise<Page<ShopOrderResponse>> {
+    return this.shopOrdersService.search(req.user!.id, query);
   }
 
   /** §4.2/§11/17.5: staff placing an order at the counter on a

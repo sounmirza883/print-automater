@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
-import { Permission } from "@print-automated/types";
+import { Permission, type Page } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
@@ -34,8 +34,8 @@ export class PricingRulesController {
   list(
     @Req() req: RequestWithUser,
     @Query() query: ListPricingRulesQueryDto,
-  ): Promise<PricingRuleResponse[]> {
-    return this.pricingRulesService.list(req.user!.id, query.shopId);
+  ): Promise<PricingRuleResponse[] | Page<PricingRuleResponse>> {
+    return this.pricingRulesService.list(req.user!.id, query);
   }
 
   @Post()

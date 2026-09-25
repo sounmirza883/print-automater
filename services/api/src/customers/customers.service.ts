@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Customer } from "@prisma/client";
+import type { Customer, Prisma } from "@prisma/client";
+import type { Page } from "@print-automated/types";
 import type {
   CreateCustomerInput,
   ListCustomersQueryInput,
@@ -8,6 +9,8 @@ import type {
 import { AuditService, PrismaService } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { ilike } from "../common/search.js";
+import { listResult, resolvePagination } from "../common/pagination.js";
 
 export interface CustomerResponse {
   id: string;
@@ -48,22 +51,37 @@ export class CustomersService {
   async list(
     requestingUserId: string,
     query: ListCustomersQueryInput,
-  ): Promise<CustomerResponse[]> {
+  ): Promise<CustomerResponse[] | Page<CustomerResponse>> {
     await this.assertMember(query.shopId, requestingUserId);
-    const customers = await this.prisma.customer.findMany({
-      where: query.q
+    const pagination = resolvePagination(query);
+    const where: Prisma.CustomerWhereInput = {
+      shopId: query.shopId,
+      ...(query.active !== undefined ? { active: query.active } : {}),
+      ...(query.q
         ? {
-            shopId: query.shopId,
             OR: [
-              { name: { contains: query.q, mode: "insensitive" } },
-              { phone: { contains: query.q, mode: "insensitive" } },
-              { email: { contains: query.q, mode: "insensitive" } },
+              { name: ilike(query.q) },
+              { phone: ilike(query.q) },
+              { email: ilike(query.q) },
+              { company: ilike(query.q) },
             ],
           }
-        : { shopId: query.shopId },
-      orderBy: { createdAt: "desc" },
-    });
-    return customers.map((customer) => this.toResponse(customer));
+        : {}),
+    };
+    const [customers, total] = await Promise.all([
+      this.prisma.customer.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: pagination.take,
+        skip: pagination.skip,
+      }),
+      pagination.paged ? this.prisma.customer.count({ where }) : Promise.resolve(0),
+    ]);
+    return listResult(
+      pagination,
+      customers.map((customer) => this.toResponse(customer)),
+      total,
+    );
   }
 
   async create(requestingUserId: string, input: CreateCustomerInput): Promise<CustomerResponse> {

@@ -8,11 +8,12 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
-import { Permission } from "@print-automated/types";
+import { Permission, type Page } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
@@ -21,11 +22,13 @@ import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped, ShopScopedField } from "../auth/shop-scoped.decorator.js";
 import { AddShopStaffDto } from "./dto/add-shop-staff.dto.js";
+import { ListShopStaffQueryDto } from "./dto/list-shop-staff-query.dto.js";
 import { ChangeShopStaffRoleDto } from "./dto/change-shop-staff-role.dto.js";
 import { ShopStaffShopResolver } from "./shop-staff-shop.resolver.js";
 import {
   ShopStaffService,
   type MyShopMembership,
+  type ShopStaffListItem,
   type ShopStaffMemberResponse,
 } from "./shop-staff.service.js";
 
@@ -48,6 +51,17 @@ export class ShopStaffController {
   @Get("me")
   myShops(@Req() req: RequestWithUser): Promise<{ shops: MyShopMembership[] }> {
     return this.shopStaffService.myShops(req.user!.id).then((shops) => ({ shops }));
+  }
+
+  /** 23.6: the roster the staff-management page needs (MANAGE_USERS: owner and manager). */
+  @Get()
+  @RequirePermission(Permission.MANAGE_USERS)
+  @ShopScopedField("query", "shopId")
+  list(
+    @Req() req: RequestWithUser,
+    @Query() query: ListShopStaffQueryDto,
+  ): Promise<Page<ShopStaffListItem>> {
+    return this.shopStaffService.listStaff(req.user!.id, query);
   }
 
   @Post()

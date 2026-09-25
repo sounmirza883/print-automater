@@ -63,6 +63,9 @@ model User {
   purchaseOrdersCreated  PurchaseOrder[] @relation("PurchaseOrderCreator")
   purchaseOrdersReceived PurchaseOrder[] @relation("PurchaseOrderReceiver")
 
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_name_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_email_trgm_idx")
   @@map("users")
 }
 
@@ -209,6 +212,8 @@ model Product {
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
   @@map("products")
 }
 
@@ -240,6 +245,10 @@ model Customer {
   orders Order[]
 
   @@index([shopId])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_name_trgm_idx")
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_phone_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_email_trgm_idx")
   @@map("customers")
 }
 
@@ -384,6 +393,8 @@ model Document {
 
   @@index([ownerUserId])
   @@index([status])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([filename(ops: raw("gin_trgm_ops"))], type: Gin, map: "documents_filename_trgm_idx")
   @@map("documents")
 }
 
@@ -485,6 +496,8 @@ model Order {
   // 23.2: per-shop aggregates (dashboards, reports, search).
   @@index([shopId, orderStatus])
   @@index([shopId, createdAt])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([publicOrderNumber(ops: raw("gin_trgm_ops"))], type: Gin, map: "orders_public_order_number_trgm_idx")
   @@map("orders")
 }
 
@@ -828,6 +841,8 @@ model Printer {
 
   @@index([shopId])
   @@index([agentId])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "printers_name_trgm_idx")
   @@map("printers")
 }
 
@@ -1185,6 +1200,8 @@ model InventoryItem {
   @@unique([shopId, sku])
   @@index([shopId])
   @@index([shopId, paperSize])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "inventory_items_name_trgm_idx")
   @@map("inventory_items")
 }
 
@@ -1268,6 +1285,8 @@ model Supplier {
 
   @@unique([id, shopId])
   @@index([shopId])
+  // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "suppliers_name_trgm_idx")
   @@map("suppliers")
 }
 

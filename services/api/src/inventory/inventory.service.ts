@@ -22,6 +22,7 @@ import {
   isLowStock,
 } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
+import { ilike } from "../common/search.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { ShopSettingsService } from "../shop-settings/shop-settings.service.js";
@@ -158,10 +159,7 @@ export class InventoryService {
 
     const where: Prisma.InventoryItemWhereInput = { shopId: query.shopId };
     if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: "insensitive" } },
-        { sku: { contains: query.search, mode: "insensitive" } },
-      ];
+      where.OR = [{ name: ilike(query.search) }, { sku: ilike(query.search) }];
     }
     if (query.paperSize) where.paperSize = query.paperSize;
     if (query.active !== undefined) where.active = query.active;

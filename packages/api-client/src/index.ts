@@ -17,10 +17,11 @@ export {
   type RegisterPrinterInput,
   type UpdatePrinterInput,
 } from "./resources/printers.resource.js";
-export { ShopStaffResource } from "./resources/shop-staff.resource.js";
+export { ShopStaffResource, type ShopStaffListItem } from "./resources/shop-staff.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
 export { ReportsResource, type ReportParams } from "./resources/reports.resource.js";
 export type {
+  Page,
   AuthTokens,
   AuthUser,
   AuthResult,

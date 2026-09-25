@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import type { PricingRule } from "@prisma/client";
-import type { CreatePricingRuleInput } from "@print-automated/validation";
+import type { Page } from "@print-automated/types";
+import type {
+  CreatePricingRuleInput,
+  ListPricingRulesQueryInput,
+} from "@print-automated/validation";
 import { AuditService, PrismaService } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { listResult, resolvePagination } from "../common/pagination.js";
 
 export interface PricingRuleResponse {
   id: string;
@@ -43,13 +48,28 @@ export class PricingRulesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(requestingUserId: string, shopId: string): Promise<PricingRuleResponse[]> {
-    await this.assertMember(shopId, requestingUserId);
-    const rules = await this.prisma.pricingRule.findMany({
-      where: { shopId },
-      orderBy: { version: "desc" },
-    });
-    return rules.map((rule) => this.toResponse(rule));
+  async list(
+    requestingUserId: string,
+    query: ListPricingRulesQueryInput,
+  ): Promise<PricingRuleResponse[] | Page<PricingRuleResponse>> {
+    await this.assertMember(query.shopId, requestingUserId);
+    const pagination = resolvePagination(query);
+    const [rules, total] = await Promise.all([
+      this.prisma.pricingRule.findMany({
+        where: { shopId: query.shopId },
+        orderBy: { version: "desc" },
+        take: pagination.take,
+        skip: pagination.skip,
+      }),
+      pagination.paged
+        ? this.prisma.pricingRule.count({ where: { shopId: query.shopId } })
+        : Promise.resolve(0),
+    ]);
+    return listResult(
+      pagination,
+      rules.map((rule) => this.toResponse(rule)),
+      total,
+    );
   }
 
   async create(

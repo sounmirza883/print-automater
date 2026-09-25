@@ -1,5 +1,5 @@
 import type { HttpClient } from "../http-client.js";
-import type { PrinterCapabilities, PrinterResponse } from "../types.js";
+import type { Page, PrinterCapabilities, PrinterResponse, PrinterStatus } from "../types.js";
 
 export interface RegisterPrinterInput {
   shopId: string;
@@ -18,6 +18,16 @@ export class PrintersResource {
 
   list(shopId: string): Promise<PrinterResponse[]> {
     return this.http.request<PrinterResponse[]>("/v1/shop/printers", { query: { shopId } });
+  }
+
+  /** 23.6: a page of printers, optionally searched (`q`) or filtered by status. */
+  listPage(
+    shopId: string,
+    params: { q?: string; status?: PrinterStatus; limit?: number; offset?: number } = {},
+  ): Promise<Page<PrinterResponse>> {
+    return this.http.request<Page<PrinterResponse>>("/v1/shop/printers", {
+      query: { shopId, ...params, limit: params.limit ?? 50 },
+    });
   }
 
   register(input: RegisterPrinterInput): Promise<PrinterResponse> {

@@ -34,6 +34,9 @@ export interface AdminAuditEntryResponse {
 export interface AdminListResult<T> {
   items: T[];
   total: number;
+  /** 23.6: the page bounds actually applied (same numbers as the request's take/skip). */
+  limit: number;
+  offset: number;
 }
 
 export interface AdminSystemStatus {
@@ -77,6 +80,8 @@ export class AdminService {
         createdAt: shop.createdAt,
       })),
       total,
+      limit: query.take,
+      offset: query.skip,
     };
   }
 
@@ -101,7 +106,7 @@ export class AdminService {
       }),
       this.prisma.user.count(),
     ]);
-    return { items, total };
+    return { items, total, limit: query.take, offset: query.skip };
   }
 
   /** §45/16.6: the first read access this codebase has ever had onto
@@ -129,7 +134,12 @@ export class AdminService {
       }),
       this.prisma.auditLog.count({ where }),
     ]);
-    return { items: items.map((entry) => this.toAuditResponse(entry)), total };
+    return {
+      items: items.map((entry) => this.toAuditResponse(entry)),
+      total,
+      limit: query.take,
+      offset: query.skip,
+    };
   }
 
   async getSystemStatus(): Promise<AdminSystemStatus> {

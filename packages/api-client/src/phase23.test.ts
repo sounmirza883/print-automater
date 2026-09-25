@@ -80,4 +80,19 @@ describe("Phase 23 ApiClient resources", () => {
       );
     });
   });
+
+  it("paginated list routes (23.6)", async () => {
+    await withClient(async (client, seen) => {
+      await client.shopOrders.listPage("s1", { group: "completed", limit: 20, offset: 40 });
+      await client.printers.listPage("s1", { q: "epson", status: "ONLINE" });
+      await client.shopStaff.list("s1", { role: "OPERATOR" });
+      await client.shopOrders.search("s1", { q: "ali", paymentStatus: "PAID", limit: 10 });
+      expect(seen.map((r) => r.url)).toEqual([
+        "/v1/shop/orders?shopId=s1&limit=20&offset=40&group=completed",
+        "/v1/shop/printers?shopId=s1&q=epson&status=ONLINE&limit=50",
+        "/v1/shop/staff?shopId=s1&role=OPERATOR",
+        "/v1/shop/orders/search?shopId=s1&q=ali&paymentStatus=PAID&limit=10",
+      ]);
+    });
+  });
 });

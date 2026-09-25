@@ -13,7 +13,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
-import { Permission } from "@print-automated/types";
+import { Permission, type Page } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
@@ -57,8 +57,8 @@ export class PrintersController {
   list(
     @Req() req: RequestWithUser,
     @Query() query: ListPrintersQueryDto,
-  ): Promise<PrinterResponse[]> {
-    return this.printersService.list(req.user!.id, query.shopId);
+  ): Promise<PrinterResponse[] | Page<PrinterResponse>> {
+    return this.printersService.list(req.user!.id, query);
   }
 
   @Post()

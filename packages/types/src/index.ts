@@ -63,3 +63,4 @@ export type {
   SupplierPurchasesReportTotals,
   SupplierPurchasesReport,
 } from "./reports.js";
+export type { Page } from "./pagination.js";

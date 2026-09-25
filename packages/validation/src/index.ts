@@ -14,11 +14,19 @@ export {
   printConfigurationSchema,
   type PrintConfigurationInput,
 } from "./print-configuration.schema.js";
-export { createQuoteSchema, type CreateQuoteInput } from "./orders/index.js";
+export {
+  createQuoteSchema,
+  type CreateQuoteInput,
+  listOrdersQuerySchema,
+  type ListOrdersQueryInput,
+} from "./orders/index.js";
 export { checkoutSchema, type CheckoutInput } from "./payments/index.js";
 export {
   listShopOrdersQuerySchema,
   type ListShopOrdersQueryInput,
+  SHOP_ORDER_GROUPS,
+  searchShopOrdersQuerySchema,
+  type SearchShopOrdersQueryInput,
   rejectOrderSchema,
   type RejectOrderInput,
   resolveUnknownPrintSchema,
@@ -67,6 +75,8 @@ export {
   changeShopStaffRoleSchema,
   type ChangeShopStaffRoleInput,
   SHOP_STAFF_ASSIGNABLE_ROLES,
+  listShopStaffQuerySchema,
+  type ListShopStaffQueryInput,
 } from "./shop-staff/index.js";
 export {
   adminListQuerySchema,
@@ -117,6 +127,9 @@ export {
   DEFAULT_PAGE_LIMIT,
   MAX_PAGE_LIMIT,
   paginationQuerySchema,
+  LEGACY_LIST_CAP,
+  optionalPaginationQuerySchema,
+  type OptionalPaginationQueryInput,
   queryBooleanSchema,
   type PaginationQueryInput,
 } from "./common/index.js";

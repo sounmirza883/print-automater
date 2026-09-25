@@ -738,6 +738,16 @@ describe("Authorization matrix (12.1, e2e)", () => {
         path: "/v1/shop/reports/supplier-purchases",
         expected: { owner: 200, manager: 200, counter: 403 },
       },
+      {
+        name: "staff roster",
+        path: "/v1/shop/staff",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "order search",
+        path: "/v1/shop/orders/search",
+        expected: { owner: 200, manager: 200, counter: 200 },
+      },
     ];
 
     describe.each(SHOP_ROUTES)("$name", ({ path, expected }) => {
