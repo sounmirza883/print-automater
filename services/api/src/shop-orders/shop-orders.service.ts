@@ -496,6 +496,7 @@ export class ShopOrdersService {
         documentId: true,
         printConfiguration: true,
         qualityCheckStatus: true,
+        orderStatus: true,
         shop: { select: { multiItemEnabled: true, qualityCheckEnabled: true } },
       },
     });
@@ -673,8 +674,21 @@ export class ShopOrdersService {
   private async syncQualityCheckStatus(
     tx: Prisma.TransactionClient,
     orderId: string,
-    order: { qualityCheckStatus: string | null; shop: { qualityCheckEnabled: boolean } },
+    order: {
+      qualityCheckStatus: string | null;
+      orderStatus: OrderStatus;
+      shop: { qualityCheckEnabled: boolean };
+    },
   ): Promise<void> {
+    // 21.7: an order already released (READY_FOR_COLLECTION/COMPLETED) is past its
+    // quality check and the order machine no longer re-derives it from its jobs, so
+    // a reprint there must not flip the recorded result to a PENDING nothing clears.
+    if (
+      order.orderStatus === OrderStatus.READY_FOR_COLLECTION ||
+      order.orderStatus === OrderStatus.COMPLETED
+    ) {
+      return;
+    }
     const current = order.qualityCheckStatus ?? QualityCheckStatus.NOT_REQUIRED;
     let next: string | null = null;
     if (order.shop.qualityCheckEnabled) {
@@ -1106,13 +1120,20 @@ export class ShopOrdersService {
     // the order can be released. The order waits in QUALITY_CHECK (MARK_READY is
     // not legal there) and this names the reason instead of a bare illegal-
     // transition; the state machine stays the authority.
+    // 21.7: only while the shop still runs quality checks (turning QC off must
+    // unblock a stale PENDING).
     const current = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { orderStatus: true, qualityCheckStatus: true },
+      select: {
+        orderStatus: true,
+        qualityCheckStatus: true,
+        shop: { select: { qualityCheckEnabled: true } },
+      },
     });
     if (
       current?.orderStatus === OrderStatus.QUALITY_CHECK ||
       (current?.orderStatus === OrderStatus.PRINTED &&
+        current.shop.qualityCheckEnabled &&
         current.qualityCheckStatus === QualityCheckStatus.PENDING)
     ) {
       throw new AppException(
@@ -1448,7 +1469,33 @@ export class ShopOrdersService {
   }
 
   async completeOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
-    await this.orderStateMachine.transition(orderId, OrderEvent.COMPLETE, { id: actorId });
+    // 21.7: a live reprint (or any unfinished job) blocks completion. Checked inside
+    // the transition, under the orders-row lock reprintJob also takes, so COMPLETE
+    // and a reprint cannot both win.
+    await this.orderStateMachine.transition(
+      orderId,
+      OrderEvent.COMPLETE,
+      { id: actorId },
+      {
+        sideEffect: async (tx) => {
+          const live = await tx.printJob.count({
+            where: {
+              orderId,
+              supersededAt: null,
+              status: { in: REPRINT_BLOCKING_JOB_STATUSES },
+            },
+          });
+          if (live > 0) {
+            throw new AppException(
+              HttpStatus.CONFLICT,
+              "REPRINT_IN_PROGRESS",
+              "A reprint (or another job) for this order is still in progress; complete the order once it has printed.",
+              false,
+            );
+          }
+        },
+      },
+    );
     this.logger.log({ metric: "order.completed", orderId }, "Order completed.");
     return this.getOrder(orderId);
   }
