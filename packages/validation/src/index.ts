@@ -52,6 +52,8 @@ export {
   type ResumeJobInput,
   recordFailureReasonSchema,
   type RecordFailureReasonInput,
+  reprintJobSchema,
+  type ReprintJobInput,
 } from "./print-jobs/index.js";
 export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";
 export {

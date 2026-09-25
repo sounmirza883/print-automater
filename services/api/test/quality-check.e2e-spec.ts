@@ -152,6 +152,17 @@ describe("Quality check (21.3, e2e)", () => {
       });
       expect(reprint.idempotencyToken).not.toBe(original!.idempotencyToken);
       expect((await order(fx, orderId)).qualityCheckStatus).toBe("PENDING");
+      // 21.4: the verdict is recorded as a reprint of the original (default reason POOR_QUALITY)
+      const link = await fx.prisma.printJobReprint.findUniqueOrThrow({
+        where: { originalJobId: original!.id },
+      });
+      expect(link).toMatchObject({
+        reprintJobId: reprint.id,
+        reason: "POOR_QUALITY",
+        source: "QUALITY_CHECK",
+        requestedBy: fx.owner.id,
+        additionalCostMinor: 0,
+      });
 
       await printLiveJobs(fx, deviceId, orderId);
       expect((await order(fx, orderId)).orderStatus).toBe(OrderStatus.QUALITY_CHECK);

@@ -14,6 +14,7 @@ export {
   Orientation,
   ShopRejectionReason,
   JobFailureReason,
+  ReprintReason,
   BlockedReason,
   QualityCheckStatus,
   JobPriority,

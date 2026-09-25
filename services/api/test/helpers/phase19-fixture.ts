@@ -106,6 +106,9 @@ export async function createPhase19Fixture(
           where: { OR: [{ resourceId: { in: resourceIds } }, { actorId: { in: reg.userIds } }] },
         }),
       );
+      await step("print_job_reprints", () =>
+        prisma.printJobReprint.deleteMany({ where: { orderId: { in: orderIds } } }),
+      );
       await step("print_jobs", () =>
         prisma.printJob.deleteMany({ where: { orderId: { in: orderIds } } }),
       );

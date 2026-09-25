@@ -5,4 +5,5 @@ export {
   recordFailureReasonSchema,
   type RecordFailureReasonInput,
 } from "./record-failure-reason.schema.js";
+export { reprintJobSchema, type ReprintJobInput } from "./reprint-job.schema.js";
 export { resumeJobSchema, type ResumeJobInput } from "./resume-job.schema.js";

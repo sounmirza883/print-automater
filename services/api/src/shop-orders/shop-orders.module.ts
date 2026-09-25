@@ -17,5 +17,6 @@ import { ShopOrdersService } from "./shop-orders.service.js";
   imports: [AuthModule, AgentsModule, PaymentProviderModule, OrdersModule, InvoicesModule],
   controllers: [ShopOrdersController],
   providers: [ShopOrdersService, OrderShopResolver],
+  exports: [ShopOrdersService],
 })
 export class ShopOrdersModule {}

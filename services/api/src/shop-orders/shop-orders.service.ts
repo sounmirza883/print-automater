@@ -18,6 +18,7 @@ import {
 import {
   QualityCheckStatus,
   type PrintConfiguration,
+  type ReprintReason,
   type ShopRejectionReason,
 } from "@print-automated/types";
 import type {
@@ -78,6 +79,8 @@ const SHOP_ORDER_INCLUDE = {
       blockedReason: true,
       failureReason: true,
       failureNote: true,
+      // 21.4: set when this job IS a reprint of another job.
+      reprintOf: { select: { originalJobId: true, reason: true, additionalCostMinor: true } },
       printer: { select: { name: true } },
     },
   },
@@ -96,7 +99,57 @@ export interface ShopOrderJobSummary {
   // 21.2 (§66): the operator's failure-reason pick, null until chosen.
   failureReason: string | null;
   failureNote: string | null;
+  // 21.4 (§67): non-null when this job is a reprint of `originalJobId`.
+  reprint: { originalJobId: string; reason: string; additionalCostMinor: number } | null;
 }
+
+/** 21.4 (§67): what POST /print-jobs/:id/reprint returns. */
+export interface ReprintResponse {
+  reprintId: string;
+  originalJobId: string;
+  reason: string;
+  note: string | null;
+  additionalCostMinor: number;
+  requestedBy: string | null;
+  createdAt: Date;
+  job: {
+    id: string;
+    orderId: string;
+    status: string;
+    printerId: string | null;
+    printerName: string | null;
+    blockedReason: string | null;
+    attempt: number;
+  };
+}
+
+/** Order statuses a reprint may be requested in: still in production, waiting on
+ * a quality check, or already ready for collection (the customer came back with a
+ * bad print). COMPLETED and every dead status are closed. */
+const REPRINTABLE_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
+  OrderStatus.QUEUED_FOR_PRINT,
+  OrderStatus.PRINTING,
+  OrderStatus.PRINTED,
+  OrderStatus.PRINT_FAILED,
+  OrderStatus.PRINT_STATUS_UNKNOWN,
+  OrderStatus.PREPARING,
+  OrderStatus.ASSIGNED,
+  OrderStatus.PAUSED,
+  OrderStatus.QUALITY_CHECK,
+  OrderStatus.READY_FOR_COLLECTION,
+]);
+
+/** Job statuses that mean "an attempt for this item is still in flight or
+ * unresolved": a reprint must never start a second copy next to one of these. */
+const REPRINT_BLOCKING_JOB_STATUSES: PrintJobStatus[] = [
+  PrintJobStatus.CREATED,
+  PrintJobStatus.WAITING,
+  PrintJobStatus.QUEUED,
+  PrintJobStatus.CLAIMED,
+  PrintJobStatus.PRINTING,
+  PrintJobStatus.PAUSED,
+  PrintJobStatus.UNKNOWN,
+];
 
 export interface ShopOrderResponse {
   id: string;
@@ -1113,9 +1166,15 @@ export class ShopOrdersService {
       {
         metadata: { ...metadata, ...(input.jobIds ? { jobIds: input.jobIds } : {}) },
         sideEffect: async (tx) => {
-          const itemIds = await this.qualityCheckReprintItems(tx, orderId, input.jobIds);
-          notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, undefined, itemIds))
-            .notifyDeviceIds;
+          const originals = await this.qualityCheckReprintJobs(tx, orderId, input.jobIds);
+          notifyDeviceIds = (
+            await this.createReprintsWithin(tx, orderId, actorId, originals, {
+              reason: input.reprintReason ?? "POOR_QUALITY",
+              note: input.note,
+              additionalCostMinor: input.additionalCostMinor ?? 0,
+              source: "QUALITY_CHECK",
+            })
+          ).notifyDeviceIds;
         },
       },
     );
@@ -1123,22 +1182,23 @@ export class ShopOrdersService {
     return this.getOrder(orderId);
   }
 
-  /** The order items a NEEDS_REPRINT verdict re-dispatches: the items of the
-   * named jobs, or of every current PRINTED job. Each named job must belong to
-   * this order and be a printed, unsuperseded job (a reprint of something that
-   * never printed is a retry, not a reprint). */
-  private async qualityCheckReprintItems(
+  /** The jobs a NEEDS_REPRINT verdict reprints: the named ones (each must be a
+   * printed, unsuperseded job of this order), or by default the newest printed job
+   * of every item (a job that already has a reprint is superseded by its own
+   * reprint in a chain, so it is left out). */
+  private async qualityCheckReprintJobs(
     tx: Prisma.TransactionClient,
     orderId: string,
     jobIds: string[] | undefined,
-  ): Promise<ReadonlySet<string>> {
+  ): Promise<string[]> {
     const printed = await tx.printJob.findMany({
       where: { orderId, supersededAt: null, status: PrintJobStatus.PRINTED },
-      select: { id: true, orderItemId: true },
+      select: { id: true, reprintedAs: { select: { id: true } } },
     });
-    const chosen = jobIds ? printed.filter((job) => jobIds.includes(job.id)) : printed;
-    const itemIds = chosen.map((job) => job.orderItemId).filter((id): id is string => id !== null);
-    if (itemIds.length === 0 || (jobIds && chosen.length !== new Set(jobIds).size)) {
+    const chosen = jobIds
+      ? printed.filter((job) => jobIds.includes(job.id))
+      : printed.filter((job) => job.reprintedAs === null);
+    if (chosen.length === 0 || (jobIds && chosen.length !== new Set(jobIds).size)) {
       throw new AppException(
         HttpStatus.CONFLICT,
         "REPRINT_JOB_INVALID",
@@ -1146,7 +1206,240 @@ export class ShopOrdersService {
         false,
       );
     }
-    return new Set(itemIds);
+    return chosen.map((job) => job.id);
+  }
+
+  /** 21.4 (§67): the reprint core. The CALLER holds the orders-row lock (the
+   * order machine's transition or lockOrderStatus), so everything below is
+   * serialised per order and no lock order is inverted. Each original must be a
+   * settled PRINTED, unsuperseded job of this order (never a job that might still
+   * be printing or whose outcome is unknown: duplicate printing is the cardinal
+   * rule), must not already have been reprinted, and its item must have no
+   * attempt still in flight. The new jobs come from the SAME allocation path as
+   * accept/retry (dispatchToPrinter: new attempt, new idempotency token); the
+   * originals are never written. The link row's UNIQUE(original_job_id) is the
+   * database-level backstop behind the application checks. */
+  async createReprintsWithin(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    actorId: string,
+    originalJobIds: string[],
+    detail: {
+      reason: ReprintReason;
+      note?: string;
+      additionalCostMinor: number;
+      source: "STAFF" | "QUALITY_CHECK";
+      printerId?: string;
+    },
+  ): Promise<{
+    notifyDeviceIds: string[];
+    reprints: Array<{ id: string; originalJobId: string; reprintJobId: string }>;
+  }> {
+    const invalid = (message: string) =>
+      new AppException(HttpStatus.CONFLICT, "REPRINT_JOB_INVALID", message, false);
+    const ids = [...new Set(originalJobIds)].sort();
+    const rows = await tx.$queryRaw<
+      Array<{
+        id: string;
+        orderId: string;
+        orderItemId: string | null;
+        status: PrintJobStatus;
+        supersededAt: Date | null;
+      }>
+    >`
+      SELECT id, order_id AS "orderId", order_item_id AS "orderItemId", status,
+             superseded_at AS "supersededAt"
+      FROM print_jobs WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE
+    `;
+    if (rows.length !== ids.length) {
+      throw invalid("The job to reprint was not found.");
+    }
+    for (const row of rows) {
+      if (row.orderId !== orderId) {
+        throw invalid("The job to reprint does not belong to this order.");
+      }
+      if (row.status !== PrintJobStatus.PRINTED || row.supersededAt !== null) {
+        throw invalid(
+          `Only a printed job can be reprinted; this one is ${row.status}${row.supersededAt ? " (superseded)" : ""}.`,
+        );
+      }
+      if (!row.orderItemId) {
+        throw invalid("This job has no order item to reprint.");
+      }
+    }
+    const itemIds = rows.map((row) => row.orderItemId as string);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw invalid("Two of the named jobs are for the same item; reprint only the latest.");
+    }
+
+    const already = await tx.printJobReprint.count({ where: { originalJobId: { in: ids } } });
+    if (already > 0) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "REPRINT_ALREADY_EXISTS",
+        "This job has already been reprinted; reprint the reprint if it is still not right.",
+        false,
+      );
+    }
+    const inFlight = await tx.printJob.count({
+      where: {
+        orderItemId: { in: itemIds },
+        supersededAt: null,
+        status: { in: REPRINT_BLOCKING_JOB_STATUSES },
+      },
+    });
+    if (inFlight > 0) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "REPRINT_ITEM_IN_PROGRESS",
+        "Another attempt for this item is still in progress; wait for it to finish first.",
+        false,
+      );
+    }
+
+    const attemptsBefore = new Map<string, number>();
+    for (const itemId of itemIds) {
+      attemptsBefore.set(itemId, await tx.printJob.count({ where: { orderItemId: itemId } }));
+    }
+    const { notifyDeviceIds } = await this.dispatchToPrinter(
+      tx,
+      orderId,
+      detail.printerId,
+      new Set(itemIds),
+    );
+
+    const shopId = (await tx.order.findUniqueOrThrow({ where: { id: orderId } })).shopId;
+    const reprints: Array<{ id: string; originalJobId: string; reprintJobId: string }> = [];
+    for (const row of rows) {
+      const created = await tx.printJob.findFirstOrThrow({
+        where: {
+          orderId,
+          orderItemId: row.orderItemId,
+          attempt: (attemptsBefore.get(row.orderItemId as string) ?? 0) + 1,
+        },
+        select: { id: true },
+      });
+      const link = await tx.printJobReprint.create({
+        data: {
+          shopId,
+          orderId,
+          originalJobId: row.id,
+          reprintJobId: created.id,
+          reason: detail.reason,
+          note: detail.note ?? null,
+          requestedBy: actorId,
+          additionalCostMinor: detail.additionalCostMinor,
+          source: detail.source,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: "JOB_REPRINT_CREATED",
+          resourceType: "print_job",
+          resourceId: created.id,
+          metadata: {
+            originalJobId: row.id,
+            reason: detail.reason,
+            additionalCostMinor: detail.additionalCostMinor,
+            source: detail.source,
+            orderId,
+            ...(detail.note ? { note: detail.note } : {}),
+          },
+        },
+      });
+      reprints.push({ id: link.id, originalJobId: row.id, reprintJobId: created.id });
+    }
+    return { notifyDeviceIds, reprints };
+  }
+
+  /** 21.4 (§67): reprint one printed job. One transaction under the orders-row
+   * lock (like retry/change-printer): validate, create the new job through the
+   * allocation path, record the link, re-derive the order. Two concurrent requests
+   * for the same job serialise on that lock and the second gets a clean 409; a
+   * unique violation that slips through anyway (the DB backstop) is mapped to the
+   * same 409 and rolls the whole request back. Closed orders are refused. */
+  async reprintJob(
+    jobId: string,
+    actorId: string,
+    input: {
+      reason: ReprintReason;
+      note?: string;
+      additionalCostMinor?: number;
+      printerId?: string;
+    },
+  ): Promise<ReprintResponse> {
+    const found = await this.prisma.printJob.findUnique({
+      where: { id: jobId },
+      select: { orderId: true },
+    });
+    if (!found) {
+      throw new NotFoundException("Print job not found.");
+    }
+    let notifyDeviceIds: string[] = [];
+    let pendingEmail: SendEmailJob | undefined;
+    let reprintId = "";
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          const status = await this.lockOrderStatus(tx, found.orderId);
+          if (!REPRINTABLE_ORDER_STATUSES.has(status)) {
+            throw new AppException(
+              HttpStatus.CONFLICT,
+              "ORDER_NOT_REPRINTABLE",
+              `An order in ${status} cannot have a job reprinted.`,
+              false,
+            );
+          }
+          const created = await this.createReprintsWithin(tx, found.orderId, actorId, [jobId], {
+            reason: input.reason,
+            note: input.note,
+            additionalCostMinor: input.additionalCostMinor ?? 0,
+            source: "STAFF",
+            printerId: input.printerId,
+          });
+          notifyDeviceIds = created.notifyDeviceIds;
+          reprintId = created.reprints[0]!.id;
+          pendingEmail = await this.syncOrderWithin(tx, found.orderId, actorId);
+        },
+        { maxWait: 10_000, timeout: 10_000 },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "REPRINT_ALREADY_EXISTS",
+          "This job was reprinted concurrently; refresh and check the order.",
+          true,
+        );
+      }
+      throw error;
+    }
+    await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
+    await this.notifyDevices(notifyDeviceIds);
+
+    const link = await this.prisma.printJobReprint.findUniqueOrThrow({
+      where: { id: reprintId },
+      include: { reprintJob: { include: { printer: { select: { name: true } } } } },
+    });
+    return {
+      reprintId: link.id,
+      originalJobId: link.originalJobId,
+      reason: link.reason,
+      note: link.note,
+      additionalCostMinor: link.additionalCostMinor,
+      requestedBy: link.requestedBy,
+      createdAt: link.createdAt,
+      job: {
+        id: link.reprintJob.id,
+        orderId: link.reprintJob.orderId,
+        status: link.reprintJob.status,
+        printerId: link.reprintJob.printerId,
+        printerName: link.reprintJob.printer?.name ?? null,
+        blockedReason: link.reprintJob.blockedReason,
+        attempt: link.reprintJob.attempt,
+      },
+    };
   }
 
   async completeOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
@@ -1175,6 +1468,13 @@ export class ShopOrdersService {
         blockedReason: job.blockedReason,
         failureReason: job.failureReason,
         failureNote: job.failureNote,
+        reprint: job.reprintOf
+          ? {
+              originalJobId: job.reprintOf.originalJobId,
+              reason: job.reprintOf.reason,
+              additionalCostMinor: job.reprintOf.additionalCostMinor,
+            }
+          : null,
       })),
     };
   }

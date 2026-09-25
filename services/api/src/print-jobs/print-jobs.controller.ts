@@ -7,6 +7,7 @@ import {
   Post,
   Req,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Permission } from "@print-automated/types";
@@ -22,6 +23,9 @@ import { PauseJobDto } from "./dto/pause-job.dto.js";
 import { ReassignJobDto } from "./dto/reassign-job.dto.js";
 import { RecordFailureReasonDto } from "./dto/record-failure-reason.dto.js";
 import { ResumeJobDto } from "./dto/resume-job.dto.js";
+import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.js";
+import { ReprintJobDto } from "./dto/reprint-job.dto.js";
+import { ShopOrdersService, type ReprintResponse } from "../shop-orders/shop-orders.service.js";
 import { PrintJobShopResolver } from "./print-job-shop.resolver.js";
 import { PrintJobsService, type PrintJobResponse } from "./print-jobs.service.js";
 
@@ -35,7 +39,10 @@ import { PrintJobsService, type PrintJobResponse } from "./print-jobs.service.js
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, ShopScopeGuard)
 @Roles(UserRole.OPERATOR, UserRole.PRINTER_MANAGER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER)
 export class PrintJobsController {
-  constructor(private readonly printJobsService: PrintJobsService) {}
+  constructor(
+    private readonly printJobsService: PrintJobsService,
+    private readonly shopOrdersService: ShopOrdersService,
+  ) {}
 
   @Post(":id/reassign")
   @HttpCode(HttpStatus.OK)
@@ -73,6 +80,22 @@ export class PrintJobsController {
     @Body() dto: PauseJobDto,
   ): Promise<PrintJobResponse> {
     return this.printJobsService.pause(id, req.user!.id, dto.reason);
+  }
+
+  /** 21.4 (§67): reprint a printed job as a NEW job that references it. Costed,
+   * so REPRINT_JOBS (manager, owner, printer manager). Replay-safe under an
+   * Idempotency-Key, and structurally impossible to trigger twice for one job. */
+  @Post(":id/reprint")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.REPRINT_JOBS)
+  @ShopScoped("id", PrintJobShopResolver)
+  @UseInterceptors(IdempotencyInterceptor)
+  reprint(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: ReprintJobDto,
+  ): Promise<ReprintResponse> {
+    return this.shopOrdersService.reprintJob(id, req.user!.id, dto);
   }
 
   /** 21.2 (§66): the operator's failure-reason picker for a FAILED/TIMEOUT job. */

@@ -48,6 +48,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.PAUSE_JOBS,
     Permission.RECORD_JOB_FAILURE,
     Permission.QUALITY_CHECK,
+    Permission.REPRINT_JOBS,
     Permission.VIEW_INVENTORY,
   ],
   SHOP_MANAGER: [
@@ -59,6 +60,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.PAUSE_JOBS,
     Permission.RECORD_JOB_FAILURE,
     Permission.QUALITY_CHECK,
+    Permission.REPRINT_JOBS,
     Permission.MANAGE_PRINTERS,
     Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,
@@ -76,6 +78,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.PAUSE_JOBS,
     Permission.RECORD_JOB_FAILURE,
     Permission.QUALITY_CHECK,
+    Permission.REPRINT_JOBS,
     Permission.MANAGE_PRINTERS,
     Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,

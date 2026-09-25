@@ -1,5 +1,6 @@
 import type {
   JobFailureReason,
+  ReprintReason,
   OrderStatus,
   PaymentStatus,
   PrinterStatus,
@@ -13,7 +14,14 @@ import type {
 // the API could emit was a type error nowhere and a blank label everywhere.
 // Re-exported, not redefined, so they cannot drift again. The public names
 // api-client exposes are unchanged.
-export type { JobFailureReason, OrderStatus, PaymentStatus, PrinterStatus, ShopRejectionReason };
+export type {
+  JobFailureReason,
+  ReprintReason,
+  OrderStatus,
+  PaymentStatus,
+  PrinterStatus,
+  ShopRejectionReason,
+};
 
 export interface AuthTokens {
   accessToken: string;

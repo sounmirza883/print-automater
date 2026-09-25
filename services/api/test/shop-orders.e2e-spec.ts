@@ -282,6 +282,7 @@ describe("Shop orders API (8.2, e2e)", () => {
         blockedReason: "NO_ONLINE_PRINTER",
         failureReason: null,
         failureNote: null,
+        reprint: null,
       },
     ]);
 

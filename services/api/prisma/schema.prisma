@@ -57,6 +57,8 @@ model User {
   // 18.9: jobs this user (role OPERATOR) is manually or automatically
   // assigned to run.
   printJobsAsOperator PrintJob[]           @relation("PrintJobOperator")
+  // 21.4: reprints this user requested.
+  reprintsRequested   PrintJobReprint[]    @relation("PrintJobReprintRequester")
   inventoryMovements  InventoryMovement[]  @relation("InventoryMovementActor")
   purchaseOrdersCreated  PurchaseOrder[] @relation("PurchaseOrderCreator")
   purchaseOrdersReceived PurchaseOrder[] @relation("PurchaseOrderReceiver")
@@ -877,6 +879,9 @@ model PrintJob {
   printer   Printer?   @relation(fields: [printerId], references: [id], onDelete: Restrict)
   orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
   operator  User?      @relation("PrintJobOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  // 21.4: this job's reprint (at most one), and, when this job IS a reprint, its link.
+  reprintedAs PrintJobReprint? @relation("ReprintOriginal")
+  reprintOf   PrintJobReprint? @relation("ReprintJob")
 
   @@index([shopId])
   @@index([orderId])
@@ -926,6 +931,48 @@ model OrderItem {
   @@index([orderId])
   @@index([documentId])
   @@map("order_items")
+}
+
+// 21.4 (PRD 67). Mirrored in packages/types (enum-mirror.spec.ts).
+enum ReprintReason {
+  PRINTER_ERROR
+  PAPER_JAM
+  WRONG_PAPER
+  POOR_QUALITY
+  FILE_PROBLEM
+  INK_TONER
+  HARDWARE
+  CUSTOMER_REQUEST
+  OTHER
+}
+
+// 21.4 (PRD 67). A reprint is a NEW print_jobs row created through the normal
+// allocation path; this row links it to the job it reprints and records why, who,
+// when and the additional cost (recorded only: a price change never alters a
+// confirmed order, so the order's pricing snapshot is not touched). original_job_id
+// is UNIQUE: a job can be reprinted at most once (a reprint can itself be reprinted).
+// shop_id/order_id are plain columns, like print_jobs.shop_id.
+model PrintJobReprint {
+  id                  String        @id @default(uuid())
+  shopId              String        @map("shop_id")
+  orderId             String        @map("order_id")
+  originalJobId       String        @unique @map("original_job_id")
+  reprintJobId        String        @unique @map("reprint_job_id")
+  reason              ReprintReason
+  note                String?
+  requestedBy         String?       @map("requested_by")
+  additionalCostMinor Int           @default(0) @map("additional_cost_minor")
+  // STAFF (the reprint endpoint) or QUALITY_CHECK (a NEEDS_REPRINT verdict).
+  source              String        @default("STAFF")
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  originalJob PrintJob @relation("ReprintOriginal", fields: [originalJobId], references: [id], onDelete: Restrict)
+  reprintJob  PrintJob @relation("ReprintJob", fields: [reprintJobId], references: [id], onDelete: Restrict)
+  requester   User?    @relation("PrintJobReprintRequester", fields: [requestedBy], references: [id], onDelete: SetNull)
+
+  @@index([shopId, createdAt])
+  @@index([orderId])
+  @@map("print_job_reprints")
 }
 
 // 21.2 (PRD 66). Mirrored in packages/types (enum-mirror.spec.ts).

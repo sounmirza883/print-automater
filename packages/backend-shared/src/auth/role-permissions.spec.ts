@@ -52,6 +52,14 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
     expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("QUALITY_CHECK");
   });
 
+  it("reprint (21.4): manager, owner and printer manager only, never OPERATOR or SHOP_COUNTER", () => {
+    for (const role of ["PRINTER_MANAGER", "SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("REPRINT_JOBS");
+    }
+    expect(ROLE_PERMISSIONS.OPERATOR).not.toContain("REPRINT_JOBS");
+    expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("REPRINT_JOBS");
+  });
+
   it("inventory (20.2): operators and printer managers may view, only manager/owner may manage, counter neither", () => {
     expect(ROLE_PERMISSIONS.OPERATOR).toContain("VIEW_INVENTORY");
     expect(ROLE_PERMISSIONS.PRINTER_MANAGER).toContain("VIEW_INVENTORY");
