@@ -64,3 +64,9 @@ export type {
   SupplierPurchasesReport,
 } from "./reports.js";
 export type { Page } from "./pagination.js";
+export type {
+  NotificationCategory,
+  NotificationTargetKind,
+  NotificationTarget,
+  NotificationItem,
+} from "./notifications.js";

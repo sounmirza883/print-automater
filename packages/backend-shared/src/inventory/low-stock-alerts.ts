@@ -1,3 +1,5 @@
+import { Permission } from "@print-automated/types";
+import { notifyShopStaffContained } from "../notifications/staff-notifications.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
 
 export interface LowStockSyncResult {
@@ -98,7 +100,7 @@ export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStoc
               RETURNING id, shop_id AS "shopId", quantity, min_quantity AS "minQuantity"
             `;
       if (raisedItems.length > 0) {
-        await tx.inventoryAlert.createMany({
+        const alerts = await tx.inventoryAlert.createManyAndReturn({
           data: raisedItems.map((row) => ({
             shopId: row.shopId,
             inventoryItemId: row.id,
@@ -106,6 +108,35 @@ export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStoc
             minQuantity: row.minQuantity,
           })),
         });
+        // 23.7 (PRD 37/111): tell the staff who can see inventory, once per alert. An
+        // operational alert, so the shop's customer-notification toggles do not apply;
+        // the per-shop inventory-alerts toggle already decided whether we got here.
+        const names = new Map(
+          (
+            await tx.inventoryItem.findMany({
+              where: { id: { in: alerts.map((alert) => alert.inventoryItemId) } },
+              select: { id: true, name: true },
+            })
+          ).map((item) => [item.id, item.name]),
+        );
+        for (const alert of alerts) {
+          const name = names.get(alert.inventoryItemId) ?? "An inventory item";
+          await notifyShopStaffContained(tx, {
+            shopId: alert.shopId,
+            permission: Permission.VIEW_INVENTORY,
+            type: "LOW_STOCK",
+            title: "Low stock",
+            body: `${name} is low: ${alert.quantityAtAlert} left (minimum ${alert.minQuantity}).`,
+            targetType: "INVENTORY_ITEM",
+            targetId: alert.inventoryItemId,
+            metadata: {
+              alertId: alert.id,
+              quantity: alert.quantityAtAlert,
+              minQuantity: alert.minQuantity,
+            },
+            dedupeKey: `low-stock:${alert.id}`,
+          });
+        }
       }
       return { raised: raisedItems.length, resolved: resolvedItems.length };
     },

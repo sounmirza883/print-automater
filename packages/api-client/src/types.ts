@@ -1,4 +1,5 @@
 import type {
+  NotificationItem,
   Page,
   DeliveryStatus,
   JobFailureReason,
@@ -17,6 +18,7 @@ import type {
 // Re-exported, not redefined, so they cannot drift again. The public names
 // api-client exposes are unchanged.
 export type {
+  NotificationItem,
   Page,
   DeliveryStatus,
   JobFailureReason,

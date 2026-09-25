@@ -6,6 +6,7 @@ import { PrintersResource } from "./resources/printers.resource.js";
 import { ShopStaffResource } from "./resources/shop-staff.resource.js";
 import { DashboardResource } from "./resources/dashboard.resource.js";
 import { ReportsResource } from "./resources/reports.resource.js";
+import { NotificationsResource } from "./resources/notifications.resource.js";
 
 export class ApiClient {
   readonly auth: AuthResource;
@@ -15,6 +16,7 @@ export class ApiClient {
   readonly shopStaff: ShopStaffResource;
   readonly dashboard: DashboardResource;
   readonly reports: ReportsResource;
+  readonly notifications: NotificationsResource;
 
   constructor(options: HttpClientOptions) {
     const http = new HttpClient(options);
@@ -25,5 +27,6 @@ export class ApiClient {
     this.shopStaff = new ShopStaffResource(http);
     this.dashboard = new DashboardResource(http);
     this.reports = new ReportsResource(http);
+    this.notifications = new NotificationsResource(http);
   }
 }

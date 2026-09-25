@@ -143,6 +143,12 @@ export {
 } from "./inventory/consume-paper.js";
 export { syncLowStockAlerts, type LowStockSyncResult } from "./inventory/low-stock-alerts.js";
 export {
+  notifyShopStaff,
+  notifyShopStaffContained,
+  rolesWithPermission,
+  type StaffAlert,
+} from "./notifications/staff-notifications.js";
+export {
   DEFAULT_SHOP_AUTOMATION,
   readShopAutomation,
   readShopAutomationLocked,

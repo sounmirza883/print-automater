@@ -81,6 +81,21 @@ describe("Phase 23 ApiClient resources", () => {
     });
   });
 
+  it("notification centre routes (23.7)", async () => {
+    await withClient(async (client, seen) => {
+      await client.notifications.list({ unread: true, audience: "staff", limit: 20 });
+      await client.notifications.unreadCount({ shopId: "s1" });
+      await client.notifications.markRead("n1");
+      await client.notifications.markAllRead();
+      expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual([
+        "GET /v1/notifications?unread=true&audience=staff&limit=20",
+        "GET /v1/notifications/unread-count?shopId=s1",
+        "POST /v1/notifications/n1/read",
+        "POST /v1/notifications/read-all",
+      ]);
+    });
+  });
+
   it("paginated list routes (23.6)", async () => {
     await withClient(async (client, seen) => {
       await client.shopOrders.listPage("s1", { group: "completed", limit: 20, offset: 40 });

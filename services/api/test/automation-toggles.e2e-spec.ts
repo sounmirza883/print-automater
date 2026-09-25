@@ -1,5 +1,6 @@
 import { OrderStatus, PrinterStatus } from "@prisma/client";
 import {
+  PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
   periodStart,
@@ -384,6 +385,46 @@ describe("Automation toggles (22.2, e2e)", () => {
       expect((await fx.prisma.printJob.findFirstOrThrow({ where: { orderId } })).status).toBe(
         "QUEUED",
       );
+    });
+
+    it("OFF still delivers the REQUIRED notices (rejection, print failure) on APP and EMAIL; routine ones stay suppressed", async () => {
+      await setAuto(fx, { automaticNotificationsEnabled: false });
+      // rejection: the customer must be told (and that their money is coming back)
+      const rejected = await fx.makeOrder(1);
+      await post(fx, `/v1/shop/orders/${rejected.orderId}/reject`, {
+        reason: "PRINTER_UNAVAILABLE",
+      }).expect(200);
+      const rejectedRows = await notificationsFor(rejected.orderId);
+      expect(rejectedRows.map((r) => r.channel).sort()).toEqual(["APP", "EMAIL"]);
+      expect(new Set(rejectedRows.map((r) => r.type))).toEqual(new Set(["ORDER_REJECTED"]));
+
+      // failure: routine PRINT_STARTED is suppressed, PRINT_FAILED is not
+      await fx.makePrinter("N-req");
+      const failing = await fx.makeOrder(1);
+      await accept(fx, failing.orderId).expect(200);
+      const job = await fx.prisma.printJob.findFirstOrThrow({
+        where: { orderId: failing.orderId },
+      });
+      const machine = fx.app.get(PrintJobStateMachine);
+      await machine.transition(job.id, PrintJobEvent.CLAIM, { id: null }, {});
+      await machine.transition(job.id, PrintJobEvent.START, { id: null }, {});
+      expect(await notificationsFor(failing.orderId)).toEqual([]);
+      await machine.transition(job.id, PrintJobEvent.FAIL, { id: null }, {});
+      const failedRows = await notificationsFor(failing.orderId);
+      expect(failedRows.map((r) => r.channel).sort()).toEqual(["APP", "EMAIL"]);
+      expect(new Set(failedRows.map((r) => r.type))).toEqual(new Set(["PRINT_FAILED"]));
+    });
+
+    it("a required notice still lands IN-APP when the shop switched the app channel off", async () => {
+      await setAuto(fx, {
+        automaticNotificationsEnabled: false,
+        notificationSettings: { emailEnabled: false, appEnabled: false },
+      });
+      const { orderId } = await fx.makeOrder(1);
+      await post(fx, `/v1/shop/orders/${orderId}/reject`, { reason: "PRINTER_UNAVAILABLE" }).expect(
+        200,
+      );
+      expect((await notificationsFor(orderId)).map((r) => r.channel)).toEqual(["APP"]);
     });
 
     it("channel settings: email off leaves APP only; app off leaves EMAIL only", async () => {

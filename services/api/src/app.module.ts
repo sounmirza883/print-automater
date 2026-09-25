@@ -37,6 +37,7 @@ import { CustomersModule } from "./customers/customers.module.js";
 import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { ReportsModule } from "./reports/reports.module.js";
+import { NotificationCenterModule } from "./notification-center/notification-center.module.js";
 
 @Module({
   imports: [
@@ -96,6 +97,7 @@ import { ReportsModule } from "./reports/reports.module.js";
     PrintJobsModule,
     DashboardModule,
     ReportsModule,
+    NotificationCenterModule,
   ],
 })
 export class AppModule {}

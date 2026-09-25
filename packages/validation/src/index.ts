@@ -220,3 +220,9 @@ export {
   reportQuerySchema,
   type ReportQueryInput,
 } from "./reports/index.js";
+export {
+  notificationFilterSchema,
+  listNotificationsQuerySchema,
+  type NotificationFilterInput,
+  type ListNotificationsQueryInput,
+} from "./notifications/index.js";

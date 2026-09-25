@@ -52,6 +52,7 @@ model User {
   documents           Document[]
   orders              Order[]
   notifications       Notification[]
+  staffNotifications  StaffNotification[]
   createdPairingCodes AgentPairingCode[]
   refundsActedOn      Refund[]             @relation("RefundActor")
   // 18.9: jobs this user (role OPERATOR) is manually or automatically
@@ -157,6 +158,7 @@ model Shop {
   inventoryItems    InventoryItem[]
   inventoryMovements InventoryMovement[]
   inventoryAlerts    InventoryAlert[]
+  staffNotifications StaffNotification[]
   suppliers          Supplier[]
   purchaseOrders     PurchaseOrder[]
   settings           ShopSettings?
@@ -634,6 +636,57 @@ enum NotificationType {
   // already been paid, so this notification's own text can say
   // "you'll be refunded" unconditionally rather than hedging.
   ORDER_REJECTED
+}
+
+// 23.7 (PRD 37/111): the staff half of the notification centre. `notifications` above is
+// the CUSTOMER order-status feed (one row per channel, email pipeline attached, always
+// tied to an order); operational alerts for a business's staff are a different shape
+// (per recipient, per shop, any deep-link target, no email), so they live here instead of
+// bending that table -- which keeps every customer-notification query and test untouched.
+// One row per recipient so read state is per user. Both FKs cascade: alerts die with the
+// shop or the person, so nothing dangles and no cleanup ordering is needed.
+model StaffNotification {
+  id         String                  @id @default(uuid())
+  userId     String                  @map("user_id")
+  shopId     String                  @map("shop_id")
+  type       StaffNotificationType
+  title      String
+  body       String
+  targetType NotificationTargetType  @map("target_type")
+  targetId   String                  @map("target_id")
+  // The order the target belongs to, when there is one (a job, say), so a client can offer
+  // "open the order" without a lookup. Plain text, not a FK: it is a hint, never a join.
+  orderId    String?                 @map("order_id")
+  metadata   Json?
+  // At most one row per (recipient, key); NULL keys never collide. Low-stock alerts use it
+  // so a re-run of the sweep can never notify twice for the same alert.
+  dedupeKey  String?                 @map("dedupe_key")
+  readAt     DateTime?               @map("read_at")
+  createdAt  DateTime                @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@index([shopId])
+  @@map("staff_notifications")
+}
+
+enum StaffNotificationType {
+  LOW_STOCK
+  JOB_BLOCKED
+  JOB_HELD_LATE_PRINT
+  JOB_FAILED
+}
+
+enum NotificationTargetType {
+  ORDER
+  PRINT_JOB
+  PRINTER
+  INVENTORY_ITEM
+  PURCHASE_ORDER
 }
 
 enum NotificationChannel {

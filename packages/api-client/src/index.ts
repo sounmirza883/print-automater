@@ -20,6 +20,10 @@ export {
 export { ShopStaffResource, type ShopStaffListItem } from "./resources/shop-staff.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
 export { ReportsResource, type ReportParams } from "./resources/reports.resource.js";
+export {
+  NotificationsResource,
+  type NotificationFilter,
+} from "./resources/notifications.resource.js";
 export type {
   Page,
   AuthTokens,

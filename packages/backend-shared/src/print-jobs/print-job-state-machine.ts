@@ -8,6 +8,8 @@ import { periodStart } from "../printers/page-limit-period.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
 import { consumePaperForJobContained } from "../inventory/consume-paper.js";
+import { Permission } from "@print-automated/types";
+import { notifyShopStaffContained, type StaffAlert } from "../notifications/staff-notifications.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -327,6 +329,99 @@ export class PrintJobStateMachine {
    * concurrent completions on one printer sum exactly. Accrues regardless
    * of `page_limit_enabled` so enabling a limit later starts from truth.
    * The period is the printer's own, in UTC (periodStart). */
+  /** 23.7 (PRD 37/111): the staff-facing signals of a job transition, written in the SAME
+   * transaction as the transition (so they exist exactly when the change does) but
+   * contained in a savepoint (so a notification problem can never roll back a print).
+   * Recipients are the members who hold ASSIGN_JOBS in the job's business. Signals:
+   *  - JOB_BLOCKED: the job is now WAITING for a NEW reason (allocation found nothing, the
+   *    shop turned automatic assignment off, ...). A sweep re-blocking for the SAME reason
+   *    is not news, so it does not notify again.
+   *  - JOB_HELD_LATE_PRINT: the 19.18 hold (PAUSE or HOLD carrying MANUAL_APPROVAL_REQUIRED
+   *    because a late PRINTED report says paper may already exist).
+   *  - JOB_FAILED: the agent reported FAIL, or the timeout sweep gave up (TIMEOUT). A staff
+   *    resolution (RESOLVE_FAILED) is their own act and does not notify.
+   * None of the customer-notification toggles apply: these are operational. */
+  private async raiseStaffAlert(
+    tx: Prisma.TransactionClient,
+    job: LockedPrintJobRow,
+    event: PrintJobEvent,
+    nextStatus: PrintJobStatus,
+    ctx: JobTransitionContext,
+  ): Promise<void> {
+    const appliedReason =
+      ctx.blockedReason !== undefined &&
+      !(job.blockedReason !== null && ctx.keepBlockedReasons?.includes(job.blockedReason))
+        ? ctx.blockedReason
+        : job.blockedReason;
+
+    let signal: Pick<StaffAlert, "type" | "title" | "body" | "metadata"> | undefined;
+    const label = (order: string): string => `order ${order}`;
+    if (nextStatus === "WAITING" && appliedReason && appliedReason !== job.blockedReason) {
+      signal = {
+        type: "JOB_BLOCKED",
+        title: "Print job blocked",
+        body: `A print job for {order} is waiting: ${appliedReason}.`,
+        metadata: { blockedReason: appliedReason, event },
+      };
+    } else if (
+      nextStatus === "PAUSED" &&
+      (event === PrintJobEvent.PAUSE || event === PrintJobEvent.HOLD) &&
+      appliedReason === "MANUAL_APPROVAL_REQUIRED" &&
+      ctx.metadata?.reason === "LATE_PRINTED_ON_SUPERSEDED_JOB"
+    ) {
+      signal = {
+        type: "JOB_HELD_LATE_PRINT",
+        title: "Print job held: possible duplicate",
+        body: `A print job for {order} was held because an earlier attempt reported paper after it had failed or moved. Check the tray before resuming.`,
+        metadata: {
+          blockedReason: appliedReason,
+          supersededJobId: ctx.metadata?.supersededJobId ?? null,
+        },
+      };
+    } else if (
+      (event === PrintJobEvent.FAIL || event === PrintJobEvent.TIMEOUT) &&
+      (nextStatus === "FAILED" || nextStatus === "TIMEOUT")
+    ) {
+      signal = {
+        type: "JOB_FAILED",
+        title: nextStatus === "TIMEOUT" ? "Print timed out" : "Print failed",
+        body: `A print job for {order} ${nextStatus === "TIMEOUT" ? "timed out" : "failed"}.`,
+        metadata: { event },
+      };
+    }
+    if (!signal) {
+      return;
+    }
+
+    const context = await tx.printJob.findUnique({
+      where: { id: job.id },
+      select: {
+        shopId: true,
+        printerId: true,
+        order: { select: { publicOrderNumber: true } },
+        printer: { select: { name: true } },
+      },
+    });
+    if (!context) {
+      return;
+    }
+    await notifyShopStaffContained(tx, {
+      shopId: context.shopId,
+      permission: Permission.ASSIGN_JOBS,
+      type: signal.type,
+      title: signal.title,
+      body: signal.body.replace("{order}", label(context.order.publicOrderNumber)),
+      targetType: "PRINT_JOB",
+      targetId: job.id,
+      orderId: job.orderId,
+      metadata: {
+        ...signal.metadata,
+        printerId: context.printerId ?? job.printerId,
+        printerName: context.printer?.name ?? null,
+      },
+    });
+  }
+
   private async accruePageUsage(
     tx: Prisma.TransactionClient,
     jobId: string,
@@ -488,6 +583,8 @@ export class PrintJobStateMachine {
                   : {}),
             },
           });
+
+          await this.raiseStaffAlert(tx, job, event, nextStatus, ctx);
 
           let accruedPrinterId: string | undefined;
           if (

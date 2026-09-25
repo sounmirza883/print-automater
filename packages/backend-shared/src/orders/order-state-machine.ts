@@ -180,6 +180,18 @@ const NOTIFICATION_TYPE_BY_DERIVED_TARGET: Partial<Record<OrderStatus, Notificat
   [OrderStatus.PRINTED]: "PRINT_COMPLETED",
 };
 
+/** 23.7 (PRD 76/122): customer notices the shop's "automatic notifications" switch can
+ * NOT silence. Turning routine status chatter off (started, accepted, ready...) must never
+ * leave a customer unaware that their order was rejected (which also tells them a refund is
+ * coming) or that printing failed. These are always created, and always in-app: the
+ * channel switches still decide whether the EMAIL goes out, but a required notice is never
+ * left with nowhere to land. There are no cancellation or refund notice types yet; when
+ * they are added they belong in this set. */
+const REQUIRED_CUSTOMER_NOTICES: ReadonlySet<NotificationType> = new Set<NotificationType>([
+  "ORDER_REJECTED",
+  "PRINT_FAILED",
+]);
+
 export interface TransitionActor {
   /** null for system-driven transitions (the 5.6 expiration worker,
    * webhook-driven payment confirmation) that have no human actor. */
@@ -402,14 +414,17 @@ export class OrderStateMachine {
     let pendingEmail: SendEmailJob | undefined;
     // 22.2 (PRD 76): the shop can switch automatic customer notifications off, or
     // one channel of them. The order transition, its audit row and everything else
-    // are unaffected; only the notification rows (and the email they enqueue) are.
+    // are unaffected; only the notification rows (and the email they enqueue) are --
+    // except the REQUIRED notices (rejection, print failure), which 23.7 exempts.
     const automation = notificationType
       ? await readShopAutomation(tx, updatedOrder.shopId)
       : undefined;
-    if (notificationType && automation?.automaticNotifications) {
+    const required =
+      notificationType !== undefined && REQUIRED_CUSTOMER_NOTICES.has(notificationType);
+    if (notificationType && automation && (automation.automaticNotifications || required)) {
       const content = buildNotificationContent(notificationType, updatedOrder.publicOrderNumber);
 
-      if (automation.notificationChannels.app) {
+      if (automation.notificationChannels.app || required) {
         await tx.notification.create({
           data: {
             userId: updatedOrder.customerId,
