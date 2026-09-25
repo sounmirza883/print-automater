@@ -133,8 +133,16 @@ export class PurchaseOrdersService {
 
     const supplier = await this.prisma.supplier.findFirst({
       where: { id: input.supplierId, shopId: input.shopId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
+    if (supplier && supplier.status !== "ACTIVE") {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "SUPPLIER_INACTIVE",
+        "This supplier is inactive; reactivate it before ordering from it.",
+        false,
+      );
+    }
     if (!supplier) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
@@ -146,13 +154,21 @@ export class PurchaseOrdersService {
     const itemIds = input.lines.map((line) => line.inventoryItemId);
     const items = await this.prisma.inventoryItem.findMany({
       where: { id: { in: itemIds }, shopId: input.shopId },
-      select: { id: true, unitCostMinor: true },
+      select: { id: true, unitCostMinor: true, active: true },
     });
     if (items.length !== itemIds.length) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
         "INVENTORY_ITEM_NOT_FOUND",
         "Inventory item not found.",
+        false,
+      );
+    }
+    if (items.some((item) => !item.active)) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "INVENTORY_ITEM_INACTIVE",
+        "An inventory item on this order is inactive.",
         false,
       );
     }
@@ -240,10 +256,17 @@ export class PurchaseOrdersService {
     actorId: string,
   ): Promise<PurchaseOrderResponse> {
     const existing = await this.load(this.prisma, id);
-    await this.prisma.purchaseOrder.update({
-      where: { id },
+    if (existing.status === "CANCELLED") {
+      throw invalidState(existing.status, "marked with a payment status");
+    }
+    // Guarded write: a cancel that lands between the read and this update wins.
+    const moved = await this.prisma.purchaseOrder.updateMany({
+      where: { id, status: { not: "CANCELLED" } },
       data: { paymentStatus: input.paymentStatus },
     });
+    if (moved.count === 0) {
+      throw invalidState("CANCELLED", "marked with a payment status");
+    }
     await this.audit.record({
       actorId,
       action: AuditAction.PURCHASE_ORDER_PAYMENT_CHANGED,

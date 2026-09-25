@@ -132,6 +132,44 @@ describe("Purchase orders (20.7, e2e)", () => {
       expect(res.status).toBe(404);
     });
 
+    it("refuses an INACTIVE supplier or an INACTIVE item (409 with a clear code) and creates nothing", async () => {
+      const a = await makeItem();
+      const dead = await fx.prisma.supplier.create({
+        data: { shopId: fx.shop.id, name: "Retired", status: "INACTIVE" },
+      });
+      const before = await fx.prisma.purchaseOrder.count({ where: { shopId: fx.shop.id } });
+      const bySupplier = await http()
+        .post("/v1/shop/purchase-orders")
+        .set(as(fx.token))
+        .send({
+          shopId: fx.shop.id,
+          supplierId: dead.id,
+          lines: [{ inventoryItemId: a.id, quantity: 1 }],
+        });
+      expect(bySupplier.status).toBe(409);
+      expect(bySupplier.body.error_code).toBe("SUPPLIER_INACTIVE");
+      const off = await makeItem(0, { active: false });
+      const byItem = await createPo([{ inventoryItemId: off.id, quantity: 1 }]);
+      expect(byItem.status).toBe(409);
+      expect(byItem.body.error_code).toBe("INVENTORY_ITEM_INACTIVE");
+      expect(await fx.prisma.purchaseOrder.count({ where: { shopId: fx.shop.id } })).toBe(before);
+    });
+
+    it("payment cannot be changed on a CANCELLED purchase order (409)", async () => {
+      const a = await makeItem();
+      const po = (await createPo([{ inventoryItemId: a.id, quantity: 1 }])).body;
+      await action(po.id, "cancel");
+      const res = await http()
+        .patch(`/v1/shop/purchase-orders/${po.id}/payment`)
+        .set(as(fx.token))
+        .send({ paymentStatus: "PAID" });
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("PURCHASE_ORDER_INVALID_STATE");
+      expect(
+        (await fx.prisma.purchaseOrder.findUniqueOrThrow({ where: { id: po.id } })).paymentStatus,
+      ).toBe("UNPAID");
+    });
+
     it("DRAFT -> ORDERED -> RECEIVED; illegal moves are 409 (receive a DRAFT, order twice, cancel a RECEIVED)", async () => {
       const a = await makeItem();
       const po = (await createPo([{ inventoryItemId: a.id, quantity: 10 }])).body;
@@ -371,7 +409,8 @@ describe("Purchase orders (20.7, e2e)", () => {
         { inventoryItemId: second, quantity: 100 },
       ]);
       const res = await action(po.id, "receive");
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("STOCK_OVERFLOW");
       expect(await qty(first)).toBe(0);
       expect(await qty(second)).toBe(2_147_483_600);
       expect(

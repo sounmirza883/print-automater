@@ -3,6 +3,8 @@ import type { InventoryMovementType, Prisma } from "@prisma/client";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
 
+const INT_MAX = 2_147_483_647;
+
 /** Audit action written (in the same transaction) for every stock movement. */
 export const INVENTORY_MOVEMENT_AUDIT_ACTION = "INVENTORY_MOVEMENT";
 
@@ -103,6 +105,16 @@ export async function applyStockMovement(
         quantityAfter: existing.quantityAfter,
       };
     }
+  }
+
+  if (current.quantity + input.quantityDelta > INT_MAX) {
+    // Would overflow the integer column: a clean 409 instead of a raw database error.
+    throw new AppException(
+      HttpStatus.CONFLICT,
+      "STOCK_OVERFLOW",
+      "This movement would exceed the maximum quantity that can be tracked.",
+      false,
+    );
   }
 
   let appliedDelta = input.quantityDelta;
