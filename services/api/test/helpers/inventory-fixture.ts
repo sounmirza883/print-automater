@@ -94,7 +94,13 @@ export async function createInventoryFixture(
       prisma.user.deleteMany({ where: { id: { in: extraUserIds } } }),
     );
     if (errors.length > 0) {
-      throw new AggregateError(errors, "Inventory fixture cleanup had failures");
+      throw new AggregateError(
+        errors,
+        `Inventory fixture cleanup had failures: ${errors
+          .flatMap((e) => (e instanceof AggregateError ? e.errors : [e]))
+          .map(String)
+          .join(" | ")}`,
+      );
     }
   }
 

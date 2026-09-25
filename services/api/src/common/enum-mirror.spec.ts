@@ -1,6 +1,8 @@
 import {
   InventoryAlertStatus as PrismaInventoryAlertStatus,
   SupplierStatus as PrismaSupplierStatus,
+  PurchaseOrderStatus as PrismaPurchaseOrderStatus,
+  PurchaseOrderPaymentStatus as PrismaPurchaseOrderPaymentStatus,
   InventoryMovementType as PrismaInventoryMovementType,
   OrderStatus as PrismaOrderStatus,
   PaymentStatus as PrismaPaymentStatus,
@@ -12,6 +14,8 @@ import {
 import {
   InventoryAlertStatus,
   SupplierStatus,
+  PurchaseOrderStatus,
+  PurchaseOrderPaymentStatus,
   InventoryMovementType,
   OrderStatus,
   PaymentStatus,
@@ -40,6 +44,8 @@ const MIRRORS: Array<[string, Record<string, string>, Record<string, string>]> =
   ["InventoryMovementType", PrismaInventoryMovementType, InventoryMovementType],
   ["InventoryAlertStatus", PrismaInventoryAlertStatus, InventoryAlertStatus],
   ["SupplierStatus", PrismaSupplierStatus, SupplierStatus],
+  ["PurchaseOrderStatus", PrismaPurchaseOrderStatus, PurchaseOrderStatus],
+  ["PurchaseOrderPaymentStatus", PrismaPurchaseOrderPaymentStatus, PurchaseOrderPaymentStatus],
 ];
 
 describe("packages/types enums mirror the Prisma enums exactly", () => {

@@ -58,6 +58,8 @@ model User {
   // assigned to run.
   printJobsAsOperator PrintJob[]           @relation("PrintJobOperator")
   inventoryMovements  InventoryMovement[]  @relation("InventoryMovementActor")
+  purchaseOrdersCreated  PurchaseOrder[] @relation("PurchaseOrderCreator")
+  purchaseOrdersReceived PurchaseOrder[] @relation("PurchaseOrderReceiver")
 
   @@map("users")
 }
@@ -151,6 +153,7 @@ model Shop {
   inventoryMovements InventoryMovement[]
   inventoryAlerts    InventoryAlert[]
   suppliers          Supplier[]
+  purchaseOrders     PurchaseOrder[]
 
   @@map("shops")
 }
@@ -1063,6 +1066,7 @@ model InventoryItem {
   movements InventoryMovement[]
   alerts    InventoryAlert[]
   supplierProducts SupplierProduct[]
+  purchaseOrderLines PurchaseOrderLine[]
 
   @@unique([id, shopId])
   @@unique([shopId, sku])
@@ -1147,6 +1151,7 @@ model Supplier {
 
   shop     Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
   products SupplierProduct[]
+  purchaseOrders PurchaseOrder[]
 
   @@unique([id, shopId])
   @@index([shopId])
@@ -1175,4 +1180,68 @@ model SupplierProduct {
   @@index([shopId])
   @@index([inventoryItemId])
   @@map("supplier_products")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ORDERED
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchaseOrderPaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
+// 20.7/31: a purchase order to a supplier. DRAFT -> ORDERED -> RECEIVED (or
+// CANCELLED from DRAFT/ORDERED). Receiving writes inventory movements in the
+// same transaction and is idempotent (row lock + status guard + per-line unique
+// movement keys). po_number comes from a DB sequence default.
+model PurchaseOrder {
+  id                 String                     @id @default(uuid())
+  shopId             String                     @map("shop_id")
+  supplierId         String                     @map("supplier_id")
+  poNumber           String                     @default(dbgenerated("('PO-'::text || lpad((nextval('purchase_order_number_seq'::regclass))::text, 6, '0'::text))")) @map("po_number")
+  status             PurchaseOrderStatus        @default(DRAFT)
+  paymentStatus      PurchaseOrderPaymentStatus @default(UNPAID) @map("payment_status")
+  expectedDeliveryAt DateTime?                  @map("expected_delivery_at")
+  actualDeliveryAt   DateTime?                  @map("actual_delivery_at")
+  totalCostMinor     Int                        @default(0) @map("total_cost_minor")
+  notes              String?
+  createdBy          String?                    @map("created_by")
+  receivedBy         String?                    @map("received_by")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @default(now()) @updatedAt @map("updated_at")
+
+  shop     Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  supplier Supplier            @relation(fields: [supplierId, shopId], references: [id, shopId], onDelete: Cascade, map: "purchase_orders_supplier_shop_fkey")
+  creator  User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  receiver User?               @relation("PurchaseOrderReceiver", fields: [receivedBy], references: [id], onDelete: SetNull)
+  lines    PurchaseOrderLine[]
+
+  @@unique([id, shopId])
+  @@unique([shopId, poNumber])
+  @@index([shopId, status, createdAt])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id               String  @id @default(uuid())
+  shopId           String  @map("shop_id")
+  purchaseOrderId  String  @map("purchase_order_id")
+  inventoryItemId  String  @map("inventory_item_id")
+  quantityOrdered  Int     @map("quantity_ordered")
+  unitCostMinor    Int     @default(0) @map("unit_cost_minor")
+  quantityReceived Int?    @map("quantity_received")
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId, shopId], references: [id, shopId], onDelete: Cascade, map: "purchase_order_lines_po_shop_fkey")
+  item          InventoryItem @relation(fields: [inventoryItemId, shopId], references: [id, shopId], onDelete: Cascade, map: "purchase_order_lines_item_shop_fkey")
+
+  @@unique([purchaseOrderId, inventoryItemId])
+  @@index([shopId])
+  @@index([inventoryItemId])
+  @@map("purchase_order_lines")
 }
