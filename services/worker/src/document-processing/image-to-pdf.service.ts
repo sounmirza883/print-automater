@@ -3,14 +3,10 @@ import { PDFDocument, degrees } from "pdf-lib";
 import { DocumentRejectedError } from "./document-rejected.error.js";
 import { RejectionReason } from "./rejection-reason.js";
 import { readImageDimensions } from "./image-dimensions.js";
+import { MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE } from "./image-limits.js";
+import { sanitizePng } from "./png-sanitizer.js";
 
-/** 21.9 decompression-bomb limits. The header-declared pixel count is
- * checked BEFORE any decoder runs. 40 MP covers phone photos and any
- * realistic scan while bounding decoded RGBA memory to ~160 MB for the
- * worst accepted PNG. The side cap stops absurd strips that pass the
- * area cap. */
-export const MAX_IMAGE_PIXELS = 40_000_000;
-export const MAX_IMAGE_SIDE = 20_000;
+export { MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE };
 
 // A4 in PDF points (1/72 in). Images are scaled to fit, never cropped.
 const A4_SHORT = 595.28;
@@ -41,7 +37,9 @@ export class ImageToPdfService {
       // pdf-lib's JPEG embedder reads `data.buffer` as if it began at the
       // view's start; a small Node Buffer is a slice of a shared pool, so
       // hand it a copy that owns its ArrayBuffer ("SOI not found" otherwise).
-      const bytes = new Uint8Array(buffer);
+      // 21.12: PNGs are structurally validated, inflate-bounded and rebuilt
+      // from critical chunks only BEFORE the decoder sees them.
+      const bytes = new Uint8Array(kind === "png" ? sanitizePng(buffer) : buffer);
       const image = kind === "jpeg" ? await pdf.embedJpg(bytes) : await pdf.embedPng(bytes);
 
       // EXIF orientation only ever applies to JPEG here. 5-8 swap axes.
