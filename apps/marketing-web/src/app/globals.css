@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/* Namespaced tokens so nothing collides with Tailwind's own --spacing-* /
+   --radius-* scales. Brand blue is anchored on design-tokens primaryAction
+   (#2563EB = brand-600). */
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  --color-ink-50: #f4f6fb;
+  --color-ink-100: #e6eaf3;
+  --color-ink-200: #ccd4e4;
+  --color-ink-300: #a3afc9;
+  --color-ink-400: #7382a5;
+  --color-ink-500: #52618a;
+  --color-ink-600: #3b4870;
+  --color-ink-700: #2a3556;
+  --color-ink-800: #1a2340;
+  --color-ink-900: #0f1630;
+  --color-ink-950: #080d21;
+
+  /* CMYK registration-mark accents: tiny details and status dots only. */
+  --color-cmyk-cyan: #00aeef;
+  --color-cmyk-magenta: #ec008c;
+  --color-cmyk-yellow: #ffd400;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --animate-float: float 6s ease-in-out infinite;
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #fff;
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Sticky header is 4rem; keep anchor targets clear of it. */
+section[id],
+main[id] {
+  scroll-margin-top: 5rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+/* Reveal: content is visible by default; JS opts in with data-reveal. */
+[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(16px);
+}
+[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+  [data-reveal="hidden"] {
+    opacity: 1;
+    transform: none;
+  }
+}

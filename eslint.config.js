@@ -5,7 +5,11 @@ import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import eslintConfigPrettier from "eslint-config-prettier";
 
-const REACT_APP_FILES = ["apps/customer-web/**/*.{ts,tsx}", "apps/shop-mobile/**/*.{ts,tsx}"];
+const REACT_APP_FILES = [
+  "apps/customer-web/**/*.{ts,tsx}",
+  "apps/marketing-web/**/*.{ts,tsx}",
+  "apps/shop-mobile/**/*.{ts,tsx}",
+];
 
 const SERVER_FILES = [
   "services/api/src/**/*.ts",
