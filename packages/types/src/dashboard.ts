@@ -37,11 +37,18 @@ export interface OwnerDashboardResponse {
     /** Orders completed inside `range` (by completedAt). */
     completedInPeriod: number;
   };
+  /** 23.10: same definitions as the revenue report (see RevenueReportRow in reports.ts), in
+   * ONE currency: gross = payments ever paid, dated by their stable paidAt; refunded =
+   * COMPLETED refunds (their own amount) dated by completion; net = gross - refunded.
+   * REFUND_PENDING / REFUND_FAILED are not refunded. "today" is since 00:00 UTC. */
   revenue: {
     currency: string;
-    /** Confirmed (PAID) payments since 00:00 UTC today. Refunded payments are not counted. */
-    todayMinor: number;
-    periodMinor: number;
+    grossTodayMinor: number;
+    refundedTodayMinor: number;
+    netTodayMinor: number;
+    grossPeriodMinor: number;
+    refundedPeriodMinor: number;
+    netPeriodMinor: number;
     paidOrdersInPeriod: number;
   };
   printing: {

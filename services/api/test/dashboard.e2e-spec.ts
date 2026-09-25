@@ -25,6 +25,18 @@ describe("Dashboards (23.2, e2e)", () => {
       data: { orderId, provider: "test", amountMinor, currency: "PKR", status },
     });
   }
+  async function refund(orderId: string, paymentId: string, amountMinor: number) {
+    return fx.prisma.refund.create({
+      data: {
+        orderId,
+        paymentId,
+        amountMinor,
+        currency: "PKR",
+        status: PaymentStatus.REFUNDED,
+        reason: "test",
+      },
+    });
+  }
   async function job(
     orderId: string,
     printerId: string | null,
@@ -84,7 +96,8 @@ describe("Dashboards (23.2, e2e)", () => {
     await pay(o1.orderId, 3000, PaymentStatus.PAID);
     await pay(o2.orderId, 1000, PaymentStatus.PAID);
     await pay(o3.orderId, 500, PaymentStatus.PAID);
-    await pay(o4.orderId, 7777, PaymentStatus.REFUNDED);
+    const refunded = await pay(o4.orderId, 7777, PaymentStatus.REFUNDED);
+    await refund(o4.orderId, refunded.id, 7000); // the refund's own amount, not the payment's
 
     await job(o1.orderId, printerA, PrintJobStatus.PRINTING, { operatorId: ops.id }, o1.itemIds[0]);
     await job(
@@ -177,12 +190,17 @@ describe("Dashboards (23.2, e2e)", () => {
       expect(b.orders.pending).toBe(1);
       expect(b.orders.completedInPeriod).toBe(1);
       expect(b.orders.current).toEqual({ needsAttention: 1, printing: 1, ready: 0 });
-      // PAID only (3000+1000+500); REFUNDED and shop B's 99999 excluded
-      expect(b.revenue).toMatchObject({
+      // gross = everything ever paid (3000+1000+500+7777); refunded = the refund's 7000;
+      // net = gross - refunded. Shop B's 99999 excluded.
+      expect(b.revenue).toEqual({
         currency: "PKR",
-        todayMinor: 4500,
-        periodMinor: 4500,
-        paidOrdersInPeriod: 3,
+        grossTodayMinor: 12277,
+        refundedTodayMinor: 7000,
+        netTodayMinor: 5277,
+        grossPeriodMinor: 12277,
+        refundedPeriodMinor: 7000,
+        netPeriodMinor: 5277,
+        paidOrdersInPeriod: 4,
       });
       expect(b.printing).toMatchObject({
         printingNow: 1,
@@ -242,8 +260,9 @@ describe("Dashboards (23.2, e2e)", () => {
         .set(as(fx.token));
       expect(past.status).toBe(200);
       expect(past.body.orders.inPeriod).toBe(0);
-      expect(past.body.revenue.periodMinor).toBe(0);
-      expect(past.body.revenue.todayMinor).toBe(4500); // "today" is independent of the period
+      expect(past.body.revenue.grossPeriodMinor).toBe(0);
+      expect(past.body.revenue.netPeriodMinor).toBe(0);
+      expect(past.body.revenue.netTodayMinor).toBe(5277); // "today" is independent of the period
       // live counts ignore the period
       expect(past.body.orders.current.needsAttention).toBe(1);
       const tooWide = await http()
@@ -273,7 +292,7 @@ describe("Dashboards (23.2, e2e)", () => {
       const own = await get(fx.ownerB.token, { shopId: fx.shopB.id });
       expect(own.status).toBe(200);
       expect(own.body.orders.inPeriod).toBe(1);
-      expect(own.body.revenue.periodMinor).toBe(99999);
+      expect(own.body.revenue.netPeriodMinor).toBe(99999);
       expect(own.body.printers.total).toBe(0);
       expect(own.body.inventory.activeItems).toBe(0);
     });

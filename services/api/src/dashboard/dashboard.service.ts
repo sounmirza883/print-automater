@@ -15,6 +15,7 @@ import type {
   ShopDashboardQueryInput,
 } from "@print-automated/validation";
 import { JOB_PAGES_JOINS, JOB_TOTAL_PAGES } from "../analytics/job-pages-sql.js";
+import { pickCurrency } from "../common/money.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { GROUP_BY_STATUS, SHOP_VISIBLE_STATUSES } from "../shop-orders/shop-orders.service.js";
 
@@ -191,19 +192,46 @@ export class DashboardService {
       this.prisma.order.count({
         where: { shopId, orderStatus: OrderStatus.COMPLETED, completedAt: { gte: from, lte: to } },
       }),
-      // Revenue is CONFIRMED money: payments in PAID status (a refund moves the payment
-      // to REFUND_*, so refunded money drops out), each carrying the amount that was
-      // snapshotted from the order's own quote when it was paid. No pricing rule is read.
-      this.prisma.$queryRaw<Array<{ today: bigint; period: bigint; paid_orders: number }>>`
-        SELECT
-          COALESCE(SUM(p.amount_minor) FILTER (WHERE p.updated_at >= ${todayStart}), 0)::bigint AS today,
-          COALESCE(SUM(p.amount_minor) FILTER (WHERE p.updated_at >= ${from} AND p.updated_at <= ${to}), 0)::bigint AS period,
-          (COUNT(DISTINCT p.order_id) FILTER (WHERE p.updated_at >= ${from} AND p.updated_at <= ${to}))::int AS paid_orders
-        FROM payments p
-        JOIN orders o ON o.id = p.order_id
-        WHERE o.shop_id = ${shopId}
-          AND p.status = 'PAID'
-          AND p.updated_at >= ${todayStart < from ? todayStart : from}`,
+      // 23.10: revenue, per currency (money is never summed across currencies). Gross =
+      // payments ever paid, dated by their STABLE paid_at; refunded = COMPLETED refunds
+      // (refunds.amount_minor) dated by completion. REFUND_PENDING/REFUND_FAILED stay in.
+      this.prisma.$queryRaw<
+        Array<{
+          currency: string;
+          g_today: bigint;
+          g_period: bigint;
+          paid_orders: number;
+          r_today: bigint;
+          r_period: bigint;
+        }>
+      >`
+        WITH g AS (
+          SELECT p.currency,
+            COALESCE(SUM(p.amount_minor) FILTER (WHERE p.paid_at >= ${todayStart}), 0)::bigint AS g_today,
+            COALESCE(SUM(p.amount_minor) FILTER (WHERE p.paid_at >= ${from} AND p.paid_at <= ${to}), 0)::bigint AS g_period,
+            (COUNT(DISTINCT p.order_id) FILTER (WHERE p.paid_at >= ${from} AND p.paid_at <= ${to}))::int AS paid_orders
+          FROM payments p
+          JOIN orders o ON o.id = p.order_id
+          WHERE o.shop_id = ${shopId}
+            AND p.status IN ('PAID', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
+            AND p.paid_at >= ${todayStart < from ? todayStart : from}
+          GROUP BY p.currency
+        ), r AS (
+          SELECT rf.currency,
+            COALESCE(SUM(rf.amount_minor) FILTER (WHERE rf.updated_at >= ${todayStart}), 0)::bigint AS r_today,
+            COALESCE(SUM(rf.amount_minor) FILTER (WHERE rf.updated_at >= ${from} AND rf.updated_at <= ${to}), 0)::bigint AS r_period
+          FROM refunds rf
+          JOIN orders o ON o.id = rf.order_id
+          WHERE o.shop_id = ${shopId}
+            AND rf.status = 'REFUNDED'
+            AND rf.updated_at >= ${todayStart < from ? todayStart : from}
+          GROUP BY rf.currency
+        )
+        SELECT COALESCE(g.currency, r.currency) AS currency,
+          COALESCE(g.g_today, 0)::bigint AS g_today, COALESCE(g.g_period, 0)::bigint AS g_period,
+          COALESCE(g.paid_orders, 0)::int AS paid_orders,
+          COALESCE(r.r_today, 0)::bigint AS r_today, COALESCE(r.r_period, 0)::bigint AS r_period
+        FROM g FULL OUTER JOIN r ON r.currency = g.currency`,
       this.prisma.printJob.groupBy({
         by: ["status"],
         where: { shopId, supersededAt: null, status: { in: [...QUEUE_STATUSES, "PRINTING"] } },
@@ -248,7 +276,12 @@ export class DashboardService {
           AND o.order_status::text <> ALL(${TERMINAL_ORDER_STATUSES as string[]})`,
     ]);
 
-    const currency = settings?.currency ?? "PKR";
+    const currency = pickCurrency(
+      revenue.map((row) => ({ currency: row.currency, amount: n(row.g_period) + n(row.g_today) })),
+      undefined,
+      settings?.currency ?? "PKR",
+    );
+    const money = revenue.find((row) => row.currency === currency);
     const byGroup = this.toGroups(periodByStatus, periodStranded);
     const currentGroups = this.toGroups(allByStatus, allStranded);
     const liveByStatus = new Map(liveJobs.map((row) => [row.status, row._count._all]));
@@ -282,9 +315,13 @@ export class DashboardService {
       },
       revenue: {
         currency,
-        todayMinor: n(revenue[0]?.today),
-        periodMinor: n(revenue[0]?.period),
-        paidOrdersInPeriod: n(revenue[0]?.paid_orders),
+        grossTodayMinor: n(money?.g_today),
+        refundedTodayMinor: n(money?.r_today),
+        netTodayMinor: n(money?.g_today) - n(money?.r_today),
+        grossPeriodMinor: n(money?.g_period),
+        refundedPeriodMinor: n(money?.r_period),
+        netPeriodMinor: n(money?.g_period) - n(money?.r_period),
+        paidOrdersInPeriod: n(money?.paid_orders),
       },
       printing: {
         printingNow: liveByStatus.get("PRINTING") ?? 0,

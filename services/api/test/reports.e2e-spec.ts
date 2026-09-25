@@ -41,7 +41,7 @@ describe("Reports (23.5, e2e)", () => {
   }
   const pay = (orderId: string, amountMinor: number, status: PaymentStatus, at: Date) =>
     fx.prisma.payment.create({
-      data: { orderId, provider: "test", amountMinor, currency: "PKR", status, updatedAt: at },
+      data: { orderId, provider: "test", amountMinor, currency: "PKR", status, paidAt: at },
     });
   const job = (
     orderId: string,
@@ -112,7 +112,23 @@ describe("Reports (23.5, e2e)", () => {
 
     await pay(o1.orderId, 3000, PaymentStatus.PAID, ago(3));
     await pay(o2.orderId, 1000, PaymentStatus.PAID, new Date());
-    await pay(o3.orderId, 2000, PaymentStatus.REFUNDED, ago(2));
+    const refundedPayment = await pay(o3.orderId, 2000, PaymentStatus.REFUNDED, ago(2));
+    await fx.prisma.refund.create({
+      data: {
+        paymentId: refundedPayment.id,
+        orderId: o3.orderId,
+        amountMinor: 2000,
+        currency: "PKR",
+        status: PaymentStatus.REFUNDED,
+        reason: "test",
+        updatedAt: ago(2),
+      },
+    });
+    // an unpaid-in-the-books order: quoted, but never earned
+    await fx.prisma.order.update({
+      where: { id: o4.orderId },
+      data: { paymentStatus: PaymentStatus.PENDING },
+    });
     await pay(o5.orderId, 9999, PaymentStatus.PAID, ago(60));
 
     await job(o1.orderId, o1.itemIds[0], printerA, PrintJobStatus.PRINTED, {
@@ -188,12 +204,13 @@ describe("Reports (23.5, e2e)", () => {
       rejected: 0,
       printFailed: 1,
       open: 1,
-      valueMinor: 12000,
+      quotedValueMinor: 12000,
+      paidValueMinor: 9000,
     });
     const sum = res.body.rows.reduce((a: number, r: { total: number }) => a + r.total, 0);
     expect(sum).toBe(4);
     const zero = res.body.rows.find((r: { total: number }) => r.total === 0);
-    expect(zero).toMatchObject({ completed: 0, valueMinor: 0 });
+    expect(zero).toMatchObject({ completed: 0, quotedValueMinor: 0, paidValueMinor: 0 });
     expect(res.body.rows.map((r: { bucket: string }) => r.bucket)).toEqual(
       [...res.body.rows.map((r: { bucket: string }) => r.bucket)].sort(),
     );
@@ -211,14 +228,17 @@ describe("Reports (23.5, e2e)", () => {
     }
   });
 
-  it("revenue: only confirmed payments in range; refunds shown separately; a later price change alters nothing", async () => {
+  it("revenue: gross by stable paid date, completed refunds separate, net = gross - refunded; a later price change alters nothing", async () => {
     const before = await report("revenue");
     expect(before.status).toBe(200);
+    expect(before.body.currency).toBe("PKR");
     expect(before.body.totals).toEqual({
-      revenueMinor: 4000,
-      paidOrders: 2,
+      grossRevenueMinor: 6000,
+      paidOrders: 3,
       refundedMinor: 2000,
       refundedOrders: 1,
+      netRevenueMinor: 4000,
+      otherCurrencies: [],
     });
     // Reprice the shop massively: past revenue comes from the paid amounts, never a live rule.
     for (const version of [1, 2]) {
@@ -240,7 +260,140 @@ describe("Reports (23.5, e2e)", () => {
     expect(after.body.rows).toEqual(before.body.rows);
     // an explicit wider range picks up the old payment
     const wide = await report("revenue", { from: ago(90).toISOString() });
-    expect(wide.body.totals.revenueMinor).toBe(4000 + 9999);
+    expect(wide.body.totals.grossRevenueMinor).toBe(6000 + 9999);
+  });
+
+  describe("revenue money correctness (23.10)", () => {
+    const created: string[] = [];
+    const bucketOf = (d: Date) => d.toISOString().slice(0, 10);
+    async function paidOrder(amount: number, paidAt: Date, currency = "PKR") {
+      const o = await fx.makeOrder(1, 1, OrderStatus.DRAFT);
+      created.push(o.orderId);
+      const payment = await fx.prisma.payment.create({
+        data: {
+          orderId: o.orderId,
+          provider: "test",
+          amountMinor: amount,
+          currency,
+          status: PaymentStatus.PAID,
+          paidAt,
+        },
+      });
+      return { ...o, payment };
+    }
+    const rowFor = async (d: Date, extra: Record<string, string> = {}) => {
+      const res = await report("revenue", extra);
+      return res.body.rows.find((r: { bucket: string }) => r.bucket === bucketOf(d));
+    };
+    afterAll(async () => {
+      await fx.prisma.refund.deleteMany({ where: { orderId: { in: created } } });
+      await fx.prisma.payment.deleteMany({ where: { orderId: { in: created } } });
+    });
+
+    it("a refund stays in the ORIGINAL period's gross and lands in the refund's own period; no double subtraction", async () => {
+      const paidAt = ago(10);
+      const { orderId, payment } = await paidOrder(700, paidAt);
+      const grossBefore = (await rowFor(paidAt)).grossRevenueMinor;
+      await fx.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.REFUNDED },
+      });
+      await fx.prisma.refund.create({
+        data: {
+          orderId,
+          paymentId: payment.id,
+          amountMinor: 700,
+          currency: "PKR",
+          status: PaymentStatus.REFUNDED,
+          reason: "test",
+          updatedAt: ago(1),
+        },
+      });
+      const original = await rowFor(paidAt);
+      expect(original.grossRevenueMinor).toBe(grossBefore); // the refund did not remove it
+      expect(original.netRevenueMinor).toBe(original.grossRevenueMinor - original.refundedMinor);
+      const refundDay = await rowFor(ago(1));
+      expect(refundDay.refundedMinor).toBeGreaterThanOrEqual(700);
+      expect(refundDay.netRevenueMinor).toBe(refundDay.grossRevenueMinor - refundDay.refundedMinor);
+    });
+
+    it("a later touch of the paid row never moves it between buckets (paid_at is immutable)", async () => {
+      const paidAt = ago(12);
+      const { payment } = await paidOrder(300, paidAt);
+      const before = (await rowFor(paidAt)).grossRevenueMinor;
+      await fx.prisma.payment.update({ where: { id: payment.id }, data: { checkoutUrl: "x" } });
+      await fx.prisma.payment.update({ where: { id: payment.id }, data: { paidAt: new Date() } });
+      expect((await rowFor(paidAt)).grossRevenueMinor).toBe(before);
+      expect(
+        (await fx.prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).paidAt,
+      ).toEqual(paidAt);
+    });
+
+    it("REFUND_PENDING and REFUND_FAILED are not refunded: gross and net keep the money", async () => {
+      const paidAt = ago(14);
+      const before = await rowFor(paidAt);
+      const pending = await paidOrder(400, paidAt);
+      const failed = await paidOrder(500, paidAt);
+      for (const [p, status] of [
+        [pending, PaymentStatus.REFUND_PENDING],
+        [failed, PaymentStatus.REFUND_FAILED],
+      ] as const) {
+        await fx.prisma.payment.update({ where: { id: p.payment.id }, data: { status } });
+        await fx.prisma.refund.create({
+          data: {
+            orderId: p.orderId,
+            paymentId: p.payment.id,
+            amountMinor: 999,
+            currency: "PKR",
+            status,
+            reason: "test",
+            updatedAt: paidAt,
+          },
+        });
+      }
+      const after = await rowFor(paidAt);
+      expect(after.grossRevenueMinor).toBe(before.grossRevenueMinor + 900);
+      expect(after.refundedMinor).toBe(before.refundedMinor);
+      expect(after.netRevenueMinor).toBe(before.netRevenueMinor + 900);
+    });
+
+    it("refundedMinor is the refund's own amount, not the payment's", async () => {
+      const paidAt = ago(16);
+      const { orderId, payment } = await paidOrder(1000, paidAt);
+      await fx.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.REFUNDED },
+      });
+      const before = await rowFor(paidAt);
+      await fx.prisma.refund.create({
+        data: {
+          orderId,
+          paymentId: payment.id,
+          amountMinor: 250,
+          currency: "PKR",
+          status: PaymentStatus.REFUNDED,
+          reason: "partial",
+          updatedAt: paidAt,
+        },
+      });
+      expect((await rowFor(paidAt)).refundedMinor).toBe(before.refundedMinor + 250);
+    });
+
+    it("money is never mixed across currencies: the main currency is the one with most money, others are listed apart, and ?currency= switches", async () => {
+      await paidOrder(123, ago(5), "USD");
+      const main = await report("revenue");
+      expect(main.body.currency).toBe("PKR");
+      expect(main.body.totals.otherCurrencies).toEqual([
+        { currency: "USD", grossRevenueMinor: 123, refundedMinor: 0, netRevenueMinor: 123 },
+      ]);
+      const usd = await report("revenue", { currency: "usd" });
+      expect(usd.body.currency).toBe("USD");
+      expect(usd.body.totals.grossRevenueMinor).toBe(123);
+      expect(usd.body.totals.otherCurrencies.map((c: { currency: string }) => c.currency)).toEqual([
+        "PKR",
+      ]);
+      expect((await report("revenue", { currency: "no" })).status).toBe(400);
+    });
   });
 
   it("printing volume: pages x copies of printed jobs, split by colour and paper size", async () => {
@@ -359,7 +512,9 @@ describe("Reports (23.5, e2e)", () => {
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     expect(res.headers["content-disposition"]).toMatch(/attachment; filename="revenue-/);
     const lines = (res.text as string).trim().split("\r\n");
-    expect(lines[0]).toBe("bucket,revenueMinor,paidOrders,refundedMinor,refundedOrders");
+    expect(lines[0]).toBe(
+      "bucket,grossRevenueMinor,paidOrders,refundedMinor,refundedOrders,netRevenueMinor",
+    );
     expect(lines).toHaveLength(32);
     const printers = await report("printers", { format: "csv" });
     expect((printers.text as string).split("\r\n")[0]).toContain("pageLimit.remaining");
@@ -407,6 +562,6 @@ describe("Reports (23.5, e2e)", () => {
       .get("/v1/shop/reports/revenue")
       .query({ shopId: fx.shopB.id })
       .set(as(fx.ownerB.token));
-    expect(ownRevenue.body.totals.revenueMinor).toBe(0);
+    expect(ownRevenue.body.totals.grossRevenueMinor).toBe(0);
   });
 });

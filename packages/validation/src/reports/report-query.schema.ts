@@ -16,6 +16,12 @@ export const reportQuerySchema = z
     to: z.coerce.date().optional(),
     groupBy: z.enum(REPORT_GROUP_BY).default("day"),
     format: z.enum(REPORT_FORMATS).default("json"),
+    /** ISO 4217 code for the money reports; default: the currency with most money in range. */
+    currency: z
+      .string()
+      .regex(/^[A-Za-z]{3}$/)
+      .transform((value) => value.toUpperCase())
+      .optional(),
   })
   .superRefine((value, ctx) => {
     const to = value.to ?? new Date();

@@ -716,6 +716,11 @@ model Payment {
   amountMinor       Int           @map("amount_minor")
   currency          String
   status            PaymentStatus @default(PENDING)
+  // 23.10: when this payment FIRST became money (PAID or any later refund state). Stamped by
+  // a database trigger the first time status enters that set, so no writer can forget it and
+  // no later touch of the row (a refund, a webhook replay) moves it. Reports date revenue by
+  // this, never by updated_at.
+  paidAt            DateTime?     @map("paid_at")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
 
@@ -726,6 +731,7 @@ model Payment {
   @@index([orderId])
   @@index([status])
   @@index([status, updatedAt])
+  @@index([paidAt])
   @@map("payments")
 }
 
@@ -798,6 +804,7 @@ model Refund {
 
   @@index([orderId])
   @@index([status])
+  @@index([status, updatedAt])
   @@map("refunds")
 }
 

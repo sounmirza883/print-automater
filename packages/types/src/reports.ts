@@ -8,9 +8,10 @@
  * - Time is UTC. A "day" starts 00:00 UTC, a "week" on Monday, a "month" on the 1st.
  *   Every bucket in the range is present (zero rows are filled in) and labelled with
  *   the bucket's first day as `YYYY-MM-DD`.
- * - Money is integer minor units. Revenue is summed from CONFIRMED (PAID) payments,
- *   whose amounts were snapshotted from each order's own quote: a later price change
- *   never alters a past figure.
+ * - Money is integer minor units, reported in ONE currency (`currency`): the `currency` query
+ *   param, else the currency with the most money in the range, else the shop's configured one.
+ *   Revenue comes from payments (amounts snapshotted from each order's own quote: a later
+ *   price change never alters a past figure); see RevenueReportRow for the exact definition.
  * - Lists per subject (printers, operators, suppliers, items) are bounded at 200 rows;
  *   `truncated` says whether more existed.
  * - `format=csv` returns `text/csv` of the `rows` only (nested objects flattened as
@@ -40,21 +41,45 @@ export interface OrdersReportRow {
   printFailed: number;
   /** Everything else still open. */
   open: number;
-  /** Sum of the orders' own price-snapshot totals (never a live pricing rule). */
-  valueMinor: number;
+  /** Sum of the price-snapshot quote totals of ALL these orders, whatever became of them
+   * (cancelled, rejected, failed, still unpaid): what was quoted, not what was earned. In the
+   * report currency only; never a live pricing rule. */
+  quotedValueMinor: number;
+  /** The same sum over only the orders that were actually paid (payment status PAID, or a
+   * refund state, which can only follow PAID). Gross of refunds: see the revenue report for
+   * money actually kept. */
+  paidValueMinor: number;
 }
 export type OrdersReportTotals = Omit<OrdersReportRow, "bucket">;
 
+/** 23.10: revenue, defined explicitly (all of it in the report's single `currency`; money is
+ * never summed across currencies).
+ *  - grossRevenueMinor: payments that were EVER paid (PAID, or a refund state, which can only
+ *    follow PAID), dated by the payment's STABLE paidAt (stamped once, never moved by a later
+ *    refund or touch of the row).
+ *  - refundedMinor: refunds that COMPLETED (status REFUNDED), from the refunds table (the
+ *    refund's own amount), dated by when the refund completed. REFUND_PENDING and
+ *    REFUND_FAILED are NOT refunded: the money has not gone back yet, so it stays in net.
+ *  - netRevenueMinor = grossRevenueMinor - refundedMinor. A bucket can be negative when it
+ *    refunds more than it took. Do not subtract refundedMinor from grossRevenueMinor again. */
 export interface RevenueReportRow {
   bucket: string;
-  /** Confirmed payments (status PAID) in the bucket. */
-  revenueMinor: number;
+  grossRevenueMinor: number;
   paidOrders: number;
-  /** Payments that were refunded in the bucket (already excluded from revenueMinor). */
   refundedMinor: number;
   refundedOrders: number;
+  netRevenueMinor: number;
 }
-export type RevenueReportTotals = Omit<RevenueReportRow, "bucket">;
+export interface RevenueReportTotals extends Omit<RevenueReportRow, "bucket"> {
+  /** Money in the range in currencies other than the report currency, kept apart, never
+   * converted. Empty for a single-currency shop. */
+  otherCurrencies: Array<{
+    currency: string;
+    grossRevenueMinor: number;
+    refundedMinor: number;
+    netRevenueMinor: number;
+  }>;
+}
 
 export interface PrintingVolumeReportRow {
   bucket: string;

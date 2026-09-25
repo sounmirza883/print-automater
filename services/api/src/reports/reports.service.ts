@@ -17,6 +17,7 @@ import { DEFAULT_REPORT_RANGE_DAYS, type ReportQueryInput } from "@print-automat
 import { JOB_PAGES_JOINS, JOB_TOTAL_PAGES } from "../analytics/job-pages-sql.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { SHOP_VISIBLE_STATUSES } from "../shop-orders/shop-orders.service.js";
+import { pickCurrency } from "../common/money.js";
 import { bucketKeys } from "./buckets.js";
 
 const DAY_MS = 86_400_000;
@@ -59,6 +60,30 @@ export class ReportsService {
     return { range: { from, to }, currency: settings?.currency ?? "PKR", shopId };
   }
 
+  /** 23.10: the currency a money report is in. Never trusts shop_settings alone: payments
+   * carry their own currency, so the report uses the requested one, else the one with the most
+   * money paid in the range, else the shop's configured currency. */
+  private async moneyCurrency(
+    ctx: { range: Range; currency: string; shopId: string },
+    requested: string | undefined,
+  ): Promise<string> {
+    if (requested) {
+      return requested;
+    }
+    const rows = await this.prisma.$queryRaw<Array<{ currency: string; amount: bigint }>>`
+      SELECT p.currency, COALESCE(SUM(p.amount_minor), 0)::bigint AS amount
+      FROM payments p JOIN orders o ON o.id = p.order_id
+      WHERE o.shop_id = ${ctx.shopId}
+        AND p.status IN ('PAID', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
+        AND p.paid_at >= ${ctx.range.from} AND p.paid_at <= ${ctx.range.to}
+      GROUP BY p.currency`;
+    return pickCurrency(
+      rows.map((row) => ({ currency: row.currency, amount: n(row.amount) })),
+      undefined,
+      ctx.currency,
+    );
+  }
+
   private envelope<Row, Totals>(
     name: string,
     ctx: { range: Range; currency: string; shopId: string },
@@ -81,7 +106,8 @@ export class ReportsService {
   }
 
   async orders(userId: string, query: ReportQueryInput): Promise<OrdersReport> {
-    const ctx = await this.open(userId, query);
+    const opened = await this.open(userId, query);
+    const ctx = { ...opened, currency: await this.moneyCurrency(opened, query.currency) };
     const { from, to } = ctx.range;
     const found = await this.prisma.$queryRaw<
       Array<{
@@ -91,7 +117,8 @@ export class ReportsService {
         cancelled: number;
         rejected: number;
         print_failed: number;
-        value: bigint;
+        quoted: bigint;
+        paid_value: bigint;
       }>
     >`
       SELECT to_char(date_trunc(${query.groupBy}, o.created_at), 'YYYY-MM-DD') AS bucket,
@@ -102,8 +129,15 @@ export class ReportsService {
         (COUNT(*) FILTER (WHERE o.order_status = 'PRINT_FAILED'))::int AS print_failed,
         COALESCE(SUM(
           CASE WHEN (o.pricing_snapshot->'quote'->>'totalMinor') ~ '^[0-9]+$'
+               AND COALESCE(o.pricing_snapshot->'quote'->>'currency', ${ctx.currency}) = ${ctx.currency}
                THEN (o.pricing_snapshot->'quote'->>'totalMinor')::bigint END
-        ), 0)::bigint AS value
+        ), 0)::bigint AS quoted,
+        COALESCE(SUM(
+          CASE WHEN (o.pricing_snapshot->'quote'->>'totalMinor') ~ '^[0-9]+$'
+               AND COALESCE(o.pricing_snapshot->'quote'->>'currency', ${ctx.currency}) = ${ctx.currency}
+               AND o.payment_status IN ('PAID', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
+               THEN (o.pricing_snapshot->'quote'->>'totalMinor')::bigint END
+        ), 0)::bigint AS paid_value
       FROM orders o
       WHERE o.shop_id = ${ctx.shopId}
         AND o.order_status::text = ANY(${SHOP_VISIBLE_STATUSES as string[]})
@@ -125,7 +159,8 @@ export class ReportsService {
         rejected,
         printFailed,
         open: total - completed - cancelled - rejected - printFailed,
-        valueMinor: n(row?.value),
+        quotedValueMinor: n(row?.quoted),
+        paidValueMinor: n(row?.paid_value),
       };
     });
     const totals = rows.reduce(
@@ -136,57 +171,114 @@ export class ReportsService {
         rejected: acc.rejected + row.rejected,
         printFailed: acc.printFailed + row.printFailed,
         open: acc.open + row.open,
-        valueMinor: acc.valueMinor + row.valueMinor,
+        quotedValueMinor: acc.quotedValueMinor + row.quotedValueMinor,
+        paidValueMinor: acc.paidValueMinor + row.paidValueMinor,
       }),
-      { total: 0, completed: 0, cancelled: 0, rejected: 0, printFailed: 0, open: 0, valueMinor: 0 },
+      {
+        total: 0,
+        completed: 0,
+        cancelled: 0,
+        rejected: 0,
+        printFailed: 0,
+        open: 0,
+        quotedValueMinor: 0,
+        paidValueMinor: 0,
+      },
     );
     return this.envelope("orders", ctx, query.groupBy, rows, totals);
   }
 
   async revenue(userId: string, query: ReportQueryInput): Promise<RevenueReport> {
-    const ctx = await this.open(userId, query);
+    const opened = await this.open(userId, query);
+    const ctx = { ...opened, currency: await this.moneyCurrency(opened, query.currency) };
     const { from, to } = ctx.range;
-    const found = await this.prisma.$queryRaw<
-      Array<{
-        bucket: string;
-        revenue: bigint;
-        paid_orders: number;
-        refunded: bigint;
-        refunded_orders: number;
-      }>
-    >`
-      SELECT to_char(date_trunc(${query.groupBy}, p.updated_at), 'YYYY-MM-DD') AS bucket,
-        COALESCE(SUM(p.amount_minor) FILTER (WHERE p.status = 'PAID'), 0)::bigint AS revenue,
-        (COUNT(DISTINCT p.order_id) FILTER (WHERE p.status = 'PAID'))::int AS paid_orders,
-        COALESCE(SUM(p.amount_minor) FILTER (WHERE p.status = 'REFUNDED'), 0)::bigint AS refunded,
-        (COUNT(DISTINCT p.order_id) FILTER (WHERE p.status = 'REFUNDED'))::int AS refunded_orders
-      FROM payments p
-      JOIN orders o ON o.id = p.order_id
-      WHERE o.shop_id = ${ctx.shopId}
-        AND p.status IN ('PAID', 'REFUNDED')
-        AND p.updated_at >= ${from} AND p.updated_at <= ${to}
-      GROUP BY 1`;
-    const byBucket = new Map(found.map((row) => [row.bucket, row]));
+    // Gross: payments that were ever paid, dated by their STABLE paid_at (never updated_at).
+    // Refunded: COMPLETED refunds from the refunds table (their own amount), dated by when the
+    // refund completed. REFUND_PENDING / REFUND_FAILED are not refunded yet.
+    const [gross, refunds] = await Promise.all([
+      this.prisma.$queryRaw<
+        Array<{ bucket: string; currency: string; gross: bigint; paid_orders: number }>
+      >`
+        SELECT to_char(date_trunc(${query.groupBy}, p.paid_at), 'YYYY-MM-DD') AS bucket, p.currency,
+          COALESCE(SUM(p.amount_minor), 0)::bigint AS gross,
+          COUNT(DISTINCT p.order_id)::int AS paid_orders
+        FROM payments p
+        JOIN orders o ON o.id = p.order_id
+        WHERE o.shop_id = ${ctx.shopId}
+          AND p.status IN ('PAID', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
+          AND p.paid_at >= ${from} AND p.paid_at <= ${to}
+        GROUP BY 1, 2`,
+      this.prisma.$queryRaw<
+        Array<{ bucket: string; currency: string; refunded: bigint; refunded_orders: number }>
+      >`
+        SELECT to_char(date_trunc(${query.groupBy}, r.updated_at), 'YYYY-MM-DD') AS bucket, r.currency,
+          COALESCE(SUM(r.amount_minor), 0)::bigint AS refunded,
+          COUNT(DISTINCT r.order_id)::int AS refunded_orders
+        FROM refunds r
+        JOIN orders o ON o.id = r.order_id
+        WHERE o.shop_id = ${ctx.shopId}
+          AND r.status = 'REFUNDED'
+          AND r.updated_at >= ${from} AND r.updated_at <= ${to}
+        GROUP BY 1, 2`,
+    ]);
+    const grossBy = new Map(
+      gross.filter((r) => r.currency === ctx.currency).map((row) => [row.bucket, row]),
+    );
+    const refundBy = new Map(
+      refunds.filter((r) => r.currency === ctx.currency).map((row) => [row.bucket, row]),
+    );
     const rows = bucketKeys(from, to, query.groupBy).map((bucket) => {
-      const row = byBucket.get(bucket);
+      const g = grossBy.get(bucket);
+      const r = refundBy.get(bucket);
+      const grossRevenueMinor = n(g?.gross);
+      const refundedMinor = n(r?.refunded);
       return {
         bucket,
-        revenueMinor: n(row?.revenue),
-        paidOrders: n(row?.paid_orders),
-        refundedMinor: n(row?.refunded),
-        refundedOrders: n(row?.refunded_orders),
+        grossRevenueMinor,
+        paidOrders: n(g?.paid_orders),
+        refundedMinor,
+        refundedOrders: n(r?.refunded_orders),
+        netRevenueMinor: grossRevenueMinor - refundedMinor,
       };
     });
-    const totals = rows.reduce(
-      (acc, row) => ({
-        revenueMinor: acc.revenueMinor + row.revenueMinor,
-        // an order paid in two buckets cannot occur (one PAID payment per order)
-        paidOrders: acc.paidOrders + row.paidOrders,
-        refundedMinor: acc.refundedMinor + row.refundedMinor,
-        refundedOrders: acc.refundedOrders + row.refundedOrders,
-      }),
-      { revenueMinor: 0, paidOrders: 0, refundedMinor: 0, refundedOrders: 0 },
-    );
+    const others = new Map<string, { gross: number; refunded: number }>();
+    for (const row of gross.filter((r) => r.currency !== ctx.currency)) {
+      const entry = others.get(row.currency) ?? { gross: 0, refunded: 0 };
+      entry.gross += n(row.gross);
+      others.set(row.currency, entry);
+    }
+    for (const row of refunds.filter((r) => r.currency !== ctx.currency)) {
+      const entry = others.get(row.currency) ?? { gross: 0, refunded: 0 };
+      entry.refunded += n(row.refunded);
+      others.set(row.currency, entry);
+    }
+    const totals = {
+      ...rows.reduce(
+        (acc, row) => ({
+          grossRevenueMinor: acc.grossRevenueMinor + row.grossRevenueMinor,
+          // an order is paid once, so summing per-bucket distinct counts cannot double count
+          paidOrders: acc.paidOrders + row.paidOrders,
+          refundedMinor: acc.refundedMinor + row.refundedMinor,
+          refundedOrders: acc.refundedOrders + row.refundedOrders,
+          netRevenueMinor: acc.netRevenueMinor + row.netRevenueMinor,
+        }),
+        {
+          grossRevenueMinor: 0,
+          paidOrders: 0,
+          refundedMinor: 0,
+          refundedOrders: 0,
+          netRevenueMinor: 0,
+        },
+      ),
+      otherCurrencies: [...others.entries()]
+        .sort(([x], [y]) => x.localeCompare(y))
+        .map(([currency, v]) => ({
+          currency,
+          grossRevenueMinor: v.gross,
+          refundedMinor: v.refunded,
+          netRevenueMinor: v.gross - v.refunded,
+        })),
+    };
     return this.envelope("revenue", ctx, query.groupBy, rows, totals);
   }
 
