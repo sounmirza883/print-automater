@@ -20,6 +20,7 @@ import { ShopScoped } from "../auth/shop-scoped.decorator.js";
 import { AssignOperatorDto } from "./dto/assign-operator.dto.js";
 import { PauseJobDto } from "./dto/pause-job.dto.js";
 import { ReassignJobDto } from "./dto/reassign-job.dto.js";
+import { RecordFailureReasonDto } from "./dto/record-failure-reason.dto.js";
 import { ResumeJobDto } from "./dto/resume-job.dto.js";
 import { PrintJobShopResolver } from "./print-job-shop.resolver.js";
 import { PrintJobsService, type PrintJobResponse } from "./print-jobs.service.js";
@@ -72,6 +73,19 @@ export class PrintJobsController {
     @Body() dto: PauseJobDto,
   ): Promise<PrintJobResponse> {
     return this.printJobsService.pause(id, req.user!.id, dto.reason);
+  }
+
+  /** 21.2 (§66): the operator's failure-reason picker for a FAILED/TIMEOUT job. */
+  @Post(":id/failure-reason")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.RECORD_JOB_FAILURE)
+  @ShopScoped("id", PrintJobShopResolver)
+  recordFailureReason(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: RecordFailureReasonDto,
+  ): Promise<PrintJobResponse> {
+    return this.printJobsService.recordFailureReason(id, req.user!.id, dto.reason, dto.note);
   }
 
   /** 21.1 (§65): resume a paused job; re-runs allocation (or honours an

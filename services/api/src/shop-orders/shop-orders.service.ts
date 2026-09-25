@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   DocumentStatus,
+  type JobFailureReason,
   OrderCreationSource,
   OrderItemType,
   OrderStatus,
@@ -70,6 +71,8 @@ const SHOP_ORDER_INCLUDE = {
       id: true,
       status: true,
       blockedReason: true,
+      failureReason: true,
+      failureNote: true,
       printer: { select: { name: true } },
     },
   },
@@ -85,6 +88,9 @@ export interface ShopOrderJobSummary {
   status: string;
   printerName: string | null;
   blockedReason: string | null;
+  // 21.2 (§66): the operator's failure-reason pick, null until chosen.
+  failureReason: string | null;
+  failureNote: string | null;
 }
 
 export interface ShopOrderResponse {
@@ -802,6 +808,7 @@ export class ShopOrdersService {
     actorId: string,
     resolution: ResolveUnknownPrintInput["resolution"],
     jobId?: string,
+    failure?: { reason?: JobFailureReason; note?: string },
   ): Promise<ShopOrderResponse> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) {
@@ -880,7 +887,13 @@ export class ShopOrdersService {
         event,
         { id: actorId },
         {
-          metadata: { resolution },
+          metadata: {
+            resolution,
+            ...(failure?.reason ? { failureReason: failure.reason } : {}),
+          },
+          ...(resolution === "MARK_FAILED" && failure?.reason
+            ? { failureReason: failure.reason, failureNote: failure.note ?? null }
+            : {}),
           guard,
           beforeSync:
             resolution === "RETRY"
@@ -1023,6 +1036,8 @@ export class ShopOrdersService {
         status: job.status,
         printerName: job.printer?.name ?? null,
         blockedReason: job.blockedReason,
+        failureReason: job.failureReason,
+        failureNote: job.failureNote,
       })),
     };
   }

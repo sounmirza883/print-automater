@@ -38,6 +38,8 @@ export const AuditAction = {
   JOB_REASSIGNED: "JOB_REASSIGNED",
   // §21/18.9.
   JOB_OPERATOR_ASSIGNED: "JOB_OPERATOR_ASSIGNED",
+  // 66/21.2: the operator's failure-reason pick on a failed job.
+  JOB_FAILURE_REASON_RECORDED: "JOB_FAILURE_REASON_RECORDED",
   // 26/27/20.2. Every stock movement itself is audited by applyStockMovement as
   // INVENTORY_MOVEMENT; these two cover the item's own metadata.
   INVENTORY_ITEM_CREATED: "INVENTORY_ITEM_CREATED",

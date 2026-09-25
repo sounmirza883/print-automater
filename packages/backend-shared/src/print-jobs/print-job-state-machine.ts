@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma, PrintJobStatus } from "@prisma/client";
+import type { JobFailureReason, Prisma, PrintJobStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
@@ -219,6 +219,11 @@ export interface JobTransitionContext {
    * consumption, to prove a failure there cannot roll back the print. Never set
    * in production code. */
   consumptionHook?: (tx: Prisma.TransactionClient) => Promise<void>;
+  /** 21.2 (§66): the operator's failure-reason pick, recorded on the job in the
+   * same write that moves it to FAILED (RESOLVE_FAILED today). Ignored for any
+   * other target status. */
+  failureReason?: JobFailureReason | null;
+  failureNote?: string | null;
 }
 
 export interface JobTransitionResult {
@@ -459,6 +464,9 @@ export class PrintJobStateMachine {
               ...(ctx.osJobId !== undefined ? { osJobId: ctx.osJobId } : {}),
               ...(nextStatus === "CLAIMED" ? { claimedAt: ctx.now ?? new Date() } : {}),
               ...(nextStatus === "REASSIGNED" ? { supersededAt: ctx.now ?? new Date() } : {}),
+              ...(nextStatus === "FAILED" && ctx.failureReason !== undefined
+                ? { failureReason: ctx.failureReason, failureNote: ctx.failureNote ?? null }
+                : {}),
               // 21.1: pausedAt is set on entering PAUSED and cleared on leaving it.
               ...(nextStatus === "PAUSED"
                 ? { pausedAt: ctx.now ?? new Date() }

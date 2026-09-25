@@ -275,7 +275,14 @@ describe("Shop orders API (8.2, e2e)", () => {
     const listed = list.body.needsAttention.find((o: { id: string }) => o.id === orderId);
     expect(listed.printerName).toBeNull();
     expect(listed.printJobs).toEqual([
-      { id: job.id, status: "WAITING", printerName: null, blockedReason: "NO_ONLINE_PRINTER" },
+      {
+        id: job.id,
+        status: "WAITING",
+        printerName: null,
+        blockedReason: "NO_ONLINE_PRINTER",
+        failureReason: null,
+        failureNote: null,
+      },
     ]);
 
     const detail = await request(app.getHttpServer())

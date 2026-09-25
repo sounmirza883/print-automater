@@ -47,6 +47,8 @@ export {
   type PauseJobInput,
   resumeJobSchema,
   type ResumeJobInput,
+  recordFailureReasonSchema,
+  type RecordFailureReasonInput,
 } from "./print-jobs/index.js";
 export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";
 export {

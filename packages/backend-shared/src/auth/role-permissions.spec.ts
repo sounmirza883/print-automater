@@ -36,6 +36,15 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
     expect(ROLE_PERMISSIONS.CUSTOMER).not.toContain("PAUSE_JOBS");
   });
 
+  it("failure reasons (21.2): held by exactly the roles that hold PAUSE_JOBS", () => {
+    for (const role of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
+      expect(ROLE_PERMISSIONS[role].includes("RECORD_JOB_FAILURE")).toBe(
+        ROLE_PERMISSIONS[role].includes("PAUSE_JOBS"),
+      );
+    }
+    expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("RECORD_JOB_FAILURE");
+  });
+
   it("inventory (20.2): operators and printer managers may view, only manager/owner may manage, counter neither", () => {
     expect(ROLE_PERMISSIONS.OPERATOR).toContain("VIEW_INVENTORY");
     expect(ROLE_PERMISSIONS.PRINTER_MANAGER).toContain("VIEW_INVENTORY");

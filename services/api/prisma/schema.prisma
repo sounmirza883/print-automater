@@ -854,6 +854,9 @@ model PrintJob {
   blockedReason    String?        @map("blocked_reason")
   supersededAt     DateTime?      @map("superseded_at")
   pausedAt         DateTime?      @map("paused_at")
+  // 21.2 (PRD 66): the operator's failure-reason picker; NULL until one is chosen.
+  failureReason    JobFailureReason? @map("failure_reason")
+  failureNote      String?        @map("failure_note")
   attempt          Int            @default(1)
   priority         Int            @default(0)
   // 18.9: manual (and, gated by its own toggle, automatic) assignment
@@ -923,6 +926,17 @@ model OrderItem {
   @@index([orderId])
   @@index([documentId])
   @@map("order_items")
+}
+
+// 21.2 (PRD 66). Mirrored in packages/types (enum-mirror.spec.ts).
+enum JobFailureReason {
+  PRINTER_ERROR
+  PAPER_JAM
+  WRONG_PAPER
+  POOR_QUALITY
+  FILE_PROBLEM
+  INK_TONER
+  HARDWARE
 }
 
 enum PrintJobStatus {

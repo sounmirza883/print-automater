@@ -12,6 +12,7 @@ export { ColorMode } from "./color-mode.js";
 export { Sides } from "./sides.js";
 export { Orientation } from "./orientation.js";
 export { ShopRejectionReason } from "./shop-rejection-reason.js";
+export { JobFailureReason } from "./job-failure-reason.js";
 export { BlockedReason } from "./blocked-reason.js";
 export { QualityCheckStatus } from "./quality-check-status.js";
 export { JobPriority } from "./job-priority.js";

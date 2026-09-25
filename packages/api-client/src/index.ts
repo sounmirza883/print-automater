@@ -27,6 +27,7 @@ export type {
   DocumentStatusView,
   OrderStatus,
   PaymentStatus,
+  JobFailureReason,
   ShopRejectionReason,
   ShopOrderResponse,
   ShopOrdersGrouped,

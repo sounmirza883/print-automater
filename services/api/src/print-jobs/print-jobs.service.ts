@@ -1,5 +1,12 @@
 import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, Prisma, PrintJobStatus, ShopStaffStatus, UserRole } from "@prisma/client";
+import {
+  JobFailureReason,
+  OrderStatus,
+  Prisma,
+  PrintJobStatus,
+  ShopStaffStatus,
+  UserRole,
+} from "@prisma/client";
 import { BlockedReason, type PrintConfiguration } from "@print-automated/types";
 import {
   allocatePrinter,
@@ -27,6 +34,8 @@ export interface PrintJobResponse {
   printerName: string | null;
   operatorId: string | null;
   blockedReason: string | null;
+  failureReason: string | null;
+  failureNote: string | null;
   priority: number;
   attempt: number;
 }
@@ -541,6 +550,68 @@ export class PrintJobsService {
     return { kind: "BLOCK", blockedReason: allocation.blockedReason };
   }
 
+  /** 21.2 (§66): record the operator's failure-reason pick on a job that has
+   * failed (FAILED, or TIMEOUT which is the sweep's own failure). The status is
+   * only READ here, under the same orders-then-job lock order the job machine
+   * uses; this never writes it (print_jobs.status has one writer). A later pick
+   * replaces the earlier one and the audit row keeps the previous reason. */
+  async recordFailureReason(
+    jobId: string,
+    actorId: string,
+    reason: JobFailureReason,
+    note?: string,
+  ): Promise<PrintJobResponse> {
+    await this.prisma.$transaction(
+      async (tx) => {
+        const found = await tx.printJob.findUnique({
+          where: { id: jobId },
+          select: { orderId: true },
+        });
+        if (!found) {
+          throw new NotFoundException("Print job not found.");
+        }
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${found.orderId} FOR UPDATE`;
+        const rows = await tx.$queryRaw<
+          Array<{ status: PrintJobStatus; failureReason: JobFailureReason | null }>
+        >`
+          SELECT status, failure_reason AS "failureReason" FROM print_jobs WHERE id = ${jobId} FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row) {
+          throw new NotFoundException("Print job not found.");
+        }
+        if (row.status !== PrintJobStatus.FAILED && row.status !== PrintJobStatus.TIMEOUT) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "JOB_NOT_FAILED",
+            `A failure reason can only be recorded on a failed job; this one is ${row.status}.`,
+            false,
+          );
+        }
+        await tx.printJob.update({
+          where: { id: jobId },
+          data: { failureReason: reason, failureNote: note ?? null },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: AuditAction.JOB_FAILURE_REASON_RECORDED,
+            resourceType: "print_job",
+            resourceId: jobId,
+            metadata: {
+              reason,
+              previousReason: row.failureReason,
+              ...(note ? { note } : {}),
+              orderId: found.orderId,
+            },
+          },
+        });
+      },
+      { maxWait: 10_000, timeout: 10_000 },
+    );
+    return this.loadResponse(jobId);
+  }
+
   private async loadResponse(jobId: string): Promise<PrintJobResponse> {
     const job = await this.prisma.printJob.findUniqueOrThrow({
       where: { id: jobId },
@@ -556,6 +627,8 @@ export class PrintJobsService {
     printerId: string | null;
     operatorId: string | null;
     blockedReason: string | null;
+    failureReason: string | null;
+    failureNote: string | null;
     priority: number;
     attempt: number;
     printer: { name: string } | null;
@@ -568,6 +641,8 @@ export class PrintJobsService {
       printerName: job.printer?.name ?? null,
       operatorId: job.operatorId,
       blockedReason: job.blockedReason,
+      failureReason: job.failureReason,
+      failureNote: job.failureNote,
       priority: job.priority,
       attempt: job.attempt,
     };

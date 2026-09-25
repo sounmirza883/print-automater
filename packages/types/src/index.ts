@@ -13,6 +13,7 @@ export {
   Sides,
   Orientation,
   ShopRejectionReason,
+  JobFailureReason,
   BlockedReason,
   QualityCheckStatus,
   JobPriority,

@@ -12,6 +12,8 @@ export const Permission = {
   MANAGE_PRINTERS: "MANAGE_PRINTERS",
   /** 21.1 (§65): pause and resume a print job. */
   PAUSE_JOBS: "PAUSE_JOBS",
+  /** 21.2 (§66): pick the failure reason on a failed job. */
+  RECORD_JOB_FAILURE: "RECORD_JOB_FAILURE",
   /** 20.2: read stock and movements (operators need to see paper stock;
    * counter staff do not). MANAGE_INVENTORY (change stock) implies it by
    * being granted alongside it in ROLE_PERMISSIONS. */
