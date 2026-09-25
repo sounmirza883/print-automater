@@ -79,7 +79,7 @@ export function LegalDocument({
                     </ul>
                   ) : null}
                   {s.table ? (
-                    <div className="mt-6 overflow-x-auto">
+                    <div className="relative mt-6 overflow-x-auto">
                       <table className="min-w-[28rem]">
                         <caption className="pb-2 text-left text-sm font-medium text-ink-600">
                           {s.table.caption}
