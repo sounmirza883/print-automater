@@ -7,7 +7,7 @@ import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js"
 import { periodStart } from "../printers/page-limit-period.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
-import { consumePaperForJob } from "../inventory/consume-paper.js";
+import { consumePaperForJobContained } from "../inventory/consume-paper.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -209,6 +209,10 @@ export interface JobTransitionContext {
    * lock order). Used by RESOLVE_RETRY to dispatch the replacement job
    * atomically with the supersede; a throw rolls the whole transition back. */
   beforeSync?: (tx: Prisma.TransactionClient, results: JobTransitionResult[]) => Promise<void>;
+  /** 20.9 TEST SEAM ONLY: runs inside the paper-consumption savepoint before
+   * consumption, to prove a failure there cannot roll back the print. Never set
+   * in production code. */
+  consumptionHook?: (tx: Prisma.TransactionClient) => Promise<void>;
 }
 
 export interface JobTransitionResult {
@@ -462,7 +466,11 @@ export class PrintJobStateMachine {
           // 20.4: paper consumption (a no-op unless the shop tracks inventory)
           // in the SAME transaction, after the usage accrual, inside the locks.
           if (nextStatus === "PRINTED") {
-            await consumePaperForJob(tx, { jobId: job.id, actorId: actor.id });
+            await consumePaperForJobContained(
+              tx,
+              { jobId: job.id, actorId: actor.id },
+              ctx.consumptionHook,
+            );
           }
 
           let successorJobId: string | undefined;

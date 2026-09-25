@@ -133,6 +133,8 @@ export {
 } from "./inventory/paper-availability.js";
 export {
   consumePaperForJob,
+  consumePaperForJobContained,
+  INVENTORY_CONSUMPTION_FAILED_AUDIT_ACTION,
   consumptionOrder,
   INVENTORY_SHORTFALL_AUDIT_ACTION,
   type PaperConsumptionResult,

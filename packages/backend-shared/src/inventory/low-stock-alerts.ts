@@ -11,10 +11,10 @@ export interface LowStockSyncResult {
  * min_quantity > 0 AND quantity <= min_quantity, on an active item.
  *
  * Race-safe by construction, not by a lock around the whole sweep:
- *  - raise: a single `UPDATE .. SET low_stock_alerted_at = now() WHERE ..
- *    low_stock_alerted_at IS NULL RETURNING ..` claims each item once; a
- *    concurrent tick blocks on the row, re-evaluates the WHERE, and gets nothing
- *    back, so it inserts no alert. The claim and the alert insert share one
+ *  - raise: candidate rows are locked (`FOR UPDATE SKIP LOCKED`, ascending id) and
+ *    then claimed by an UPDATE guarded on `low_stock_alerted_at IS NULL`; a
+ *    concurrent tick skips rows this one holds (or, after commit, sees the latch),
+ *    so it inserts no second alert. The claim and the alert insert share one
  *    transaction, so a failed insert releases the claim (retried next tick).
  *  - resolve: symmetric `UPDATE .. SET low_stock_alerted_at = NULL WHERE
  *    alerted AND NOT low RETURNING`, then the OPEN alerts of exactly those items
@@ -24,9 +24,15 @@ export interface LowStockSyncResult {
 export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStockSyncResult> {
   return prisma.$transaction(
     async (tx) => {
-      const resolvedItems = await tx.$queryRaw<Array<{ id: string }>>`
-        UPDATE inventory_items AS i
-        SET low_stock_alerted_at = NULL
+      // Lock order (20.9): candidate rows are locked FIRST, in ascending id, with
+      // SKIP LOCKED, and only then updated by id. Consumption and purchase-order
+      // receipt also lock item rows in ascending id, so this sweep can never
+      // deadlock against them; a row someone else holds is simply skipped this
+      // tick (its writer's change is picked up on the next one) instead of
+      // queueing behind a print completion.
+      const resolveCandidates = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT i.id
+        FROM inventory_items AS i
         WHERE i.low_stock_alerted_at IS NOT NULL
           AND NOT (
             i.active AND i.min_quantity > 0 AND i.quantity <= i.min_quantity
@@ -34,8 +40,18 @@ export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStoc
               SELECT 1 FROM shops s WHERE s.id = i.shop_id AND s.inventory_tracking_enabled
             )
           )
-        RETURNING i.id
+        ORDER BY i.id
+        FOR UPDATE OF i SKIP LOCKED
       `;
+      const resolvedItems =
+        resolveCandidates.length === 0
+          ? []
+          : await tx.$queryRaw<Array<{ id: string }>>`
+              UPDATE inventory_items
+              SET low_stock_alerted_at = NULL
+              WHERE id = ANY(${resolveCandidates.map((row) => row.id)}::text[])
+              RETURNING id
+            `;
       if (resolvedItems.length > 0) {
         await tx.$executeRaw`
           UPDATE inventory_alerts
@@ -45,21 +61,32 @@ export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStoc
         `;
       }
 
-      const raisedItems = await tx.$queryRaw<
-        Array<{ id: string; shopId: string; quantity: number; minQuantity: number }>
-      >`
-        UPDATE inventory_items AS i
-        SET low_stock_alerted_at = now()
-        FROM shops AS s
-        WHERE s.id = i.shop_id
-          AND s.inventory_tracking_enabled
+      const raiseCandidates = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT i.id
+        FROM inventory_items AS i
+        JOIN shops AS s ON s.id = i.shop_id
+        WHERE s.inventory_tracking_enabled
           AND i.active
           AND i.min_quantity > 0
           AND i.quantity <= i.min_quantity
           AND i.low_stock_alerted_at IS NULL
-        RETURNING i.id AS id, i.shop_id AS "shopId", i.quantity AS quantity,
-                  i.min_quantity AS "minQuantity"
+        ORDER BY i.id
+        FOR UPDATE OF i SKIP LOCKED
       `;
+      // Re-check under the lock (defence in depth; the rows are ours now).
+      const raisedItems =
+        raiseCandidates.length === 0
+          ? []
+          : await tx.$queryRaw<
+              Array<{ id: string; shopId: string; quantity: number; minQuantity: number }>
+            >`
+              UPDATE inventory_items
+              SET low_stock_alerted_at = now()
+              WHERE id = ANY(${raiseCandidates.map((row) => row.id)}::text[])
+                AND low_stock_alerted_at IS NULL
+                AND min_quantity > 0 AND quantity <= min_quantity
+              RETURNING id, shop_id AS "shopId", quantity, min_quantity AS "minQuantity"
+            `;
       if (raisedItems.length > 0) {
         await tx.inventoryAlert.createMany({
           data: raisedItems.map((row) => ({

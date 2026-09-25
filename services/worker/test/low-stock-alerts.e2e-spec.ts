@@ -144,6 +144,42 @@ describe("Low-stock alert worker (20.5, e2e)", () => {
     expect(await alertsOf(b.id)).toHaveLength(0);
   });
 
+  it("never waits on an item row another transaction holds (lock order vs consumption): skips it this tick, alerts it on the next", async () => {
+    const s = await shop(true);
+    const held = await item(s.id, 1, 10);
+    const free = await item(s.id, 1, 10);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    // Another transaction (like a job completion consuming paper) holds the row lock.
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM inventory_items WHERE id = ${held.id} FOR UPDATE`;
+        locked();
+        await gate;
+      },
+      { timeout: 30_000 },
+    );
+    await lockTaken;
+    const started = Date.now();
+    const tick = await processor.process(fakeJob);
+    const elapsed = Date.now() - started;
+    // If the sweep queued behind the lock it would wait for `release` (never, here) and time out.
+    expect(elapsed).toBeLessThan(5_000);
+    expect(tick.raised).toBeGreaterThanOrEqual(1);
+    expect(await alertsOf(free.id)).toHaveLength(1);
+    expect(await alertsOf(held.id)).toHaveLength(0);
+    release();
+    await holder;
+    await processor.process(fakeJob);
+    expect(await alertsOf(held.id)).toHaveLength(1);
+  });
+
   it("the sweep is registered as a repeatable job scheduler on its own queue", async () => {
     const queue = app.get<Queue>(getQueueToken(QUEUE_NAMES.LOW_STOCK_ALERTS), { strict: false });
     const schedulers = await queue.getJobSchedulers();

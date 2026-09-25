@@ -159,3 +159,51 @@ export async function consumePaperForJob(
   }
   return { consumedSheets, shortfallSheets: remaining };
 }
+
+export const INVENTORY_CONSUMPTION_FAILED_AUDIT_ACTION = "INVENTORY_CONSUMPTION_FAILED";
+
+/** 20.9. Consumption runs inside the job's PRINTED transaction, and in Postgres
+ * any statement error (deadlock victim, lock timeout, serialization) aborts the
+ * WHOLE transaction: without containment a stock-accounting failure would roll
+ * back a print that already happened, leaving the job non-PRINTED while paper
+ * sits in the tray (and a retry could print it twice). A SAVEPOINT around the
+ * consumption lets a failure undo only the consumption's own writes
+ * (ROLLBACK TO SAVEPOINT), after which the audit row is written and the
+ * transition carries on to commit. Stock then reads high by the job's sheets
+ * until staff reconcile from the INVENTORY_CONSUMPTION_FAILED audit row, the
+ * safer direction. `hook` is a test seam that runs inside the savepoint. */
+export async function consumePaperForJobContained(
+  tx: Prisma.TransactionClient,
+  input: { jobId: string; actorId: string | null },
+  hook?: (tx: Prisma.TransactionClient) => Promise<void>,
+): Promise<PaperConsumptionResult | null> {
+  await tx.$executeRawUnsafe("SAVEPOINT inventory_consumption");
+  try {
+    if (hook) {
+      await hook(tx);
+    }
+    const result = await consumePaperForJob(tx, input);
+    await tx.$executeRawUnsafe("RELEASE SAVEPOINT inventory_consumption");
+    return result;
+  } catch (error) {
+    await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT inventory_consumption");
+    await tx.$executeRawUnsafe("RELEASE SAVEPOINT inventory_consumption");
+    const job = await tx.printJob.findUnique({
+      where: { id: input.jobId },
+      select: { shopId: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: input.actorId,
+        action: INVENTORY_CONSUMPTION_FAILED_AUDIT_ACTION,
+        resourceType: "print_job",
+        resourceId: input.jobId,
+        metadata: redactMetadata({
+          shopId: job?.shopId ?? null,
+          error: error instanceof Error ? error.message.slice(0, 500) : "unknown",
+        }) as Prisma.InputJsonValue,
+      },
+    });
+    return null;
+  }
+}

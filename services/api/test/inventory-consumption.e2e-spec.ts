@@ -1,4 +1,9 @@
-import { AppException, PrintJobEvent, PrintJobStateMachine } from "@print-automated/backend-shared";
+import {
+  AppException,
+  PrintJobEvent,
+  PrintJobStateMachine,
+  applyStockMovement,
+} from "@print-automated/backend-shared";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
 
 /** 20.4: paper is consumed inside the job machine's own PRINTED transaction. */
@@ -272,5 +277,105 @@ describe("Inventory consumption on job completion (20.4, e2e)", () => {
     expect((await fx.prisma.printJob.findUniqueOrThrow({ where: { id: job } })).status).toBe(
       "PRINTING",
     );
+  });
+});
+
+describe("Consumption failure containment (20.9, e2e)", () => {
+  let fx: InventoryFixture;
+  let machine: PrintJobStateMachine;
+  let printerId: string;
+
+  beforeAll(async () => {
+    fx = await createInventoryFixture("inv-contain", { multiItemEnabled: true, documentPages: 5 });
+    machine = fx.app.get(PrintJobStateMachine);
+    printerId = (await fx.makePrinter("Contain printer")).printer.id;
+    await fx.prisma.shop.update({
+      where: { id: fx.shop.id },
+      data: { inventoryTrackingEnabled: true },
+    });
+  });
+  afterAll(async () => {
+    await fx?.cleanup();
+  });
+
+  async function seedJob(): Promise<string> {
+    const { orderId, itemIds } = await fx.makeOrder(1, 1);
+    const job = await fx.prisma.printJob.create({
+      data: {
+        orderId,
+        shopId: fx.shop.id,
+        orderItemId: itemIds[0]!,
+        printerId,
+        status: "PRINTING",
+        idempotencyToken: `${itemIds[0]}:1`,
+      },
+    });
+    return job.id;
+  }
+
+  it("a database error inside consumption does not roll back the print: the job still ends PRINTED, the partial stock write is undone, and INVENTORY_CONSUMPTION_FAILED is audited", async () => {
+    const item = await fx.prisma.inventoryItem.create({
+      data: {
+        shopId: fx.shop.id,
+        name: "A4",
+        paperSize: "A4",
+        paperType: "STANDARD",
+        quantity: 100,
+      },
+    });
+    const job = await seedJob();
+    const result = await machine.transition(
+      job,
+      PrintJobEvent.PRINTED,
+      { id: null },
+      {
+        // Test seam: runs inside the consumption savepoint. Do a REAL stock write, then
+        // fail with a REAL Postgres error (which aborts the transaction unless contained).
+        consumptionHook: async (tx) => {
+          await applyStockMovement(tx, {
+            shopId: fx.shop.id,
+            itemId: item.id,
+            type: "CONSUMPTION",
+            quantityDelta: -7,
+            printJobId: job,
+          });
+          await tx.$queryRaw`SELECT 1 / 0`;
+        },
+      },
+    );
+    expect(result.status).toBe("PRINTED");
+    expect((await fx.prisma.printJob.findUniqueOrThrow({ where: { id: job } })).status).toBe(
+      "PRINTED",
+    );
+    // partial write rolled back to the savepoint: no stock change, no movement
+    expect(
+      (await fx.prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).quantity,
+    ).toBe(100);
+    expect(await fx.prisma.inventoryMovement.count({ where: { printJobId: job } })).toBe(0);
+    const audit = await fx.prisma.auditLog.findFirstOrThrow({
+      where: { action: "INVENTORY_CONSUMPTION_FAILED", resourceId: job },
+    });
+    expect(audit.metadata).toMatchObject({ shopId: fx.shop.id });
+  });
+
+  it("without a failure the same path consumes normally (the savepoint is transparent)", async () => {
+    const item = await fx.prisma.inventoryItem.create({
+      data: {
+        shopId: fx.shop.id,
+        name: "A4 ok",
+        paperSize: "A4",
+        paperType: "STANDARD",
+        quantity: 100,
+      },
+    });
+    await fx.prisma.inventoryItem.updateMany({
+      where: { shopId: fx.shop.id, id: { not: item.id } },
+      data: { active: false },
+    });
+    const job = await seedJob();
+    await machine.transition(job, PrintJobEvent.PRINTED, { id: null });
+    expect(
+      (await fx.prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).quantity,
+    ).toBe(95);
   });
 });
