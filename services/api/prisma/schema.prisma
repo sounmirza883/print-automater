@@ -362,6 +362,13 @@ model Document {
   iv                Bytes?
   authTag           Bytes?         @map("auth_tag")
   encryptionVersion Int?           @map("encryption_version")
+  // 21.9/21.10: when the printable PDF (storage_key) was derived from an
+  // image or DOCX upload, the original is kept encrypted under the same
+  // encrypted_dek with its own iv/auth_tag. All three are null for a
+  // plain PDF upload. mime_type is the sniffed type of the original.
+  originalStorageKey String?       @map("original_storage_key")
+  originalIv        Bytes?         @map("original_iv")
+  originalAuthTag   Bytes?         @map("original_auth_tag")
   status            DocumentStatus @default(PENDING_UPLOAD)
   rejectionReason   String?        @map("rejection_reason")
   expiresAt         DateTime?      @map("expires_at")

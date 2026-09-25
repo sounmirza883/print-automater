@@ -210,7 +210,13 @@ export class DocumentsService {
       Buffer.from(document.authTag),
     );
 
-    return { buffer, filename: document.filename };
+    // 21.9/21.10: a derived document (image, DOCX) is served as the PDF
+    // it was normalised into, so its download name must say so.
+    const filename =
+      document.mimeType === "application/pdf"
+        ? document.filename
+        : `${document.filename.replace(/\.[^./\\]+$/, "")}.pdf`;
+    return { buffer, filename };
   }
 
   /** Soft delete: marks the row DELETED rather than removing it, so

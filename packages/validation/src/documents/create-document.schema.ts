@@ -5,9 +5,17 @@ import { z } from "zod";
  * §86's real, authoritative checks (magic bytes, actual size, ClamAV,
  * page count) happen server-side in 2.7 once the bytes actually arrive
  * -- this is a cheap early rejection, not the security boundary. */
+/** PRD 8 upload types. The declared type is only a cheap early gate:
+ * the worker sniffs the real bytes and never trusts this value. JPG and
+ * PNG (21.9) are normalised to a single-page PDF by the worker, so
+ * everything downstream (pricing, agent) still only ever sees a PDF. */
+export const ALLOWED_UPLOAD_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png"] as const;
+
+export type AllowedUploadMimeType = (typeof ALLOWED_UPLOAD_MIME_TYPES)[number];
+
 export const createDocumentSchema = z.object({
   filename: z.string().trim().min(1).max(255),
-  mimeType: z.literal("application/pdf"),
+  mimeType: z.enum(ALLOWED_UPLOAD_MIME_TYPES),
   sizeBytes: z
     .number()
     .int()

@@ -21,6 +21,7 @@ describe("StorageService (integration, real MinIO)", () => {
     const id = randomUUID();
     expect(service.quarantineKey(id)).toBe(`quarantine/${id}`);
     expect(service.documentKey(id)).toBe(`documents/${id}`);
+    expect(service.originalDocumentKey(id)).toBe(`documents/${id}.original`);
   });
 
   it("round-trips an object through MinIO via a presigned PUT then a presigned GET URL", async () => {

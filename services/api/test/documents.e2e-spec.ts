@@ -168,12 +168,31 @@ describe("Documents (e2e)", () => {
     expect(res.status).toBe(404);
   });
 
-  it("rejects a non-PDF mimeType before a presigned URL is ever generated", async () => {
-    const res = await request(app.getHttpServer())
-      .post("/v1/documents")
-      .set("Authorization", `Bearer ${ownerToken}`)
-      .send({ filename: "photo.jpg", mimeType: "image/jpeg", sizeBytes: 1024 });
-    expect(res.status).toBe(400);
+  it("rejects an unsupported mimeType before a presigned URL is ever generated", async () => {
+    for (const mimeType of ["image/gif", "text/plain", "application/x-msdownload"]) {
+      const res = await request(app.getHttpServer())
+        .post("/v1/documents")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ filename: "file.bin", mimeType, sizeBytes: 1024 });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("21.9: image/jpeg and image/png declarations get a presigned quarantine URL and a row recording the declared type", async () => {
+    for (const [filename, mimeType] of [
+      ["photo.jpg", "image/jpeg"],
+      ["scan.png", "image/png"],
+    ] as const) {
+      const res = await request(app.getHttpServer())
+        .post("/v1/documents")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ filename, mimeType, sizeBytes: 2048 });
+      expect(res.status).toBe(201);
+      expect(res.body.uploadUrl).toContain("quarantine");
+      const row = await prisma.document.findUniqueOrThrow({ where: { id: res.body.documentId } });
+      expect(row.mimeType).toBe(mimeType);
+      expect(row.status).toBe("PENDING_UPLOAD");
+    }
   });
 
   it("§86/12.2: a filename with path-traversal segments is sanitized down to a bare, safe filename", async () => {
@@ -320,6 +339,44 @@ describe("Document download (2.8, e2e)", () => {
     });
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, stranger.id] } } });
     await app.close();
+  });
+
+  it("21.9: a derived (image) document is served as a PDF named .pdf", async () => {
+    const derivedId = randomUUID();
+    const { plaintextDek, wrappedDek } = await kms.generateDataKey();
+    const encrypted = await crypto.encryptBuffer(plaintext, plaintextDek);
+    const key = storage.documentKey(derivedId);
+    await storage.putObjectBuffer(key, encrypted.ciphertext, "application/octet-stream");
+    await prisma.document.create({
+      data: {
+        id: derivedId,
+        ownerUserId: owner.id,
+        storageKey: key,
+        filename: "holiday photo.final.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 100,
+        status: DocumentStatus.READY,
+        pageCount: 1,
+        checksum: "irrelevant",
+        encryptedDek: new Uint8Array(wrappedDek),
+        iv: new Uint8Array(encrypted.iv),
+        authTag: new Uint8Array(encrypted.authTag),
+        encryptionVersion: encrypted.encryptionVersion,
+      },
+    });
+    try {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/documents/${derivedId}/download`)
+        .set("Authorization", `Bearer ${ownerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("application/pdf");
+      expect(res.headers["content-disposition"]).toContain(
+        encodeURIComponent("holiday photo.final.pdf"),
+      );
+    } finally {
+      await storage.deleteObject(key).catch(() => undefined);
+      await prisma.document.delete({ where: { id: derivedId } });
+    }
   });
 
   it("the owner downloads the exact original decrypted bytes, and it's audited as DOCUMENT_ACCESSED", async () => {

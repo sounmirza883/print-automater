@@ -32,6 +32,12 @@ export class StorageService {
     return `documents/${documentId}`;
   }
 
+  /** 21.9/21.10: the customer's original upload (image, DOCX) when the
+   * printable artifact at documentKey() was derived from it. */
+  originalDocumentKey(documentId: string): string {
+    return `documents/${documentId}.original`;
+  }
+
   /** Short-lived, single-object upload URL (§65) -- the client PUTs
    * directly to S3/MinIO, the raw bytes never pass through this API.
    *

@@ -36,6 +36,9 @@ export class DocumentDeletionService {
     }
 
     await this.storage.deleteObject(document.storageKey);
+    if (document.originalStorageKey !== null) {
+      await this.storage.deleteObject(document.originalStorageKey);
+    }
 
     await this.prisma.document.update({
       where: { id: documentId },
@@ -46,6 +49,9 @@ export class DocumentDeletionService {
         iv: null,
         authTag: null,
         encryptionVersion: null,
+        originalStorageKey: null,
+        originalIv: null,
+        originalAuthTag: null,
       },
     });
   }

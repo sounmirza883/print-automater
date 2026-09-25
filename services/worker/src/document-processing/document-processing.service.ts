@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { DocumentStatus } from "@prisma/client";
+import { DocumentStatus, type Prisma } from "@prisma/client";
 import {
   PrismaService,
   StorageService,
@@ -8,9 +8,10 @@ import {
   KEY_MANAGEMENT_SERVICE,
   type KeyManagementService,
 } from "@print-automated/backend-shared";
-import { hasValidPdfMagicBytes } from "./magic-bytes.js";
+import { detectDocumentKind, type DocumentKind } from "./magic-bytes.js";
 import { ClamavScannerService } from "./clamav-scanner.service.js";
 import { PdfInspectorService } from "./pdf-inspector.service.js";
+import { ImageToPdfService } from "./image-to-pdf.service.js";
 import { DocumentRejectedError } from "./document-rejected.error.js";
 import {
   RejectionReason,
@@ -47,6 +48,7 @@ export class DocumentProcessingService {
     @Inject(KEY_MANAGEMENT_SERVICE) private readonly kms: KeyManagementService,
     @Inject(ClamavScannerService) private readonly clamav: ClamavScannerService,
     @Inject(PdfInspectorService) private readonly pdfInspector: PdfInspectorService,
+    @Inject(ImageToPdfService) private readonly imageToPdf: ImageToPdfService,
   ) {}
 
   async process(documentId: string): Promise<void> {
@@ -54,9 +56,21 @@ export class DocumentProcessingService {
     const buffer = await this.storage.getObjectBuffer(quarantineKey);
 
     try {
-      await this.validate(buffer);
-      const { pageCount } = await this.pdfInspector.inspect(buffer);
-      await this.accept(documentId, buffer, pageCount);
+      const kind = await this.validate(buffer);
+      if (kind === "pdf") {
+        const { pageCount } = await this.pdfInspector.inspect(buffer);
+        await this.accept(documentId, buffer, pageCount);
+      } else {
+        // 21.9: JPG/PNG are normalised to a single-page PDF; the agent
+        // and pricing only ever see that PDF, the upload is kept as the
+        // original.
+        const pdf = await this.imageToPdf.convert(buffer, kind);
+        const { pageCount } = await this.pdfInspector.inspect(pdf);
+        await this.accept(documentId, pdf, pageCount, {
+          buffer,
+          mimeType: kind === "jpeg" ? "image/jpeg" : "image/png",
+        });
+      }
     } catch (error) {
       if (!(error instanceof DocumentRejectedError)) {
         throw error;
@@ -69,17 +83,30 @@ export class DocumentProcessingService {
     await this.storage.deleteObject(quarantineKey);
   }
 
-  private async validate(buffer: Buffer): Promise<void> {
-    if (!hasValidPdfMagicBytes(buffer)) {
+  /** Returns the kind sniffed from the real bytes (never the declared
+   * mime type). */
+  private async validate(buffer: Buffer): Promise<DocumentKind> {
+    const kind = detectDocumentKind(buffer);
+    if (!kind) {
       throw new DocumentRejectedError(RejectionReason.INVALID_FILE_TYPE);
     }
     if (buffer.length > MAX_FILE_SIZE_BYTES) {
       throw new DocumentRejectedError(RejectionReason.FILE_TOO_LARGE);
     }
     await this.clamav.assertClean(buffer);
+    return kind;
   }
 
-  private async accept(documentId: string, buffer: Buffer, pageCount: number): Promise<void> {
+  /** `buffer` is the printable PDF. `original` is set only when it was
+   * derived from another upload (21.9 image, 21.10 DOCX): that upload is
+   * kept encrypted under the SAME data key with its own fresh IV/tag, at
+   * its own key, so deleting the document deletes both. */
+  private async accept(
+    documentId: string,
+    buffer: Buffer,
+    pageCount: number,
+    original?: { buffer: Buffer; mimeType: string },
+  ): Promise<void> {
     const checksum = createHash("sha256").update(buffer).digest("hex");
     const { plaintextDek, wrappedDek } = await this.kms.generateDataKey();
     const encrypted = await this.crypto.encryptBuffer(buffer, plaintextDek);
@@ -91,9 +118,27 @@ export class DocumentProcessingService {
       "application/octet-stream",
     );
 
+    let originalFields: Prisma.DocumentUpdateInput = {};
+    if (original) {
+      const encryptedOriginal = await this.crypto.encryptBuffer(original.buffer, plaintextDek);
+      const originalKey = this.storage.originalDocumentKey(documentId);
+      await this.storage.putObjectBuffer(
+        originalKey,
+        encryptedOriginal.ciphertext,
+        "application/octet-stream",
+      );
+      originalFields = {
+        mimeType: original.mimeType,
+        originalStorageKey: originalKey,
+        originalIv: new Uint8Array(encryptedOriginal.iv),
+        originalAuthTag: new Uint8Array(encryptedOriginal.authTag),
+      };
+    }
+
     await this.prisma.document.update({
       where: { id: documentId },
       data: {
+        ...originalFields,
         status: DocumentStatus.READY,
         storageKey: documentKey,
         checksum,
