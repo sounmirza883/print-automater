@@ -1,9 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { DashboardJob } from "@print-automated/types";
+import { BlockedNote } from "@/components/blocked-note";
 import { Pill } from "@/components/ui";
 import { formatAge, humanizeEnum, priorityLabel } from "@/lib/format";
-import { describeBlockedReason, isHeldByLatePrint, jobStatusTone } from "@/lib/job-status";
+import { isHeldByLatePrint, jobStatusTone } from "@/lib/job-status";
 
 /** What to load and how to print, on one line: "A4 · Plain · Colour ·
  * Double-sided · 2 copies x 12 pp = 24 pp". This is the "required paper"
@@ -30,7 +31,6 @@ export function JobRow({
   job: DashboardJob;
   showPrinter?: boolean;
 }): ReactNode {
-  const blocked = describeBlockedReason(job.blockedReason);
   const priority = job.priority > 0 ? priorityLabel(job.priority) : null;
   return (
     <li className="grid gap-1.5 py-3 first:pt-0 last:pb-0">
@@ -63,28 +63,7 @@ export function JobRow({
         <span className="font-medium text-ink">Load and print: </span>
         {instructionSummary(job)}
       </p>
-      {blocked !== null && (
-        <div
-          className={`rounded-md border px-3 py-2 text-sm ${
-            blocked.tone === "danger"
-              ? "border-danger/50 bg-danger-soft"
-              : blocked.tone === "accent"
-                ? "border-accent/50 bg-accent-soft"
-                : "border-caution/50 bg-caution-soft"
-          }`}
-        >
-          <p className="font-medium">{blocked.label}</p>
-          <p className="text-xs">{blocked.hint}</p>
-          {blocked.action !== undefined && (
-            <Link
-              href={blocked.action.href}
-              className="mt-1 inline-block text-xs font-medium underline"
-            >
-              {blocked.action.label}
-            </Link>
-          )}
-        </div>
-      )}
+      <BlockedNote reason={job.blockedReason} />
     </li>
   );
 }

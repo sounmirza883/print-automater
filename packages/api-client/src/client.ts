@@ -5,6 +5,7 @@ import { ShopOrdersResource } from "./resources/shop-orders.resource.js";
 import { PrintersResource } from "./resources/printers.resource.js";
 import { ShopStaffResource } from "./resources/shop-staff.resource.js";
 import { DashboardResource } from "./resources/dashboard.resource.js";
+import { PrintJobsResource } from "./resources/print-jobs.resource.js";
 import { ReportsResource } from "./resources/reports.resource.js";
 import { NotificationsResource } from "./resources/notifications.resource.js";
 
@@ -15,6 +16,7 @@ export class ApiClient {
   readonly printers: PrintersResource;
   readonly shopStaff: ShopStaffResource;
   readonly dashboard: DashboardResource;
+  readonly printJobs: PrintJobsResource;
   readonly reports: ReportsResource;
   readonly notifications: NotificationsResource;
 
@@ -26,6 +28,7 @@ export class ApiClient {
     this.printers = new PrintersResource(http);
     this.shopStaff = new ShopStaffResource(http);
     this.dashboard = new DashboardResource(http);
+    this.printJobs = new PrintJobsResource(http);
     this.reports = new ReportsResource(http);
     this.notifications = new NotificationsResource(http);
   }

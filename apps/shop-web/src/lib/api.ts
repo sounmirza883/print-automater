@@ -1,3 +1,4 @@
+import { errorMessageFor } from "@/lib/error-copy";
 import { ApiClient, ApiClientError, CookieAuthStrategy } from "@print-automated/api-client";
 
 /** Every browser-side API call goes to THIS app's origin under `/api`
@@ -40,13 +41,7 @@ export function isNetworkFailure(error: unknown): boolean {
 
 /** One place that turns a failure into words a person can act on. */
 export function describeError(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    if (error.status === 502 || error.status === 503 || error.status === 504) {
-      return "The service is unreachable right now. Try again in a moment.";
-    }
-    return error.message;
-  }
-  return "Could not reach the server. Check your connection and try again.";
+  return errorMessageFor(error);
 }
 
 export function redirectToSignIn(): void {

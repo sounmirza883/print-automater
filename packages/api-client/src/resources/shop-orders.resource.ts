@@ -1,5 +1,13 @@
 import type { HttpClient } from "../http-client.js";
-import type { Page, ShopOrderResponse, ShopOrdersGrouped, ShopRejectionReason } from "../types.js";
+import type {
+  JobFailureReason,
+  Page,
+  ReprintReason,
+  ShopOrderDelivery,
+  ShopOrderResponse,
+  ShopOrdersGrouped,
+  ShopRejectionReason,
+} from "../types.js";
 
 export class ShopOrdersResource {
   constructor(private readonly http: HttpClient) {}
@@ -79,6 +87,8 @@ export class ShopOrdersResource {
     });
   }
 
+  /** Legacy (no `jobId`): the API answers 409 UNKNOWN_JOB_ID_REQUIRED, so new callers use
+   * `resolveUnknownPrint`. Kept only so shop-mobile keeps compiling. */
   resolveUnknown(
     orderId: string,
     resolution: "CONFIRMED_PRINTED" | "RETRY" | "MARK_FAILED",
@@ -86,6 +96,81 @@ export class ShopOrdersResource {
     return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/resolve-unknown`, {
       method: "POST",
       body: { resolution },
+    });
+  }
+
+  /** `jobId` is required by the API (409 UNKNOWN_JOB_ID_REQUIRED without it). */
+  resolveUnknownPrint(
+    orderId: string,
+    input: {
+      resolution: "CONFIRMED_PRINTED" | "RETRY" | "MARK_FAILED";
+      jobId: string;
+      failureReason?: JobFailureReason;
+      failureNote?: string;
+    },
+  ): Promise<ShopOrderResponse> {
+    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/resolve-unknown`, {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  /** EDIT_ORDERS: staff recording a cash/offline payment (no PSP). */
+  recordPayment(orderId: string): Promise<ShopOrderResponse> {
+    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/record-payment`, {
+      method: "POST",
+    });
+  }
+
+  /** QUALITY_CHECK: PASSED / FAILED / NEEDS_REPRINT (the last may name jobs, a reason, a cost). */
+  qualityCheck(
+    orderId: string,
+    input: {
+      result: "PASSED" | "FAILED" | "NEEDS_REPRINT";
+      note?: string;
+      jobIds?: string[];
+      reprintReason?: ReprintReason;
+      additionalCostMinor?: number;
+    },
+  ): Promise<ShopOrderResponse> {
+    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/quality-check`, {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  /** The invoice PDF as a blob (VIEW_ORDERS). */
+  invoice(orderId: string): Promise<Blob> {
+    return this.http.requestBlob(`/v1/shop/orders/${orderId}/invoice`);
+  }
+
+  /** MANAGE_DELIVERY: create or replace the order delivery record. */
+  saveDelivery(
+    orderId: string,
+    input: {
+      address: string;
+      courier?: string | null;
+      trackingNumber?: string | null;
+      feeMinor?: number;
+    },
+  ): Promise<ShopOrderDelivery> {
+    return this.http.request<ShopOrderDelivery>(`/v1/shop/orders/${orderId}/delivery`, {
+      method: "PUT",
+      body: input,
+    });
+  }
+
+  setDeliveryStatus(
+    orderId: string,
+    input: {
+      status: "OUT_FOR_DELIVERY" | "DELIVERED" | "FAILED" | "CANCELLED";
+      courier?: string | null;
+      trackingNumber?: string | null;
+    },
+  ): Promise<ShopOrderDelivery> {
+    return this.http.request<ShopOrderDelivery>(`/v1/shop/orders/${orderId}/delivery/status`, {
+      method: "POST",
+      body: input,
     });
   }
 

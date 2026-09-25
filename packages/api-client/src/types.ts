@@ -7,6 +7,7 @@ import type {
   OrderStatus,
   PaymentStatus,
   PrinterStatus,
+  QualityCheckStatus,
   ShopRejectionReason,
   UserRole,
 } from "@print-automated/types";
@@ -97,6 +98,38 @@ export interface ShopOrderResponse {
   orderStatus: OrderStatus;
   createdAt: string;
   printerName: string | null;
+  /** The live (non-superseded) print jobs, newest first. */
+  printJobs: ShopOrderJobSummary[];
+  /** NOT_REQUIRED unless the business runs quality checks. */
+  qualityCheckStatus: QualityCheckStatus | null;
+  /** The optional delivery record. `address` is null (and `addressRedacted` true)
+   * for a role without MANAGE_DELIVERY. */
+  delivery: ShopOrderDelivery | null;
+}
+
+export interface ShopOrderJobSummary {
+  id: string;
+  status: string;
+  printerName: string | null;
+  blockedReason: string | null;
+  failureReason: string | null;
+  failureNote: string | null;
+  reprint: { originalJobId: string; reason: string; additionalCostMinor: number } | null;
+}
+
+export interface ShopOrderDelivery {
+  id: string;
+  orderId: string;
+  status: DeliveryStatus;
+  address: string | null;
+  addressRedacted?: boolean;
+  courier: string | null;
+  trackingNumber: string | null;
+  feeMinor: number;
+  dispatchedAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ShopOrdersGrouped {

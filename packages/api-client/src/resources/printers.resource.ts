@@ -11,6 +11,10 @@ export interface UpdatePrinterInput {
   name?: string;
   enabled?: boolean;
   capabilities?: PrinterCapabilities;
+  /** null clears the limit; enforcement only applies while `pageLimitEnabled`. */
+  pageLimit?: number | null;
+  pageLimitEnabled?: boolean;
+  pageLimitPeriod?: "DAILY" | "WEEKLY" | "MONTHLY";
 }
 
 export class PrintersResource {

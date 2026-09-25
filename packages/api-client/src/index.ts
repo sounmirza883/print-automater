@@ -18,6 +18,11 @@ export {
   type UpdatePrinterInput,
 } from "./resources/printers.resource.js";
 export { ShopStaffResource, type ShopStaffListItem } from "./resources/shop-staff.resource.js";
+export {
+  PrintJobsResource,
+  type PrintJobActionResult,
+  type ReprintResult,
+} from "./resources/print-jobs.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
 export { ReportsResource, type ReportParams } from "./resources/reports.resource.js";
 export {
@@ -39,6 +44,8 @@ export type {
   ReprintReason,
   ShopRejectionReason,
   ShopOrderResponse,
+  ShopOrderJobSummary,
+  ShopOrderDelivery,
   ShopOrdersGrouped,
   PrinterCapabilities,
   PrinterStatus,

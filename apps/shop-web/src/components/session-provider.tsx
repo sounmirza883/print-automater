@@ -36,7 +36,7 @@ interface SessionValue {
   isAdmin: boolean;
 }
 
-const SessionContext = createContext<SessionValue | null>(null);
+export const SessionContext = createContext<SessionValue | null>(null);
 
 export function useSession(): SessionValue {
   const value = useContext(SessionContext);

@@ -8,9 +8,11 @@ export interface HttpClientOptions {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
+  /** Extra request headers (e.g. `Idempotency-Key`). Auth headers still win. */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
   /** `false` for the auth endpoints that establish a session in the
    * first place (register/login/refresh/logout/recovery): they must not
@@ -86,6 +88,7 @@ export class HttpClient {
       // them silently dropped here.
       headers: {
         "Content-Type": "application/json",
+        ...opts.headers,
         ...(authInit.headers as Record<string, string> | undefined),
         ...authHeaders,
       },
