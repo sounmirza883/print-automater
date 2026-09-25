@@ -12,6 +12,18 @@ import { catchError, mergeMap } from "rxjs/operators";
 import { AppException, PrismaService } from "@print-automated/backend-shared";
 import { stableStringify } from "./stable-stringify.js";
 
+/** Who is calling, for scoping: a user, a printer agent device, or nobody
+ * (unauthenticated routes such as the interceptor's own test endpoint). */
+function principalOf(request: Request): string {
+  const r = request as Request & {
+    user?: { id?: string };
+    agent?: { deviceId?: string };
+  };
+  if (r.user?.id) return `user:${r.user.id}`;
+  if (r.agent?.deviceId) return `agent:${r.agent.deviceId}`;
+  return "anonymous";
+}
+
 /** A status value no real HTTP response ever has -- marks a claimed-
  * but-not-yet-completed row so a concurrent replay can tell "still
  * running" apart from "finished, here's the answer" without a second
@@ -53,7 +65,16 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const scope = `${request.method} ${request.route?.path ?? request.path}`;
+    // 20.8: the scope is the route template PLUS the resolved path params PLUS
+    // the authenticated principal. The template alone let the same key + body on
+    // a different resource (/items/A/movements vs /items/B/movements) replay the
+    // first resource's response, and let another caller who knew the key read
+    // someone else's cached response. Interceptors run after guards, so the
+    // principal is already resolved (a user, an agent device, or none).
+    const principal = principalOf(request);
+    const scope = `${request.method} ${request.route?.path ?? request.path} ${stableStringify(
+      request.params ?? {},
+    )} ${principal}`;
     const requestHash = stableStringify(request.body);
 
     const claim = await this.claim(key, scope, requestHash);
