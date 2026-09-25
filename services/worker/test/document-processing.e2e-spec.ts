@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { Queue } from "bullmq";
@@ -14,6 +14,7 @@ import {
   PrismaService,
   StorageService,
 } from "@print-automated/backend-shared";
+import { buildDocx } from "./helpers/zip-builder.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -152,4 +153,83 @@ describe("Worker process consumes document-processing jobs (e2e)", () => {
     await prisma.document.delete({ where: { id: documentId } });
     await storage.deleteObject(storage.documentKey(documentId)).catch(() => undefined);
   }, 20_000);
+
+  /** Seeds a PROCESSING document + quarantine object, enqueues it, waits for
+   * the separate worker process to finish the job, returns the final row. */
+  async function runThroughWorker(filename: string, mimeType: string, bytes: Buffer) {
+    const documentId = randomUUID();
+    const quarantineKey = storage.quarantineKey(documentId);
+    await prisma.document.create({
+      data: {
+        id: documentId,
+        ownerUserId: ownerId,
+        storageKey: quarantineKey,
+        filename,
+        mimeType,
+        sizeBytes: bytes.length,
+        status: DocumentStatus.PROCESSING,
+      },
+    });
+    await storage.putObjectBuffer(quarantineKey, bytes, mimeType);
+    const job = await queue.add(
+      QUEUE_NAMES.DOCUMENT_PROCESSING,
+      { documentId },
+      { jobId: documentId },
+    );
+
+    const deadline = Date.now() + 30_000;
+    let state = await job.getState();
+    while (state !== "completed" && state !== "failed" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      state = await job.getState();
+    }
+    if (state === "failed") throw new Error(`Job failed: ${job.failedReason}`);
+    expect(state).toBe("completed");
+
+    const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    await expect(storage.objectExists(quarantineKey)).resolves.toBe(false);
+    return {
+      doc,
+      cleanup: async () => {
+        await prisma.document.delete({ where: { id: documentId } });
+        await storage.deleteObject(storage.documentKey(documentId)).catch(() => undefined);
+        await storage.deleteObject(storage.originalDocumentKey(documentId)).catch(() => undefined);
+      },
+    };
+  }
+
+  it("21.9: a PNG goes through the real worker process to a READY single-page PDF with the original kept", async () => {
+    const png = readFileSync(path.join(workerRoot, "test/fixtures/sample.png"));
+    const { doc, cleanup } = await runThroughWorker("scan.png", "image/png", png);
+    expect(doc.status).toBe(DocumentStatus.READY);
+    expect(doc.pageCount).toBe(1);
+    expect(doc.mimeType).toBe("image/png");
+    await expect(storage.objectExists(doc.originalStorageKey!)).resolves.toBe(true);
+    await cleanup();
+  }, 40_000);
+
+  // 21.10: with no soffice on this machine the real worker must FAIL THE
+  // DOCUMENT CLEANLY (REJECTED + reason), not hang or crash the job. Where
+  // LibreOffice is installed this scenario does not apply, so it is skipped
+  // there (real conversion is covered by soffice-docx-converter.spec.ts).
+  const sofficeInstalled =
+    spawnSync(process.env.SOFFICE_PATH ?? "soffice", ["--version"], { timeout: 30_000 }).status ===
+    0;
+  (sofficeInstalled ? it.skip : it)(
+    "21.10: a DOCX with no LibreOffice installed is REJECTED with CONVERSION_UNAVAILABLE by the real worker",
+    async () => {
+      const { doc, cleanup } = await runThroughWorker(
+        "letter.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        buildDocx(),
+      );
+      expect(doc.status).toBe(DocumentStatus.REJECTED);
+      expect(doc.rejectionReason).toBe(
+        "Word documents cannot be converted right now. Please upload a PDF instead.",
+      );
+      expect(doc.originalStorageKey).toBeNull();
+      await cleanup();
+    },
+    40_000,
+  );
 });

@@ -7,9 +7,18 @@ import { z } from "zod";
  * -- this is a cheap early rejection, not the security boundary. */
 /** PRD 8 upload types. The declared type is only a cheap early gate:
  * the worker sniffs the real bytes and never trusts this value. JPG and
- * PNG (21.9) are normalised to a single-page PDF by the worker, so
- * everything downstream (pricing, agent) still only ever sees a PDF. */
-export const ALLOWED_UPLOAD_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png"] as const;
+ * PNG (21.9) and DOCX (21.10, LibreOffice in the worker) are normalised
+ * to a PDF by the worker, so everything downstream (pricing, agent)
+ * still only ever sees a PDF. */
+export const DOCX_MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export const ALLOWED_UPLOAD_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  DOCX_MIME_TYPE,
+] as const;
 
 export type AllowedUploadMimeType = (typeof ALLOWED_UPLOAD_MIME_TYPES)[number];
 

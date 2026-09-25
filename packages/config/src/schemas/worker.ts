@@ -49,6 +49,13 @@ export const workerEnvSchema = baseEnvSchema
     // easy to retune later since nothing else depends on this exact
     // figure.
     DOCUMENT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+    // 21.10: DOCX -> PDF via LibreOffice headless in the worker. Disable to
+    // reject every DOCX with a clear "cannot convert right now" reason.
+    // SOFFICE_PATH is the binary (the worker image installs it on PATH).
+    // The timeout is a hard wall-clock kill for one conversion.
+    DOCX_CONVERSION_ENABLED: zBooleanString(true),
+    SOFFICE_PATH: z.string().min(1).default("soffice"),
+    DOCX_CONVERSION_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   })
   .superRefine(checkStorageEnv);
 

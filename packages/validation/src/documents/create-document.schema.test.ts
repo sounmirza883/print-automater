@@ -10,7 +10,11 @@ describe("createDocumentSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it.each(["image/jpeg", "image/png"])("accepts %s (PRD 8: JPG/PNG upload, 21.9)", (mimeType) => {
+  it.each([
+    "image/jpeg",
+    "image/png",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ])("accepts %s (PRD 8: JPG/PNG upload 21.9, DOCX 21.10)", (mimeType) => {
     const result = createDocumentSchema.safeParse({
       filename: "photo",
       mimeType,
@@ -19,17 +23,22 @@ describe("createDocumentSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it.each(["image/gif", "image/webp", "text/plain", "application/zip", "application/x-msdownload"])(
-    "rejects unsupported mimeType %s",
-    (mimeType) => {
-      const result = createDocumentSchema.safeParse({
-        filename: "file.bin",
-        mimeType,
-        sizeBytes: 1024,
-      });
-      expect(result.success).toBe(false);
-    },
-  );
+  it.each([
+    "image/gif",
+    "image/webp",
+    "text/plain",
+    "application/zip",
+    "application/msword",
+    "application/vnd.ms-word.document.macroEnabled.12",
+    "application/x-msdownload",
+  ])("rejects unsupported mimeType %s", (mimeType) => {
+    const result = createDocumentSchema.safeParse({
+      filename: "file.bin",
+      mimeType,
+      sizeBytes: 1024,
+    });
+    expect(result.success).toBe(false);
+  });
 
   it("rejects a declared size over 25MB", () => {
     const result = createDocumentSchema.safeParse({

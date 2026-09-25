@@ -169,7 +169,13 @@ describe("Documents (e2e)", () => {
   });
 
   it("rejects an unsupported mimeType before a presigned URL is ever generated", async () => {
-    for (const mimeType of ["image/gif", "text/plain", "application/x-msdownload"]) {
+    for (const mimeType of [
+      "image/gif",
+      "text/plain",
+      "application/msword",
+      "application/vnd.ms-word.document.macroEnabled.12",
+      "application/x-msdownload",
+    ]) {
       const res = await request(app.getHttpServer())
         .post("/v1/documents")
         .set("Authorization", `Bearer ${ownerToken}`)
@@ -178,10 +184,11 @@ describe("Documents (e2e)", () => {
     }
   });
 
-  it("21.9: image/jpeg and image/png declarations get a presigned quarantine URL and a row recording the declared type", async () => {
+  it("21.9/21.10: image/jpeg, image/png and DOCX declarations get a presigned quarantine URL and a row recording the declared type", async () => {
     for (const [filename, mimeType] of [
       ["photo.jpg", "image/jpeg"],
       ["scan.png", "image/png"],
+      ["letter.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     ] as const) {
       const res = await request(app.getHttpServer())
         .post("/v1/documents")

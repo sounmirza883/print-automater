@@ -220,6 +220,12 @@ services:
       CLAMAV_ENABLED: "true"
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
+      # 21.10: DOCX -> PDF via LibreOffice headless (installed in the worker
+      # image). Set DOCX_CONVERSION_ENABLED=false to reject every DOCX with a
+      # clear "cannot convert right now" reason. The timeout is a hard kill.
+      DOCX_CONVERSION_ENABLED: ${DOCX_CONVERSION_ENABLED:-true}
+      SOFFICE_PATH: ${SOFFICE_PATH:-soffice}
+      DOCX_CONVERSION_TIMEOUT_MS: ${DOCX_CONVERSION_TIMEOUT_MS:-60000}
       # 14.5: EMAIL_TRANSPORT=smtp uses the new generic SmtpEmailTransport
       # (nodemailer) against whatever SMTP_HOST is -- the placeholder
       # `mailhog` service above by default; point it at a real relay by
@@ -241,11 +247,21 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    # 21.10: LibreOffice needs headroom (a large DOCX can take several hundred
+    # MB), so the worker limit is 2g rather than 1g. Conversions run one at a
+    # time inside the worker. Network: LibreOffice is started with macros and
+    # link refresh disabled and DOCX files that reference external images,
+    # templates or OLE objects are refused before conversion, but the
+    # container-level guarantee of "no network from the converter" is an
+    # operator setting: keep this service on an internal-only network / block
+    # egress (it only needs postgres, redis, minio, clamav and the SMTP relay).
+    tmpfs:
+      - /tmp:size=512m
     deploy:
       resources:
         limits:
           cpus: "2"
-          memory: 1g
+          memory: 2g
 
   customer-web:
     build:

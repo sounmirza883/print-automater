@@ -12,12 +12,15 @@ import { detectDocumentKind, type DocumentKind } from "./magic-bytes.js";
 import { ClamavScannerService } from "./clamav-scanner.service.js";
 import { PdfInspectorService } from "./pdf-inspector.service.js";
 import { ImageToPdfService } from "./image-to-pdf.service.js";
+import { inspectDocx } from "./docx-inspector.js";
+import { DOCX_CONVERTER, DocxConversionError, type DocxConverter } from "./docx-converter.js";
 import { DocumentRejectedError } from "./document-rejected.error.js";
 import {
   RejectionReason,
   type RejectionReason as RejectionReasonType,
 } from "./rejection-reason.js";
 
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 
 /** §14/§86's full pipeline, in the exact order the design specifies:
@@ -49,6 +52,7 @@ export class DocumentProcessingService {
     @Inject(ClamavScannerService) private readonly clamav: ClamavScannerService,
     @Inject(PdfInspectorService) private readonly pdfInspector: PdfInspectorService,
     @Inject(ImageToPdfService) private readonly imageToPdf: ImageToPdfService,
+    @Inject(DOCX_CONVERTER) private readonly docxConverter: DocxConverter,
   ) {}
 
   async process(documentId: string): Promise<void> {
@@ -60,6 +64,14 @@ export class DocumentProcessingService {
       if (kind === "pdf") {
         const { pageCount } = await this.pdfInspector.inspect(buffer);
         await this.accept(documentId, buffer, pageCount);
+      } else if (kind === "docx") {
+        // 21.10: the DOCX never reaches the agent. It is structurally
+        // vetted, converted to PDF by LibreOffice in a sandboxed child,
+        // and the page count (and 500-page cap) come from that PDF.
+        inspectDocx(buffer);
+        const pdf = await this.convertDocx(buffer);
+        const { pageCount } = await this.pdfInspector.inspect(pdf);
+        await this.accept(documentId, pdf, pageCount, { buffer, mimeType: DOCX_MIME_TYPE });
       } else {
         // 21.9: JPG/PNG are normalised to a single-page PDF; the agent
         // and pricing only ever see that PDF, the upload is kept as the
@@ -81,6 +93,25 @@ export class DocumentProcessingService {
     // Reached only after a deliberate terminal outcome above (accept or
     // reject) -- never after a re-thrown unexpected error.
     await this.storage.deleteObject(quarantineKey);
+  }
+
+  /** A missing/disabled converter and a conversion that fails or times
+   * out are DELIBERATE terminal outcomes (retrying a hung or absent
+   * LibreOffice just repeats it), so each ends in REJECTED with its own
+   * reason instead of leaving the document in PROCESSING. */
+  private async convertDocx(buffer: Buffer): Promise<Buffer> {
+    try {
+      return await this.docxConverter.convert(buffer);
+    } catch (error) {
+      if (error instanceof DocxConversionError) {
+        throw new DocumentRejectedError(
+          error.failure === "UNAVAILABLE"
+            ? RejectionReason.CONVERSION_UNAVAILABLE
+            : RejectionReason.CONVERSION_FAILED,
+        );
+      }
+      throw error;
+    }
   }
 
   /** Returns the kind sniffed from the real bytes (never the declared

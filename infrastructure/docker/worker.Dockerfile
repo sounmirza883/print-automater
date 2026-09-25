@@ -45,6 +45,17 @@ RUN pnpm turbo run build --filter=@print-automated/worker
 
 FROM base AS runner
 WORKDIR /app
+# 21.10: LibreOffice (headless writer only) for DOCX -> PDF conversion.
+# Installed in the runner stage only: the build stages do not need it.
+# libreoffice-writer-nogui keeps the image smaller than the full suite;
+# fonts-liberation + fonts-dejavu-core give metric-compatible substitutes
+# for Arial/Times/Courier so page breaks (and therefore page counts and
+# prices) stay close to Word's. Each conversion uses a private per-job
+# profile under a temp dir, so the unprivileged `worker` user needs no
+# writable home directory.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libreoffice-writer-nogui fonts-liberation fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs worker
 COPY --from=installer /app .

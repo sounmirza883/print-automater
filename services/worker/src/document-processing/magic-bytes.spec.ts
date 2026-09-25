@@ -22,6 +22,12 @@ describe("detectDocumentKind (21.9: sniff real bytes, never the client mime)", (
     ).toBeNull();
   });
 
+  it("detects a zip local-file header as a DOCX candidate (21.10)", () => {
+    expect(detectDocumentKind(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]))).toBe("docx");
+    // an empty-archive/spanned marker is not a document
+    expect(detectDocumentKind(Buffer.from([0x50, 0x4b, 0x05, 0x06]))).toBeNull();
+  });
+
   it("returns null for an executable, a GIF, an empty buffer and two bytes of JPEG", () => {
     expect(detectDocumentKind(Buffer.from([0x4d, 0x5a, 0x90, 0x00]))).toBeNull();
     expect(detectDocumentKind(Buffer.from("GIF89a"))).toBeNull();
