@@ -28,6 +28,7 @@ import { AdminModule } from "./admin/admin.module.js";
 import { InventoryModule } from "./inventory/inventory.module.js";
 import { SuppliersModule } from "./suppliers/suppliers.module.js";
 import { ShopSettingsModule } from "./shop-settings/shop-settings.module.js";
+import { PrinterRulesModule } from "./printer-rules/printer-rules.module.js";
 import { DeliveriesModule } from "./deliveries/deliveries.module.js";
 import { PurchaseOrdersModule } from "./purchase-orders/purchase-orders.module.js";
 import { ProductsModule } from "./products/products.module.js";
@@ -85,6 +86,7 @@ import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
     InventoryModule,
     SuppliersModule,
     ShopSettingsModule,
+    PrinterRulesModule,
     DeliveriesModule,
     PurchaseOrdersModule,
     PricingRulesModule,

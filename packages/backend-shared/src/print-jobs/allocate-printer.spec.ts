@@ -4,6 +4,7 @@ import type { PrintConfiguration } from "@print-automated/types";
 import {
   allocatePrinter,
   type AllocationRequest,
+  type AllocationRule,
   type PrinterCandidate,
 } from "./allocate-printer.js";
 
@@ -346,5 +347,151 @@ describe("allocatePrinter maxJobPages is per copy (19.7)", () => {
       candidate({ maxJobPages: 10 }),
     ]);
     expect(tooBig.outcome).toBe("BLOCKED");
+  });
+});
+
+/** 22.3 (PRD 77): ordered per-shop rules are an ADDITIONAL preference layer over
+ * the eligible set. They can only choose among printers that already passed every
+ * hard filter, so they can never override capability, status, paper or page limit. */
+describe("allocatePrinter automation rules (22.3)", () => {
+  const prefer = (printerIds: string[], conditions = {}): AllocationRule => ({
+    action: "PREFER",
+    printerIds,
+    conditions,
+  });
+  const avoid = (printerIds: string[], conditions = {}): AllocationRule => ({
+    action: "AVOID",
+    printerIds,
+    conditions,
+  });
+  const idle = (id: string, extra: Partial<PrinterCandidate> = {}) =>
+    candidate({ id, registeredAt: Number(id.charCodeAt(0)), ...extra });
+  const winner = (result: ReturnType<typeof allocatePrinter>) =>
+    result.outcome === "ALLOCATED" ? result.printerId : result.blockedReason;
+
+  it("no rules (undefined or empty) is byte-identical to today, over many candidate sets", () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const set = ["a", "b", "c", "d"].map((id, i) =>
+        idle(id, {
+          queuedPages: (seed * (i + 3)) % 7,
+          queuedJobs: (seed + i) % 3,
+          status: (seed + i) % 5 === 0 ? PrinterStatus.OFFLINE : PrinterStatus.ONLINE,
+        }),
+      );
+      const base = allocatePrinter(request(), set);
+      expect(allocatePrinter(request({ rules: [] }), set)).toEqual(base);
+      expect(allocatePrinter(request({ rules: undefined }), set)).toEqual(base);
+    }
+  });
+
+  it("PREFER beats a shorter queue among eligible printers, then the normal tie-break decides within the preferred set", () => {
+    const set = [
+      idle("a", { queuedPages: 0 }),
+      idle("b", { queuedPages: 9 }),
+      idle("c", { queuedPages: 3 }),
+    ];
+    expect(winner(allocatePrinter(request(), set))).toBe("a");
+    expect(winner(allocatePrinter(request({ rules: [prefer(["b", "c"])] }), set))).toBe("c");
+  });
+
+  it("a rule can NEVER override a hard filter: offline, incapable, page-limited or paper-less printers stay out", () => {
+    const rules = [prefer(["x"])];
+    for (const bad of [
+      { status: PrinterStatus.OFFLINE },
+      { status: PrinterStatus.DISABLED },
+      { capabilities: { color: false, duplex: false, a4: false, a3: false } },
+      { hasAgent: false },
+      { pageLimitRemaining: 1 },
+      { paperAvailable: false },
+      { maxJobPages: 1 },
+      { supportedSizes: ["A3"] },
+    ] as Array<Partial<PrinterCandidate>>) {
+      const set = [idle("a"), idle("x", bad)];
+      expect(winner(allocatePrinter(request({ rules }), set))).toBe("a");
+      // and when the preferred printer is the ONLY candidate, the result is exactly what it was without rules
+      const only = [idle("x", bad)];
+      expect(allocatePrinter(request({ rules }), only)).toEqual(allocatePrinter(request(), only));
+    }
+  });
+
+  it("AVOID removes printers while others remain, but never blocks a job by itself", () => {
+    const set = [idle("a", { queuedPages: 0 }), idle("b", { queuedPages: 5 })];
+    expect(winner(allocatePrinter(request({ rules: [avoid(["a"])] }), set))).toBe("b");
+    expect(winner(allocatePrinter(request({ rules: [avoid(["a", "b"])] }), set))).toBe("a");
+  });
+
+  it("rules apply in order: an earlier rule narrows first, a later one refines what is left", () => {
+    const set = [idle("a"), idle("b"), idle("c")];
+    expect(
+      winner(allocatePrinter(request({ rules: [prefer(["a", "b"]), prefer(["b", "c"])] }), set)),
+    ).toBe("b");
+    // the earlier rule wins a conflict; the later one cannot widen the pool again
+    expect(winner(allocatePrinter(request({ rules: [prefer(["c"]), prefer(["a"])] }), set))).toBe(
+      "c",
+    );
+    // a rule with no eligible member is skipped and the next one still applies
+    expect(winner(allocatePrinter(request({ rules: [prefer(["zzz"]), prefer(["c"])] }), set))).toBe(
+      "c",
+    );
+  });
+
+  it("conditions scope a rule to matching jobs only (colour, sides, size, paper type, page range)", () => {
+    const set = [idle("a", { queuedPages: 0 }), idle("b", { queuedPages: 4 })];
+    const colorRule = [prefer(["b"], { color: "COLOR" })];
+    expect(winner(allocatePrinter(request({ rules: colorRule }), set))).toBe("a");
+    expect(
+      winner(
+        allocatePrinter(
+          request({ printConfiguration: config({ color: "COLOR" }), rules: colorRule }),
+          set,
+        ),
+      ),
+    ).toBe("b");
+    const big = [prefer(["b"], { minPages: 10 })];
+    expect(winner(allocatePrinter(request({ pageCount: 9, rules: big }), set))).toBe("a");
+    expect(winner(allocatePrinter(request({ pageCount: 10, rules: big }), set))).toBe("b");
+    const small = [prefer(["b"], { maxPages: 3 })];
+    expect(winner(allocatePrinter(request({ pageCount: 3, rules: small }), set))).toBe("b");
+    expect(winner(allocatePrinter(request({ pageCount: 4, rules: small }), set))).toBe("a");
+    const a3 = [prefer(["b"], { paperSize: "A3", sides: "DOUBLE", paperType: "PHOTO" })];
+    const exact = config({ paperSize: "A3", sides: "DOUBLE", paperType: "PHOTO" });
+    expect(winner(allocatePrinter(request({ printConfiguration: exact, rules: a3 }), set))).toBe(
+      "b",
+    );
+    expect(
+      winner(
+        allocatePrinter(
+          request({ printConfiguration: { ...exact, paperType: "STANDARD" }, rules: a3 }),
+          set,
+        ),
+      ),
+    ).toBe("a");
+  });
+
+  it("is deterministic: the same input always gives the same printer, whatever the input order", () => {
+    const set = [
+      idle("d", { queuedPages: 2 }),
+      idle("a", { queuedPages: 2 }),
+      idle("c", { queuedPages: 2 }),
+      idle("b", { queuedPages: 2 }),
+    ];
+    const rules = [prefer(["b", "c", "d"])];
+    const first = winner(allocatePrinter(request({ rules }), set));
+    for (const shuffled of [[...set].reverse(), [set[2]!, set[0]!, set[3]!, set[1]!]]) {
+      expect(winner(allocatePrinter(request({ rules }), shuffled))).toBe(first);
+    }
+  });
+
+  it("a manually named printer ignores rules entirely (PRD 20/122)", () => {
+    const set = [idle("a"), idle("b")];
+    const result = allocatePrinter(
+      request({
+        requestedPrinterId: "a",
+        allowUnknownCapabilities: true,
+        rules: [avoid(["a"]), prefer(["b"])],
+      }),
+      set,
+    );
+    expect(result).toEqual({ outcome: "ALLOCATED", printerId: "a" });
   });
 });

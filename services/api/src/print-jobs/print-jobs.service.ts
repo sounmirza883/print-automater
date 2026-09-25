@@ -518,6 +518,7 @@ export class PrintJobsService {
       pagesPerCopy: jp.pagesPerCopy,
       allowUnknownCapabilities: requestedPrinterId !== undefined,
       requestedPrinterId,
+      rules: built.rules,
     };
     // The paper gate is an automatic-path check; naming a printer overrides it.
     const candidates =

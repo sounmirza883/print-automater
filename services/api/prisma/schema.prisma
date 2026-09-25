@@ -157,6 +157,7 @@ model Shop {
   suppliers          Supplier[]
   purchaseOrders     PurchaseOrder[]
   settings           ShopSettings?
+  printerRules       PrinterAutomationRule[]
 
   @@map("shops")
 }
@@ -1380,4 +1381,35 @@ model ShopSettings {
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("shop_settings")
+}
+
+enum PrinterRuleAction {
+  PREFER
+  AVOID
+}
+
+// 22.3 (PRD 77): a shop's ordered printer-automation rules. Data, not code: they feed
+// the pure allocatePrinter as an ADDITIONAL preference layer over the printers that
+// already passed every hard filter (status, capability, paper, page limit), so a
+// rule can never override one of those, and an empty rule set is today's behaviour
+// exactly. Only ENABLED rules are read, in (position, id) order. `printer_ids` is a
+// plain array with no FK on purpose: a deleted printer just stops matching. Rules are
+// consulted only when a job is allocated, so editing one never moves an existing job.
+model PrinterAutomationRule {
+  id         String            @id @default(uuid())
+  shopId     String            @map("shop_id")
+  position   Int
+  name       String
+  enabled    Boolean           @default(true)
+  action     PrinterRuleAction
+  printerIds String[]          @map("printer_ids")
+  conditions Json              @default("{}")
+  version    Int               @default(0)
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, position])
+  @@map("printer_automation_rules")
 }

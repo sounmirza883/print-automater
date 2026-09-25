@@ -155,14 +155,15 @@ export async function reallocateWaitingJobs(
           documentId: job.orderItem.documentId,
         }),
       );
+      // Rebuilt per job: each allocation changes queue load for the next one.
+      const built = await buildPrinterCandidates(prisma, job.shopId, now);
       const request = {
         printConfiguration: config,
         pageCount: jp.total,
         pagesPerCopy: jp.pagesPerCopy,
         allowUnknownCapabilities: false,
+        rules: built.rules,
       };
-      // Rebuilt per job: each allocation changes queue load for the next one.
-      const built = await buildPrinterCandidates(prisma, job.shopId, now);
       const { deviceIdsByPrinterId } = built;
       const need = paperNeedFor(config, jp);
       const candidates = await withPaperAvailability(prisma, job.shopId, built.candidates, need);

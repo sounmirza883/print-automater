@@ -177,3 +177,17 @@ export {
   type OperatingHours,
   type UpdateShopSettingsInput,
 } from "./shop-settings/index.js";
+export {
+  MAX_PRINTER_RULES_PER_SHOP,
+  PRINTER_RULE_ACTIONS,
+  createPrinterRuleSchema,
+  listPrinterRulesQuerySchema,
+  printerRuleConditionsSchema,
+  reorderPrinterRulesSchema,
+  updatePrinterRuleSchema,
+  type CreatePrinterRuleInput,
+  type ListPrinterRulesQueryInput,
+  type PrinterRuleConditionsInput,
+  type ReorderPrinterRulesInput,
+  type UpdatePrinterRuleInput,
+} from "./printer-rules/index.js";

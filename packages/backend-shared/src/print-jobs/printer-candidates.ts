@@ -1,6 +1,10 @@
 import { PrintJobStatus, type Prisma } from "@prisma/client";
 import { periodStart } from "../printers/page-limit-period.js";
-import type { PrinterCandidate } from "./allocate-printer.js";
+import type {
+  AllocationRule,
+  AllocationRuleConditions,
+  PrinterCandidate,
+} from "./allocate-printer.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
 import { readShopAutomation, type ShopAutomation } from "../settings/shop-automation.js";
@@ -13,6 +17,38 @@ export interface PrinterCandidateSet {
   /** 22.2: the shop's automation switches, read in the same transaction as the
    * candidates so one allocation decision sees one consistent snapshot. */
   automation: ShopAutomation;
+  /** 22.3: the shop's ENABLED printer-automation rules, in order. Callers put this
+   * on the AllocationRequest of an AUTOMATIC allocation; empty = today's behaviour. */
+  rules: AllocationRule[];
+}
+
+const CONDITION_STRINGS = ["paperSize", "color", "sides", "paperType"] as const;
+const CONDITION_NUMBERS = ["minPages", "maxPages"] as const;
+
+/** Reads a stored rule defensively: the API validates on write, but a hand-edited
+ * row must degrade to "condition ignored", never throw inside allocation. */
+export function toAllocationRule(row: {
+  action: string;
+  printerIds: string[];
+  conditions: unknown;
+}): AllocationRule {
+  const raw = (row.conditions ?? {}) as Record<string, unknown>;
+  const conditions: AllocationRuleConditions = {};
+  for (const key of CONDITION_STRINGS) {
+    if (typeof raw[key] === "string") {
+      conditions[key] = raw[key] as string;
+    }
+  }
+  for (const key of CONDITION_NUMBERS) {
+    if (typeof raw[key] === "number") {
+      conditions[key] = raw[key] as number;
+    }
+  }
+  return {
+    action: row.action === "AVOID" ? "AVOID" : "PREFER",
+    printerIds: row.printerIds,
+    conditions,
+  };
 }
 
 /** 19.2/19.4. Builds allocation candidates for every printer in a shop from
@@ -105,6 +141,12 @@ export async function buildPrinterCandidates(
     usage.set(printer.id, row?.pagesUsed ?? 0);
   }
 
+  const ruleRows = await tx.printerAutomationRule.findMany({
+    where: { shopId, enabled: true },
+    orderBy: [{ position: "asc" }, { id: "asc" }],
+    select: { action: true, printerIds: true, conditions: true },
+  });
+
   const candidates: PrinterCandidate[] = printers.map((printer) => ({
     id: printer.id,
     status: printer.status,
@@ -120,5 +162,5 @@ export async function buildPrinterCandidates(
       ? Math.max(0, printer.pageLimit! - usage.get(printer.id)!)
       : null,
   }));
-  return { candidates, deviceIdsByPrinterId, automation };
+  return { candidates, deviceIdsByPrinterId, automation, rules: ruleRows.map(toAllocationRule) };
 }

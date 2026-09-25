@@ -80,6 +80,8 @@ export {
   allocatePrinter,
   type AllocationRequest,
   type AllocationResult,
+  type AllocationRule,
+  type AllocationRuleConditions,
   type PrinterCandidate,
 } from "./print-jobs/allocate-printer.js";
 

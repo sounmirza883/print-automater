@@ -162,6 +162,7 @@ export async function reevaluatePrinterJobs(
               pagesPerCopy: jp.pagesPerCopy,
               allowUnknownCapabilities: false,
               excludePrinterIds: [input.printerId],
+              rules: built.rules,
             },
             candidates,
           );

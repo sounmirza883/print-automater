@@ -565,7 +565,7 @@ export class ShopOrdersService {
       })),
     );
 
-    const { candidates, deviceIdsByPrinterId, automation } = await buildPrinterCandidates(
+    const { candidates, deviceIdsByPrinterId, automation, rules } = await buildPrinterCandidates(
       tx,
       freshOrder.shopId,
       new Date(),
@@ -618,6 +618,7 @@ export class ShopOrdersService {
               pagesPerCopy: jp.pagesPerCopy,
               allowUnknownCapabilities: requestedPrinterId !== undefined,
               requestedPrinterId,
+              rules,
             },
             allocationCandidates,
           );

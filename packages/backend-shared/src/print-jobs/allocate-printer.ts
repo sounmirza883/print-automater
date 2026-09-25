@@ -42,6 +42,28 @@ export interface PrinterCandidate {
   requiresManualApproval?: boolean;
 }
 
+/** 22.3 (PRD 77). When a rule applies to a job (every present condition matches):
+ * PREFER narrows the eligible pool to the listed printers, AVOID drops them. A rule
+ * only ever chooses AMONG printers that already passed every hard filter, and a
+ * rule that would leave the pool empty is skipped, so a rule can neither make an
+ * ineligible printer eligible nor block a job. Ordered: earlier rules narrow first. */
+export interface AllocationRule {
+  action: "PREFER" | "AVOID";
+  printerIds: readonly string[];
+  conditions: AllocationRuleConditions;
+}
+
+/** Every field optional; a rule with no conditions applies to every job. `minPages` /
+ * `maxPages` compare the job's total pages (`AllocationRequest.pageCount`). */
+export interface AllocationRuleConditions {
+  paperSize?: string;
+  color?: string;
+  sides?: string;
+  paperType?: string;
+  minPages?: number;
+  maxPages?: number;
+}
+
 export interface AllocationRequest {
   printConfiguration: PrintConfiguration;
   /** Pages this specific job would consume (`jobPages()`: pages x copies)
@@ -68,6 +90,10 @@ export interface AllocationRequest {
    * entirely -- including for the blocked reason and as a
    * `requestedPrinterId`. */
   excludePrinterIds?: readonly string[];
+  /** 22.3: ordered preference rules (already filtered to the enabled ones, in
+   * order). Ignored on the manual path (`requestedPrinterId`). Absent or empty =
+   * today's behaviour exactly. */
+  rules?: readonly AllocationRule[];
 }
 
 export type AllocationResult =
@@ -213,6 +239,42 @@ function mostActionableReason(reasons: readonly BlockedReason[]): BlockedReason 
   return [...reasons].sort((a, b) => rank(a) - rank(b))[0];
 }
 
+function ruleApplies(rule: AllocationRule, request: AllocationRequest): boolean {
+  const c = rule.conditions;
+  const config = request.printConfiguration;
+  return (
+    (c.paperSize === undefined || c.paperSize === config.paperSize) &&
+    (c.color === undefined || c.color === config.color) &&
+    (c.sides === undefined || c.sides === config.sides) &&
+    (c.paperType === undefined || c.paperType === (config.paperType ?? "STANDARD")) &&
+    (c.minPages === undefined || request.pageCount >= c.minPages) &&
+    (c.maxPages === undefined || request.pageCount <= c.maxPages)
+  );
+}
+
+/** 22.3: the additional preference layer, applied AFTER the hard eligibility filters
+ * (the input is the already-eligible set), before the deterministic tie-break. */
+function applyRules(
+  eligible: readonly PrinterCandidate[],
+  request: AllocationRequest,
+): readonly PrinterCandidate[] {
+  let pool = eligible;
+  for (const rule of request.rules ?? []) {
+    if (!ruleApplies(rule, request)) {
+      continue;
+    }
+    const listed = new Set(rule.printerIds);
+    const next =
+      rule.action === "PREFER"
+        ? pool.filter((c) => listed.has(c.id))
+        : pool.filter((c) => !listed.has(c.id));
+    if (next.length > 0) {
+      pool = next;
+    }
+  }
+  return pool;
+}
+
 export function allocatePrinter(
   request: AllocationRequest,
   allCandidates: readonly PrinterCandidate[],
@@ -244,7 +306,7 @@ export function allocatePrinter(
     };
   }
 
-  const [winner] = [...eligible].sort((a, b) => {
+  const [winner] = [...applyRules(eligible, request)].sort((a, b) => {
     if (a.queuedPages !== b.queuedPages) return a.queuedPages - b.queuedPages;
     if (a.queuedJobs !== b.queuedJobs) return a.queuedJobs - b.queuedJobs;
     if (a.registeredAt !== b.registeredAt) return a.registeredAt - b.registeredAt;

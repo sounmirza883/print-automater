@@ -67,6 +67,11 @@ export const AuditAction = {
   // 75/76/22.1: any change to a shop's settings (metadata: before/after of the
   // changed keys, versions). Printer automation rules (22.3) have their own actions.
   SHOP_SETTINGS_CHANGED: "SHOP_SETTINGS_CHANGED",
+  // 77/22.3: printer automation rules (metadata: before/after, versions).
+  PRINTER_RULE_CREATED: "PRINTER_RULE_CREATED",
+  PRINTER_RULE_UPDATED: "PRINTER_RULE_UPDATED",
+  PRINTER_RULE_DELETED: "PRINTER_RULE_DELETED",
+  PRINTER_RULES_REORDERED: "PRINTER_RULES_REORDERED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
