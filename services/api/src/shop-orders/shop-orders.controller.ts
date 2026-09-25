@@ -26,6 +26,7 @@ import type { OrderResponse } from "../orders/orders.service.js";
 import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
+import { QualityCheckDto } from "./dto/quality-check.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
 import { ResolveUnknownPrintDto } from "./dto/resolve-unknown-print.dto.js";
 import { OrderShopResolver } from "./order-shop.resolver.js";
@@ -173,6 +174,22 @@ export class ShopOrdersController {
   @ShopScoped("id", OrderShopResolver)
   markReady(@Req() req: RequestWithUser, @Param("id") id: string): Promise<ShopOrderResponse> {
     return this.shopOrdersService.markReady(id, req.user!.id);
+  }
+
+  /** 21.3 (§68/69): the quality-check verdict on an order waiting in
+   * QUALITY_CHECK. QUALITY_CHECK is its own permission (data in ROLE_PERMISSIONS):
+   * operators and above, not the front counter. */
+  @Post(":id/quality-check")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.QUALITY_CHECK)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  qualityCheck(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: QualityCheckDto,
+  ): Promise<ShopOrderResponse> {
+    return this.shopOrdersService.recordQualityCheck(id, req.user!.id, dto);
   }
 
   @Post(":id/complete")

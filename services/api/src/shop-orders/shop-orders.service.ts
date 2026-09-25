@@ -15,9 +15,14 @@ import {
   Prisma,
   PrintJobStatus,
 } from "@prisma/client";
-import type { PrintConfiguration, ShopRejectionReason } from "@print-automated/types";
+import {
+  QualityCheckStatus,
+  type PrintConfiguration,
+  type ShopRejectionReason,
+} from "@print-automated/types";
 import type {
   CreateCounterOrderInput,
+  QualityCheckInput,
   ResolveUnknownPrintInput,
 } from "@print-automated/validation";
 import {
@@ -110,6 +115,8 @@ export interface ShopOrderResponse {
   // `printJobs` below.
   printerName: string | null;
   printJobs: ShopOrderJobSummary[];
+  // 21.3 (§68): NOT_REQUIRED unless the shop runs quality checks.
+  qualityCheckStatus: string | null;
 }
 
 export interface ShopOrdersGrouped {
@@ -430,7 +437,8 @@ export class ShopOrdersService {
         paymentStatus: true,
         documentId: true,
         printConfiguration: true,
-        shop: { select: { multiItemEnabled: true } },
+        qualityCheckStatus: true,
+        shop: { select: { multiItemEnabled: true, qualityCheckEnabled: true } },
       },
     });
 
@@ -455,6 +463,8 @@ export class ShopOrdersService {
         true,
       );
     }
+
+    await this.syncQualityCheckStatus(tx, orderId, freshOrder);
 
     let items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { sequence: "asc" } });
     if (items.length === 0) {
@@ -594,6 +604,31 @@ export class ShopOrdersService {
     }
 
     return { notifyDeviceIds: [...notifyDeviceIds] };
+  }
+
+  /** 21.3 (§68): new production work on an order needs a (fresh) quality check
+   * when the shop runs them. Flag ON: anything but PENDING becomes PENDING (a
+   * retry after a failed check, a reprint). Flag OFF: only a stale PENDING/FAILED
+   * (the shop turned QC off mid-flight) is released back to NOT_REQUIRED, so an
+   * order that was never QC'd is never written: byte-identical to before 21.3.
+   * Writes qualityCheckStatus only, never order_status. */
+  private async syncQualityCheckStatus(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    order: { qualityCheckStatus: string | null; shop: { qualityCheckEnabled: boolean } },
+  ): Promise<void> {
+    const current = order.qualityCheckStatus ?? QualityCheckStatus.NOT_REQUIRED;
+    let next: string | null = null;
+    if (order.shop.qualityCheckEnabled) {
+      if (current !== QualityCheckStatus.PENDING) {
+        next = QualityCheckStatus.PENDING;
+      }
+    } else if (current === QualityCheckStatus.PENDING || current === QualityCheckStatus.FAILED) {
+      next = QualityCheckStatus.NOT_REQUIRED;
+    }
+    if (next !== null) {
+      await tx.order.update({ where: { id: orderId }, data: { qualityCheckStatus: next } });
+    }
   }
 
   /** Preserves the exact pre-18.5 error contract for
@@ -1009,8 +1044,109 @@ export class ShopOrdersService {
   }
 
   async markReady(orderId: string, actorId: string): Promise<ShopOrderResponse> {
+    // 21.3 (§69): with quality checking on, the check must be completed before
+    // the order can be released. The order waits in QUALITY_CHECK (MARK_READY is
+    // not legal there) and this names the reason instead of a bare illegal-
+    // transition; the state machine stays the authority.
+    const current = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { orderStatus: true, qualityCheckStatus: true },
+    });
+    if (
+      current?.orderStatus === OrderStatus.QUALITY_CHECK ||
+      (current?.orderStatus === OrderStatus.PRINTED &&
+        current.qualityCheckStatus === QualityCheckStatus.PENDING)
+    ) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "QUALITY_CHECK_REQUIRED",
+        "This order must pass its quality check before it can be marked ready.",
+        false,
+      );
+    }
     await this.orderStateMachine.transition(orderId, OrderEvent.MARK_READY, { id: actorId });
     return this.getOrder(orderId);
+  }
+
+  /** 21.3 (§68/69): the verdict on an order waiting in QUALITY_CHECK, through
+   * the order machine's own QC_PASS / QC_FAIL / QC_REPRINT events (legal only
+   * from QUALITY_CHECK, and serialised by its orders-row lock, so two concurrent
+   * verdicts yield one winner and a clean 409). The recorded qualityCheckStatus
+   * changes in the same transaction as the transition, so aggregateOrderStatus
+   * (which reads it) agrees with the order from then on.
+   *
+   * NEEDS_REPRINT creates NEW jobs for the named (default: all) printed jobs'
+   * items through the normal allocation path (dispatchToPrinter: new attempt,
+   * new idempotency token), leaving the originals PRINTED and unsuperseded. */
+  async recordQualityCheck(
+    orderId: string,
+    actorId: string,
+    input: QualityCheckInput,
+  ): Promise<ShopOrderResponse> {
+    const metadata = { ...(input.note ? { note: input.note } : {}) };
+    if (input.result === "PASSED" || input.result === "FAILED") {
+      const passed = input.result === "PASSED";
+      await this.orderStateMachine.transition(
+        orderId,
+        passed ? OrderEvent.QC_PASS : OrderEvent.QC_FAIL,
+        { id: actorId },
+        {
+          metadata,
+          sideEffect: async (tx) => {
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                qualityCheckStatus: passed ? QualityCheckStatus.PASSED : QualityCheckStatus.FAILED,
+              },
+            });
+          },
+        },
+      );
+      return this.getOrder(orderId);
+    }
+
+    let notifyDeviceIds: string[] = [];
+    await this.orderStateMachine.transition(
+      orderId,
+      OrderEvent.QC_REPRINT,
+      { id: actorId },
+      {
+        metadata: { ...metadata, ...(input.jobIds ? { jobIds: input.jobIds } : {}) },
+        sideEffect: async (tx) => {
+          const itemIds = await this.qualityCheckReprintItems(tx, orderId, input.jobIds);
+          notifyDeviceIds = (await this.dispatchToPrinter(tx, orderId, undefined, itemIds))
+            .notifyDeviceIds;
+        },
+      },
+    );
+    await this.notifyDevices(notifyDeviceIds);
+    return this.getOrder(orderId);
+  }
+
+  /** The order items a NEEDS_REPRINT verdict re-dispatches: the items of the
+   * named jobs, or of every current PRINTED job. Each named job must belong to
+   * this order and be a printed, unsuperseded job (a reprint of something that
+   * never printed is a retry, not a reprint). */
+  private async qualityCheckReprintItems(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    jobIds: string[] | undefined,
+  ): Promise<ReadonlySet<string>> {
+    const printed = await tx.printJob.findMany({
+      where: { orderId, supersededAt: null, status: PrintJobStatus.PRINTED },
+      select: { id: true, orderItemId: true },
+    });
+    const chosen = jobIds ? printed.filter((job) => jobIds.includes(job.id)) : printed;
+    const itemIds = chosen.map((job) => job.orderItemId).filter((id): id is string => id !== null);
+    if (itemIds.length === 0 || (jobIds && chosen.length !== new Set(jobIds).size)) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "REPRINT_JOB_INVALID",
+        "Every job to reprint must be a printed job of this order.",
+        false,
+      );
+    }
+    return new Set(itemIds);
   }
 
   async completeOrder(orderId: string, actorId: string): Promise<ShopOrderResponse> {
@@ -1031,6 +1167,7 @@ export class ShopOrdersService {
       orderStatus: order.orderStatus,
       createdAt: order.createdAt,
       printerName: order.printJobs[0]?.printer?.name ?? null,
+      qualityCheckStatus: order.qualityCheckStatus,
       printJobs: order.printJobs.map((job) => ({
         id: job.id,
         status: job.status,

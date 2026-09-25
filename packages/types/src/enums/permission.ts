@@ -14,6 +14,8 @@ export const Permission = {
   PAUSE_JOBS: "PAUSE_JOBS",
   /** 21.2 (§66): pick the failure reason on a failed job. */
   RECORD_JOB_FAILURE: "RECORD_JOB_FAILURE",
+  /** 21.3 (§68): record a quality-check verdict (passed / failed / needs reprint). */
+  QUALITY_CHECK: "QUALITY_CHECK",
   /** 20.2: read stock and movements (operators need to see paper stock;
    * counter staff do not). MANAGE_INVENTORY (change stock) implies it by
    * being granted alongside it in ROLE_PERMISSIONS. */

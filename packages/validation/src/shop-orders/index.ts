@@ -2,6 +2,11 @@ export {
   listShopOrdersQuerySchema,
   type ListShopOrdersQueryInput,
 } from "./list-shop-orders-query.schema.js";
+export {
+  QUALITY_CHECK_RESULTS,
+  qualityCheckSchema,
+  type QualityCheckInput,
+} from "./quality-check.schema.js";
 export { rejectOrderSchema, type RejectOrderInput } from "./reject-order.schema.js";
 export { changePrinterSchema, type ChangePrinterInput } from "./change-printer.schema.js";
 export {

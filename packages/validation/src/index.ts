@@ -27,6 +27,9 @@ export {
   type ChangePrinterInput,
   createCounterOrderSchema,
   type CreateCounterOrderInput,
+  QUALITY_CHECK_RESULTS,
+  qualityCheckSchema,
+  type QualityCheckInput,
 } from "./shop-orders/index.js";
 export {
   printerCapabilitiesSchema,
