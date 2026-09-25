@@ -124,3 +124,15 @@ export {
   inventorySummaryQuerySchema,
   type InventorySummaryQueryInput,
 } from "./inventory/index.js";
+export {
+  createSupplierSchema,
+  type CreateSupplierInput,
+  updateSupplierSchema,
+  type UpdateSupplierInput,
+  listSuppliersQuerySchema,
+  type ListSuppliersQueryInput,
+  linkSupplierProductSchema,
+  type LinkSupplierProductInput,
+  updateSupplierProductSchema,
+  type UpdateSupplierProductInput,
+} from "./suppliers/index.js";

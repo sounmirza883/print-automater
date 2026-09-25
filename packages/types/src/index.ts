@@ -18,6 +18,7 @@ export {
   JobPriority,
   InventoryMovementType,
   InventoryAlertStatus,
+  SupplierStatus,
 } from "./enums/index.js";
 export type { PageSelection, PrintConfiguration } from "./print-configuration.js";
 export type { ApiError } from "./api-error.js";

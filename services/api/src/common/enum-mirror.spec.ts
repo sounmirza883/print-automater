@@ -1,5 +1,6 @@
 import {
   InventoryAlertStatus as PrismaInventoryAlertStatus,
+  SupplierStatus as PrismaSupplierStatus,
   InventoryMovementType as PrismaInventoryMovementType,
   OrderStatus as PrismaOrderStatus,
   PaymentStatus as PrismaPaymentStatus,
@@ -10,6 +11,7 @@ import {
 } from "@prisma/client";
 import {
   InventoryAlertStatus,
+  SupplierStatus,
   InventoryMovementType,
   OrderStatus,
   PaymentStatus,
@@ -37,6 +39,7 @@ const MIRRORS: Array<[string, Record<string, string>, Record<string, string>]> =
   ["UserRole", PrismaUserRole, UserRole],
   ["InventoryMovementType", PrismaInventoryMovementType, InventoryMovementType],
   ["InventoryAlertStatus", PrismaInventoryAlertStatus, InventoryAlertStatus],
+  ["SupplierStatus", PrismaSupplierStatus, SupplierStatus],
 ];
 
 describe("packages/types enums mirror the Prisma enums exactly", () => {

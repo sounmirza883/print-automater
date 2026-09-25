@@ -150,6 +150,7 @@ model Shop {
   inventoryItems    InventoryItem[]
   inventoryMovements InventoryMovement[]
   inventoryAlerts    InventoryAlert[]
+  suppliers          Supplier[]
 
   @@map("shops")
 }
@@ -1061,7 +1062,9 @@ model InventoryItem {
   shop      Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
   movements InventoryMovement[]
   alerts    InventoryAlert[]
+  supplierProducts SupplierProduct[]
 
+  @@unique([id, shopId])
   @@unique([shopId, sku])
   @@index([shopId])
   @@index([shopId, paperSize])
@@ -1120,4 +1123,56 @@ model InventoryAlert {
   @@index([shopId, status, createdAt])
   @@index([inventoryItemId, status])
   @@map("inventory_alerts")
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// 20.6/§29: a shop's supplier. Deactivated (status), never deleted.
+model Supplier {
+  id           String         @id @default(uuid())
+  shopId       String         @map("shop_id")
+  name         String
+  contactName  String?        @map("contact_name")
+  email        String?
+  phone        String?
+  address      String?
+  paymentTerms String?        @map("payment_terms")
+  status       SupplierStatus @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  shop     Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  products SupplierProduct[]
+
+  @@unique([id, shopId])
+  @@index([shopId])
+  @@map("suppliers")
+}
+
+// 20.6/§30: many-to-many between suppliers and inventory items, with the
+// supplier's own SKU/price/lead time. Composite FKs on (id, shop_id) make a
+// cross-shop link impossible at the database level.
+model SupplierProduct {
+  id              String   @id @default(uuid())
+  shopId          String   @map("shop_id")
+  supplierId      String   @map("supplier_id")
+  inventoryItemId String   @map("inventory_item_id")
+  supplierSku     String?  @map("supplier_sku")
+  unitPriceMinor  Int?     @map("unit_price_minor")
+  leadTimeDays    Int?     @map("lead_time_days")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  supplier Supplier      @relation(fields: [supplierId, shopId], references: [id, shopId], onDelete: Cascade, map: "supplier_products_supplier_shop_fkey")
+  item     InventoryItem @relation(fields: [inventoryItemId, shopId], references: [id, shopId], onDelete: Cascade, map: "supplier_products_item_shop_fkey")
+
+  @@unique([supplierId, inventoryItemId])
+  @@index([shopId])
+  @@index([inventoryItemId])
+  @@map("supplier_products")
 }
