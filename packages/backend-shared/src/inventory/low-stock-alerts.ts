@@ -19,6 +19,9 @@ export interface LowStockSyncResult {
  *  - resolve: symmetric `UPDATE .. SET low_stock_alerted_at = NULL WHERE
  *    alerted AND NOT low RETURNING`, then the OPEN alerts of exactly those items
  *    are RESOLVED. A later drop re-latches and raises a NEW alert.
+ * The per-shop alerts toggle (22.2) is read in the same statement that picks the
+ * candidates, without a lock: a toggle write racing a tick is simply ordered before
+ * or after it, and the next tick honours the committed value.
  * A stock write racing this sweep is fine either way: the next tick sees the
  * committed quantity. Pure of Nest/Redis; the worker schedules it. */
 export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStockSyncResult> {
@@ -66,6 +69,13 @@ export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStoc
         FROM inventory_items AS i
         JOIN shops AS s ON s.id = i.shop_id
         WHERE s.inventory_tracking_enabled
+          -- 22.2 (PRD 76): the shop can switch automatic inventory alerts off. That
+          -- stops NEW alerts only; an open alert still resolves when stock recovers.
+          -- (No shop_settings row = default on; the migration guarantees a row.)
+          AND NOT EXISTS (
+            SELECT 1 FROM shop_settings ss
+            WHERE ss.shop_id = i.shop_id AND NOT ss.inventory_alerts_enabled
+          )
           AND i.active
           AND i.min_quantity > 0
           AND i.quantity <= i.min_quantity

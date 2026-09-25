@@ -10,6 +10,7 @@ import { logJobPagesFallback } from "./job-pages-log.js";
 import { paperNeedFor, withPaperAvailability } from "../inventory/paper-availability.js";
 import { PrintJobEvent, type PrintJobStateMachine } from "./print-job-state-machine.js";
 import { buildPrinterCandidates } from "./printer-candidates.js";
+import { readShopAutomationLocked } from "../settings/shop-automation.js";
 
 /** Why a printer stopped being suitable. Recorded on every automatic move
  * (PRD 80/122: every automated decision is traceable). */
@@ -147,16 +148,23 @@ export async function reevaluatePrinterJobs(
         }
       }
 
-      const allocation = allocatePrinter(
-        {
-          printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
-          pageCount: pages,
-          pagesPerCopy: jp.pagesPerCopy,
-          allowUnknownCapabilities: false,
-          excludePrinterIds: [input.printerId],
-        },
-        candidates,
-      );
+      // 22.2 (PRD 76/122): picking another printer IS automatic printer assignment.
+      // With it switched off, failover still takes the job off the unsuitable printer
+      // (it must not sit queued on it) but parks it visibly for staff instead of
+      // choosing a new printer.
+      const assignmentOff = !built.automation.autoPrinterAssignment;
+      const allocation: ReturnType<typeof allocatePrinter> = assignmentOff
+        ? { outcome: "BLOCKED", blockedReason: BlockedReason.AUTOMATION_DISABLED }
+        : allocatePrinter(
+            {
+              printConfiguration: job.orderItem.printConfiguration as unknown as PrintConfiguration,
+              pageCount: pages,
+              pagesPerCopy: jp.pagesPerCopy,
+              allowUnknownCapabilities: false,
+              excludePrinterIds: [input.printerId],
+            },
+            candidates,
+          );
 
       const guard = async (
         _tx: Prisma.TransactionClient,
@@ -216,6 +224,18 @@ export async function reevaluatePrinterJobs(
             locked: { status: PrintJobStatus; printerId: string | null },
           ): Promise<void> => {
             await guard(tx, locked);
+            // 22.2: assignment switched off since the candidate read? Re-read under
+            // the locks and park the job instead of handing it to a printer.
+            const automation = await readShopAutomationLocked(tx, input.shopId);
+            if (!automation.autoPrinterAssignment) {
+              staleReason = BlockedReason.AUTOMATION_DISABLED;
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "FAILOVER_TARGET_STALE",
+                "Automatic printer assignment was switched off.",
+                false,
+              );
+            }
             await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
             const fresh = await buildPrinterCandidates(tx, input.shopId, now);
             const freshCandidates = await withPaperAvailability(
@@ -280,7 +300,11 @@ export async function reevaluatePrinterJobs(
           // printer is offline, or at its page limit) is more actionable.
           const others = candidates.filter((c) => c.id !== input.printerId);
           await unallocate(
-            others.length === 0 ? TRIGGER_BLOCKED_REASON[input.trigger] : allocation.blockedReason,
+            assignmentOff
+              ? BlockedReason.AUTOMATION_DISABLED
+              : others.length === 0
+                ? TRIGGER_BLOCKED_REASON[input.trigger]
+                : allocation.blockedReason,
           );
         }
       } catch (error) {

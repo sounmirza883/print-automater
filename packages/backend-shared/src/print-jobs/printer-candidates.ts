@@ -3,12 +3,16 @@ import { periodStart } from "../printers/page-limit-period.js";
 import type { PrinterCandidate } from "./allocate-printer.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
+import { readShopAutomation, type ShopAutomation } from "../settings/shop-automation.js";
 
 export interface PrinterCandidateSet {
   candidates: PrinterCandidate[];
   /** printerId -> owning agent's deviceId (PrinterCandidate stays pure and
    * carries no device concept). */
   deviceIdsByPrinterId: Map<string, string>;
+  /** 22.2: the shop's automation switches, read in the same transaction as the
+   * candidates so one allocation decision sees one consistent snapshot. */
+  automation: ShopAutomation;
 }
 
 /** 19.2/19.4. Builds allocation candidates for every printer in a shop from
@@ -80,7 +84,13 @@ export async function buildPrinterCandidates(
     load.set(job.printerId!, entry);
   }
 
-  const limited = printers.filter((p) => p.pageLimitEnabled && p.pageLimit !== null);
+  // 22.2: the page-limit toggle switches ENFORCEMENT off (no allowance is passed to
+  // the allocator, so nothing is ever excluded for it); usage keeps being accrued
+  // elsewhere, so switching it back on has accurate data.
+  const automation = await readShopAutomation(tx, shopId);
+  const limited = automation.pageLimitEnforcement
+    ? printers.filter((p) => p.pageLimitEnabled && p.pageLimit !== null)
+    : [];
   const usage = new Map<string, number>();
   for (const printer of limited) {
     const row = await tx.printerPageUsage.findUnique({
@@ -110,5 +120,5 @@ export async function buildPrinterCandidates(
       ? Math.max(0, printer.pageLimit! - usage.get(printer.id)!)
       : null,
   }));
-  return { candidates, deviceIdsByPrinterId };
+  return { candidates, deviceIdsByPrinterId, automation };
 }

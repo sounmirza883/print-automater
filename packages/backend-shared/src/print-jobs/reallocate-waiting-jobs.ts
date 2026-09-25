@@ -10,6 +10,7 @@ import { logJobPagesFallback } from "./job-pages-log.js";
 import { paperNeedFor, withPaperAvailability } from "../inventory/paper-availability.js";
 import { PrintJobEvent, type PrintJobStateMachine } from "./print-job-state-machine.js";
 import { buildPrinterCandidates } from "./printer-candidates.js";
+import { readShopAutomationLocked } from "../settings/shop-automation.js";
 
 /** Blocked reasons that mean "no printer was AVAILABLE", so a printer coming
  * back (or a page-limit period rolling over) can resolve them on its own.
@@ -20,6 +21,9 @@ export const AVAILABILITY_BLOCKED_REASONS: readonly string[] = [
   BlockedReason.PRINTER_OFFLINE,
   BlockedReason.PRINTER_DISABLED,
   BlockedReason.PAGE_LIMIT_REACHED,
+  // 22.2: waiting only because automatic assignment was switched off; recoverable
+  // once it is back on.
+  BlockedReason.AUTOMATION_DISABLED,
 ];
 
 export interface ReallocationOutcome {
@@ -35,8 +39,9 @@ export interface ReallocationResult {
   notifyDeviceIds: string[];
 }
 
-/** 19.15 (PRD 25/122). Queue recovery: for shops that opted in
- * (`auto_failover_enabled`), give every WAITING, unallocated job whose blocked
+/** 19.15 (PRD 25/122), 22.2. Queue recovery: for shops that opted in
+ * (`auto_failover_enabled`) AND have automatic printer assignment and automatic
+ * queue management on (both default on; AUTOMATION_DISABLED jobs need only those two), give every WAITING, unallocated job whose blocked
  * reason is availability-type another chance at allocation. Nothing else
  * re-allocates a job that failover parked, so without this it stays WAITING
  * until staff act.
@@ -77,18 +82,34 @@ export async function reallocateWaitingJobs(
   const now = (deps.now ?? (() => new Date()))();
   const result: ReallocationResult = { outcomes: [], errors: [], notifyDeviceIds: [] };
 
-  // print_jobs carries a plain shop_id (no relation), so resolve the opted-in
-  // shops first: automation must never touch a shop that did not enable it.
-  const optedIn = await prisma.shop.findMany({
-    where: { autoFailoverEnabled: true, ...(input.shopId ? { id: input.shopId } : {}) },
-    select: { id: true },
+  // print_jobs carries a plain shop_id (no relation), so resolve the eligible shops
+  // first: automation must never touch a shop that did not enable it. 22.2: recovery
+  // is automatic printer assignment plus automatic queue management, so BOTH toggles
+  // must be on (defaults: on). Availability/paper recovery additionally needs the
+  // failover opt-in (19.15, unchanged); a job parked only because assignment was
+  // switched off (AUTOMATION_DISABLED) does not: switching assignment back on must
+  // clear that backlog even for a shop that never opted in to failover.
+  const shops = await prisma.shop.findMany({
+    where: {
+      ...(input.shopId ? { id: input.shopId } : {}),
+      OR: [
+        { settings: null },
+        {
+          settings: {
+            is: { autoQueueManagementEnabled: true, autoPrinterAssignmentEnabled: true },
+          },
+        },
+      ],
+    },
+    select: { id: true, autoFailoverEnabled: true },
   });
-  if (optedIn.length === 0) {
+  if (shops.length === 0) {
     return result;
   }
+  const failoverShops = new Set(shops.filter((s) => s.autoFailoverEnabled).map((s) => s.id));
   const jobs = await prisma.printJob.findMany({
     where: {
-      shopId: { in: optedIn.map((shop) => shop.id) },
+      shopId: { in: shops.map((shop) => shop.id) },
       status: PrintJobStatus.WAITING,
       printerId: null,
       supersededAt: null,
@@ -100,6 +121,7 @@ export async function reallocateWaitingJobs(
       id: true,
       orderId: true,
       shopId: true,
+      blockedReason: true,
       orderItem: {
         select: {
           documentId: true,
@@ -114,6 +136,12 @@ export async function reallocateWaitingJobs(
   for (const job of jobs) {
     try {
       if (!job.orderItem) {
+        continue;
+      }
+      if (
+        !failoverShops.has(job.shopId) &&
+        !(job.blockedReason === BlockedReason.AUTOMATION_DISABLED)
+      ) {
         continue;
       }
       const config = job.orderItem.printConfiguration as unknown as PrintConfiguration;
@@ -163,18 +191,22 @@ export async function reallocateWaitingJobs(
             false,
           );
         }
-        // 19.19 (PRD 122): the opt-in was read once, before the loop. A shop that
-        // turned the toggle off mid-tick must not be auto-allocated, so re-read it
-        // here under the locks (FOR SHARE: a concurrent toggle write waits for
-        // this commit or has already committed and is seen).
-        const optIn = await tx.$queryRaw<Array<{ enabled: boolean }>>`
-          SELECT auto_failover_enabled AS enabled FROM shops WHERE id = ${job.shopId} FOR SHARE
-        `;
-        if (optIn[0]?.enabled !== true) {
+        // 19.19/22.2 (PRD 122): the toggles were read before the loop. A shop that
+        // turned one off mid-tick must not be auto-allocated, so re-read them here
+        // under the locks (FOR SHARE on shops then shop_settings, the writer's order:
+        // a concurrent toggle write waits for this commit or has already committed
+        // and is seen).
+        const automation = await readShopAutomationLocked(tx, job.shopId);
+        const needsFailover = locked.blockedReason !== BlockedReason.AUTOMATION_DISABLED;
+        if (
+          !automation.autoQueueManagement ||
+          !automation.autoPrinterAssignment ||
+          (needsFailover && !automation.autoFailover)
+        ) {
           throw new AppException(
             HttpStatus.CONFLICT,
             "RECOVERY_OPTED_OUT",
-            "The shop no longer has automatic failover enabled.",
+            "Automatic recovery is switched off for this shop.",
             false,
           );
         }

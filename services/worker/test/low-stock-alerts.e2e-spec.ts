@@ -185,4 +185,38 @@ describe("Low-stock alert worker (20.5, e2e)", () => {
     const schedulers = await queue.getJobSchedulers();
     expect(schedulers.map((sc) => sc.key)).toContain("low-stock-alerts");
   });
+  it("22.2: automatic inventory alerts OFF raises nothing for that shop (others unaffected); ON raises them", async () => {
+    const off = await shop(true);
+    const on = await shop(true);
+    await prisma.shopSettings.update({
+      where: { shopId: off.id },
+      data: { inventoryAlertsEnabled: false },
+    });
+    const lowOff = await item(off.id, 1, 10);
+    const lowOn = await item(on.id, 1, 10);
+    await processor.process(fakeJob);
+    expect(await alertsOf(lowOff.id)).toHaveLength(0);
+    expect(await alertsOf(lowOn.id)).toHaveLength(1);
+
+    await prisma.shopSettings.update({
+      where: { shopId: off.id },
+      data: { inventoryAlertsEnabled: true },
+    });
+    await processor.process(fakeJob);
+    expect(await alertsOf(lowOff.id)).toHaveLength(1);
+  });
+
+  it("22.2: switching alerts off does not strand an open alert: it still resolves when stock recovers", async () => {
+    const s = await shop(true);
+    const low = await item(s.id, 1, 10);
+    await processor.process(fakeJob);
+    expect(await alertsOf(low.id)).toHaveLength(1);
+    await prisma.shopSettings.update({
+      where: { shopId: s.id },
+      data: { inventoryAlertsEnabled: false },
+    });
+    await prisma.inventoryItem.update({ where: { id: low.id }, data: { quantity: 500 } });
+    await processor.process(fakeJob);
+    expect((await alertsOf(low.id))[0]?.status).toBe("RESOLVED");
+  });
 });

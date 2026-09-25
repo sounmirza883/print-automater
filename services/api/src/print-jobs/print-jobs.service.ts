@@ -524,6 +524,11 @@ export class PrintJobsService {
       requestedPrinterId === undefined
         ? await withPaperAvailability(this.prisma, shopId, built.candidates, need)
         : built.candidates;
+    // 22.2: resume WITHOUT a named printer is automatic assignment; with it off the
+    // job waits visibly for staff. Resume naming a printer is manual and unaffected.
+    if (requestedPrinterId === undefined && !built.automation.autoPrinterAssignment) {
+      return { kind: "BLOCK", blockedReason: BlockedReason.AUTOMATION_DISABLED };
+    }
     const allocation = allocatePrinter(request, candidates);
     if (allocation.outcome === "ALLOCATED") {
       return {

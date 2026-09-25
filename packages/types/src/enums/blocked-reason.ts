@@ -11,6 +11,13 @@ export const BlockedReason = {
   NO_PAPER: "NO_PAPER",
   OPERATOR_UNAVAILABLE: "OPERATOR_UNAVAILABLE",
   MANUAL_APPROVAL_REQUIRED: "MANUAL_APPROVAL_REQUIRED",
+  /** 22.2 (PRD 76/122): the shop switched automatic printer assignment off, so this
+   * job waits for STAFF to assign a printer (manual assign/reassign/resume-with-a-
+   * printer all still work). Deliberately NOT MANUAL_APPROVAL_REQUIRED: that reason
+   * means "held by a late PRINTED report" (19.18) and forces an acknowledgement on
+   * resume; conflating them would make an ordinary waiting job demand that. It is
+   * recoverable: when assignment is switched back on, queue recovery picks it up. */
+  AUTOMATION_DISABLED: "AUTOMATION_DISABLED",
 } as const;
 
 export type BlockedReason = (typeof BlockedReason)[keyof typeof BlockedReason];

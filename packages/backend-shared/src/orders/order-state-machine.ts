@@ -14,6 +14,7 @@ import { AppException } from "../errors/app-exception.js";
 import { buildNotificationContent } from "../notifications/notification-content.js";
 import { QUEUE_NAMES } from "../queues/queue-names.js";
 import type { SendEmailJob } from "../queues/send-email.job.js";
+import { readShopAutomation } from "../settings/shop-automation.js";
 import { aggregateOrderStatus } from "./aggregate-order-status.js";
 
 /** Every event this machine accepts. Not shared with any client bundle
@@ -399,38 +400,48 @@ export class OrderStateMachine {
         : NOTIFICATION_TYPE_BY_EVENT[event];
 
     let pendingEmail: SendEmailJob | undefined;
-    if (notificationType) {
-      const recipient = await tx.user.findUniqueOrThrow({
-        where: { id: updatedOrder.customerId },
-        select: { email: true },
-      });
+    // 22.2 (PRD 76): the shop can switch automatic customer notifications off, or
+    // one channel of them. The order transition, its audit row and everything else
+    // are unaffected; only the notification rows (and the email they enqueue) are.
+    const automation = notificationType
+      ? await readShopAutomation(tx, updatedOrder.shopId)
+      : undefined;
+    if (notificationType && automation?.automaticNotifications) {
       const content = buildNotificationContent(notificationType, updatedOrder.publicOrderNumber);
 
-      await tx.notification.create({
-        data: {
-          userId: updatedOrder.customerId,
-          orderId,
-          type: notificationType,
-          channel: NotificationChannel.APP,
-          payload: content as unknown as Prisma.InputJsonValue,
-          sentAt: new Date(),
-        },
-      });
-      const emailNotification = await tx.notification.create({
-        data: {
-          userId: updatedOrder.customerId,
-          orderId,
-          type: notificationType,
-          channel: NotificationChannel.EMAIL,
-          payload: content as unknown as Prisma.InputJsonValue,
-        },
-      });
-      pendingEmail = {
-        to: recipient.email,
-        subject: content.subject,
-        text: content.text,
-        notificationId: emailNotification.id,
-      };
+      if (automation.notificationChannels.app) {
+        await tx.notification.create({
+          data: {
+            userId: updatedOrder.customerId,
+            orderId,
+            type: notificationType,
+            channel: NotificationChannel.APP,
+            payload: content as unknown as Prisma.InputJsonValue,
+            sentAt: new Date(),
+          },
+        });
+      }
+      if (automation.notificationChannels.email) {
+        const recipient = await tx.user.findUniqueOrThrow({
+          where: { id: updatedOrder.customerId },
+          select: { email: true },
+        });
+        const emailNotification = await tx.notification.create({
+          data: {
+            userId: updatedOrder.customerId,
+            orderId,
+            type: notificationType,
+            channel: NotificationChannel.EMAIL,
+            payload: content as unknown as Prisma.InputJsonValue,
+          },
+        });
+        pendingEmail = {
+          to: recipient.email,
+          subject: content.subject,
+          text: content.text,
+          notificationId: emailNotification.id,
+        };
+      }
     }
 
     if (ctx.sideEffect) {

@@ -16,6 +16,7 @@ import {
   PrintJobStatus,
 } from "@prisma/client";
 import {
+  BlockedReason,
   QualityCheckStatus,
   type PrintConfiguration,
   type ReprintReason,
@@ -564,11 +565,17 @@ export class ShopOrdersService {
       })),
     );
 
-    const { candidates, deviceIdsByPrinterId } = await buildPrinterCandidates(
+    const { candidates, deviceIdsByPrinterId, automation } = await buildPrinterCandidates(
       tx,
       freshOrder.shopId,
       new Date(),
     );
+    // 22.2 (PRD 76/122): naming a printer is manual and always honoured; picking
+    // one automatically only happens while automatic assignment is on. Off: the job
+    // is created WAITING (AUTOMATION_DISABLED) for staff to assign, in EVERY mode
+    // (even multiItemEnabled=false, where a blocked allocation used to be a 409):
+    // accepting an order must keep working with automation off.
+    const assignmentOff = requestedPrinterId === undefined && !automation.autoPrinterAssignment;
     const notifyDeviceIds = new Set<string>();
     const itemQuantity = new Map(items.map((item) => [item.id, item.quantity]));
 
@@ -602,16 +609,18 @@ export class ShopOrdersService {
               paperNeedFor(draft.printConfiguration, jp),
             )
           : candidates;
-      const allocation = allocatePrinter(
-        {
-          printConfiguration: draft.printConfiguration,
-          pageCount: pages,
-          pagesPerCopy: jp.pagesPerCopy,
-          allowUnknownCapabilities: requestedPrinterId !== undefined,
-          requestedPrinterId,
-        },
-        allocationCandidates,
-      );
+      const allocation: AllocationResult = assignmentOff
+        ? { outcome: "BLOCKED", blockedReason: BlockedReason.AUTOMATION_DISABLED }
+        : allocatePrinter(
+            {
+              printConfiguration: draft.printConfiguration,
+              pageCount: pages,
+              pagesPerCopy: jp.pagesPerCopy,
+              allowUnknownCapabilities: requestedPrinterId !== undefined,
+              requestedPrinterId,
+            },
+            allocationCandidates,
+          );
 
       if (allocation.outcome === "ALLOCATED") {
         const printer = candidates.find((c) => c.id === allocation.printerId);
@@ -638,7 +647,7 @@ export class ShopOrdersService {
             notifyDeviceIds.add(deviceId);
           }
         }
-      } else if (freshOrder.shop.multiItemEnabled) {
+      } else if (freshOrder.shop.multiItemEnabled || assignmentOff) {
         await tx.printJob.create({
           data: {
             orderId,
