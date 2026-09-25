@@ -258,6 +258,111 @@ describe("Job pause / resume (21.1, e2e)", () => {
     });
   });
 
+  describe("21.6: the late-print hold fails closed (lives on the job row, not in an audit row)", () => {
+    async function oldAttempt(itemId: string, orderId: string) {
+      return fx.prisma.printJob.create({
+        data: {
+          orderId,
+          shopId: fx.shop.id,
+          orderItemId: itemId,
+          printerId: printerA,
+          status: "REASSIGNED",
+          supersededAt: new Date(),
+          attempt: 0,
+          idempotencyToken: `${itemId}:0`,
+        },
+      });
+    }
+    const holdAudits = () =>
+      fx.prisma.auditLog.deleteMany({ where: { action: "PRINT_JOB_LATE_PRINT_SUCCESSOR" } });
+
+    it("a staff-PAUSED successor is stamped MANUAL_APPROVAL_REQUIRED on its row by the late report, atomically with its own audit row", async () => {
+      const s = await seed("QUEUED");
+      await post(s.jobId, "pause").expect(200);
+      expect((await job(s.jobId)).blockedReason).toBeNull();
+      const old = await oldAttempt(s.itemId, s.orderId);
+      await agent().reportStatus(old.id, deviceA, { status: "PRINTED" });
+      const held = await job(s.jobId);
+      expect(held.status).toBe("PAUSED");
+      expect(held.blockedReason).toBe("MANUAL_APPROVAL_REQUIRED");
+      expect(
+        await fx.prisma.auditLog.count({
+          where: { resourceId: s.jobId, action: "PRINT_JOB_HOLD" },
+        }),
+      ).toBe(1);
+    });
+
+    it("with the informational audit row missing (insert failed), resume without an acknowledgement is STILL refused, for both a staff-paused and a machine-paused successor", async () => {
+      const paused = await seed("QUEUED");
+      await post(paused.jobId, "pause").expect(200);
+      const queued = await seed("QUEUED");
+      const oldA = await oldAttempt(paused.itemId, paused.orderId);
+      const oldB = await oldAttempt(queued.itemId, queued.orderId);
+      await agent().reportStatus(oldA.id, deviceA, { status: "PRINTED" });
+      await agent().reportStatus(oldB.id, deviceA, { status: "PRINTED" });
+      await holdAudits(); // simulate the insert never having happened
+      for (const j of [paused, queued]) {
+        const res = await post(j.jobId, "resume").expect(409);
+        expect(res.body.error_code).toBe("LATE_PRINT_ACK_REQUIRED");
+        expect((await job(j.jobId)).status).toBe("PAUSED");
+      }
+    });
+
+    it("a failing audit insert does not stop the hold (spy makes the informational insert throw)", async () => {
+      const s = await seed("QUEUED");
+      await post(s.jobId, "pause").expect(200);
+      const old = await oldAttempt(s.itemId, s.orderId);
+      const original = fx.prisma.auditLog.create.bind(fx.prisma.auditLog);
+      const spy = jest.spyOn(fx.prisma.auditLog, "create").mockImplementation(((args: {
+        data: { action: string };
+      }) => {
+        if (args.data.action === "PRINT_JOB_LATE_PRINT_SUCCESSOR") {
+          throw new Error("audit insert failed");
+        }
+        return original(args as never);
+      }) as never);
+      try {
+        await agent().reportStatus(old.id, deviceA, { status: "PRINTED" });
+      } finally {
+        spy.mockRestore();
+      }
+      expect((await job(s.jobId)).blockedReason).toBe("MANUAL_APPROVAL_REQUIRED");
+      const res = await post(s.jobId, "resume").expect(409);
+      expect(res.body.error_code).toBe("LATE_PRINT_ACK_REQUIRED");
+    });
+
+    it("a staff pause of an already-held job keeps the hold (never clears it)", async () => {
+      const s = await seed("WAITING");
+      await fx.prisma.printJob.update({
+        where: { id: s.jobId },
+        data: { blockedReason: "MANUAL_APPROVAL_REQUIRED" },
+      });
+      await post(s.jobId, "pause").expect(200);
+      expect((await job(s.jobId)).blockedReason).toBe("MANUAL_APPROVAL_REQUIRED");
+      const res = await post(s.jobId, "resume").expect(409);
+      expect(res.body.error_code).toBe("LATE_PRINT_ACK_REQUIRED");
+    });
+
+    it("race: a plain resume versus the late report (Promise.all, repeated) never leaves the successor dispatchable", async () => {
+      for (let i = 0; i < 6; i += 1) {
+        const s = await seed("QUEUED");
+        await post(s.jobId, "pause").expect(200);
+        const old = await oldAttempt(s.itemId, s.orderId);
+        const [resume] = await Promise.allSettled([
+          post(s.jobId, "resume"),
+          agent().reportStatus(old.id, deviceA, { status: "PRINTED" }),
+        ]);
+        const final = await job(s.jobId);
+        // Whoever wins: the job is held, never QUEUED/WAITING without an acknowledgement.
+        expect(final.status).toBe("PAUSED");
+        expect(final.blockedReason).toBe("MANUAL_APPROVAL_REQUIRED");
+        if (resume.status === "fulfilled") {
+          expect([200, 409]).toContain(resume.value.status);
+        }
+      }
+    });
+  });
+
   describe("authorization and tenancy", () => {
     it("SHOP_COUNTER (no PAUSE_JOBS) gets 403 on both routes", async () => {
       const s = await seed("QUEUED");

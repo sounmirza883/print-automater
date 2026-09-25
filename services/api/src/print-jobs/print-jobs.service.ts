@@ -323,6 +323,8 @@ export class PrintJobsService {
       {
         printerId: null,
         blockedReason: null,
+        // 21.6: a late-print hold must survive a staff pause (never clear it).
+        keepBlockedReasons: [BlockedReason.MANUAL_APPROVAL_REQUIRED],
         metadata: { source: "STAFF", ...(reason ? { reason } : {}) },
       },
     );

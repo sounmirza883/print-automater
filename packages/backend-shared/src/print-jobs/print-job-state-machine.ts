@@ -59,6 +59,11 @@ export const PrintJobEvent = {
   // never sits in WAITING with a stale reason. RESUME (-> WAITING) is the
   // "nothing suitable right now" branch and carries a fresh blockedReason.
   RESUME_QUEUE: "RESUME_QUEUE",
+  // PAUSED -> PAUSED (21.6): a late PRINTED report says paper for this item may
+  // already exist while staff had ALREADY paused the successor. Stamps the hold
+  // (blockedReason MANUAL_APPROVAL_REQUIRED) on the job row itself, atomically
+  // with its own audit row, so resume can refuse without an acknowledgement.
+  HOLD: "HOLD",
   // any non-terminal -> CANCELLED: cascades from an order-level cancel.
   CANCEL: "CANCEL",
   // WAITING|QUEUED|CLAIMED -> REASSIGNED (18.7): the OLD row's own
@@ -132,6 +137,7 @@ const JOB_TRANSITIONS: Record<PrintJobStatus, Partial<Record<PrintJobEvent, Prin
   PAUSED: {
     [PrintJobEvent.RESUME]: "WAITING",
     [PrintJobEvent.RESUME_QUEUE]: "QUEUED",
+    [PrintJobEvent.HOLD]: "PAUSED",
     [PrintJobEvent.CANCEL]: "CANCELLED",
   },
   FAILED: { [PrintJobEvent.LATE_REPORT]: "UNKNOWN" },
@@ -224,6 +230,10 @@ export interface JobTransitionContext {
    * other target status. */
   failureReason?: JobFailureReason | null;
   failureNote?: string | null;
+  /** 21.6: blocked reasons that must SURVIVE this write even though `blockedReason`
+   * is set (PAUSE keeps a late-print hold instead of clearing it). Evaluated on
+   * the locked row. */
+  keepBlockedReasons?: readonly string[];
 }
 
 export interface JobTransitionResult {
@@ -460,7 +470,10 @@ export class PrintJobStateMachine {
             data: {
               status: nextStatus,
               ...(ctx.printerId !== undefined ? { printerId: ctx.printerId } : {}),
-              ...(ctx.blockedReason !== undefined ? { blockedReason: ctx.blockedReason } : {}),
+              ...(ctx.blockedReason !== undefined &&
+              !(job.blockedReason !== null && ctx.keepBlockedReasons?.includes(job.blockedReason))
+                ? { blockedReason: ctx.blockedReason }
+                : {}),
               ...(ctx.osJobId !== undefined ? { osJobId: ctx.osJobId } : {}),
               ...(nextStatus === "CLAIMED" ? { claimedAt: ctx.now ?? new Date() } : {}),
               ...(nextStatus === "REASSIGNED" ? { supersededAt: ctx.now ?? new Date() } : {}),

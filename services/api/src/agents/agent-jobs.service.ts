@@ -467,18 +467,28 @@ export class AgentJobsService implements OnModuleDestroy {
         select: { id: true, status: true },
       });
       for (const successor of successors) {
-        // An already-PAUSED successor cannot dispatch; the audit row below is
-        // what makes its later resume require an acknowledgement.
-        let held = successor.status === PrintJobStatus.PAUSED;
+        // Fail closed (21.6): the hold lives ON THE JOB ROW (blockedReason
+        // MANUAL_APPROVAL_REQUIRED, written by the job machine in the same
+        // transaction as the state change and its own audit row), and resume treats
+        // that as authoritative. A WAITING/QUEUED successor is PAUSED; one staff
+        // already paused is HELD (PAUSED -> PAUSED). If resume wins a race and the
+        // successor moves under us, re-read and try again with the right event.
+        let held = false;
         let foundStatus: PrintJobStatus = successor.status;
-        if (
-          successor.status === PrintJobStatus.WAITING ||
-          successor.status === PrintJobStatus.QUEUED
-        ) {
+        for (let attempt = 0; attempt < 3 && !held; attempt += 1) {
+          const event =
+            foundStatus === PrintJobStatus.PAUSED
+              ? PrintJobEvent.HOLD
+              : foundStatus === PrintJobStatus.WAITING || foundStatus === PrintJobStatus.QUEUED
+                ? PrintJobEvent.PAUSE
+                : undefined;
+          if (event === undefined) {
+            break;
+          }
           try {
             await this.jobStateMachine.transition(
               successor.id,
-              PrintJobEvent.PAUSE,
+              event,
               { id: null },
               {
                 printerId: null,
@@ -489,7 +499,12 @@ export class AgentJobsService implements OnModuleDestroy {
             held = true;
           } catch (err) {
             if (!(err instanceof AppException && err.errorCode === "ILLEGAL_JOB_TRANSITION")) {
-              throw err;
+              // Contain it per successor: one failure must not leave the others unheld.
+              this.logger.error(
+                { jobId, orderId, successorJobId: successor.id, err },
+                "Could not hold a successor after a late PRINTED report.",
+              );
+              break;
             }
             const now = await this.prisma.printJob.findUnique({
               where: { id: successor.id },
@@ -498,20 +513,29 @@ export class AgentJobsService implements OnModuleDestroy {
             foundStatus = now?.status ?? foundStatus;
           }
         }
-        await this.prisma.auditLog.create({
-          data: {
-            actorId: null,
-            action: "PRINT_JOB_LATE_PRINT_SUCCESSOR",
-            resourceType: "print_job",
-            resourceId: jobId,
-            metadata: redactMetadata({
-              orderId,
-              successorJobId: successor.id,
-              successorStatus: foundStatus,
-              held,
-            }) as Prisma.InputJsonValue,
-          },
-        });
+        // Informational only (the gate does not depend on it): a failed insert must
+        // never stop the remaining successors from being held.
+        try {
+          await this.prisma.auditLog.create({
+            data: {
+              actorId: null,
+              action: "PRINT_JOB_LATE_PRINT_SUCCESSOR",
+              resourceType: "print_job",
+              resourceId: jobId,
+              metadata: redactMetadata({
+                orderId,
+                successorJobId: successor.id,
+                successorStatus: foundStatus,
+                held,
+              }) as Prisma.InputJsonValue,
+            },
+          });
+        } catch (auditErr) {
+          this.logger.error(
+            { jobId, orderId, successorJobId: successor.id, err: auditErr },
+            "Could not write the late-print successor audit row; the hold itself is on the job row.",
+          );
+        }
         this.logger.warn(
           {
             metric: "print.late_print_successor",

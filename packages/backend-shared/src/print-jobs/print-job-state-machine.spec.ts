@@ -84,3 +84,14 @@ describe("PrintJobStateMachine (21.1): pause and resume edges", () => {
     expect(pick("RESUME_QUEUE")).toEqual(["PAUSED->QUEUED"]);
   });
 });
+
+/** 21.6. The late-print hold is stamped on the job row: HOLD is PAUSED -> PAUSED only. */
+describe("PrintJobStateMachine (21.6): HOLD", () => {
+  it("HOLD exists only as PAUSED -> PAUSED", () => {
+    expect(
+      jobTransitionEdges()
+        .filter((edge) => edge.event === "HOLD")
+        .map((edge) => `${edge.from}->${edge.to}`),
+    ).toEqual(["PAUSED->PAUSED"]);
+  });
+});
