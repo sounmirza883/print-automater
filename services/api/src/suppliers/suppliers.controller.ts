@@ -37,6 +37,7 @@ import {
   type SupplierProductResponse,
   type SupplierResponse,
 } from "./suppliers.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** 29/30/20.6. Every route needs MANAGE_SUPPLIERS (manager, owner; data in
  * ROLE_PERMISSIONS). `:id` routes resolve the resource shop through
@@ -55,6 +56,7 @@ export class SuppliersController {
   constructor(private readonly suppliers: SuppliersService) {}
 
   @Get("suppliers")
+  @UseGuards(SearchRateLimitGuard)
   @ShopScopedField("query", "shopId")
   list(
     @Req() req: RequestWithUser,

@@ -2,13 +2,16 @@ import { z } from "zod";
 
 export const DEFAULT_PAGE_LIMIT = 50;
 export const MAX_PAGE_LIMIT = 100;
+/** 23.11: deep OFFSET paging makes Postgres walk and discard that many rows per request, so it
+ * is capped (400 beyond it). Narrow the filters, or use `q`, to reach older rows. */
+export const MAX_PAGE_OFFSET = 10_000;
 
 /** Shared `?limit=&offset=` for list endpoints (Phase 20+). Query-string
  * values arrive as strings, hence the coercion; the cap keeps a list request
  * bounded whatever the client sends. Responses echo `{items,total,limit,offset}`. */
 export const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).default(DEFAULT_PAGE_LIMIT),
-  offset: z.coerce.number().int().min(0).default(0),
+  offset: z.coerce.number().int().min(0).max(MAX_PAGE_OFFSET).default(0),
 });
 
 export type PaginationQueryInput = z.infer<typeof paginationQuerySchema>;
@@ -29,6 +32,6 @@ export const LEGACY_LIST_CAP = 500;
  * is present the other defaults (limit 50, offset 0) and the response is the envelope. */
 export const optionalPaginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
+  offset: z.coerce.number().int().min(0).max(MAX_PAGE_OFFSET).optional(),
 });
 export type OptionalPaginationQueryInput = z.infer<typeof optionalPaginationQuerySchema>;

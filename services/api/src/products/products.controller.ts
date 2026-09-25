@@ -13,6 +13,7 @@ import { ListProductsQueryDto } from "./dto/list-products-query.dto.js";
 import { UpdateProductDto } from "./dto/update-product.dto.js";
 import { ProductShopResolver } from "./product-shop.resolver.js";
 import { ProductsService, type ProductResponse } from "./products.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** §13/§47/17.3: a shop's own product catalog, gated by MANAGE_PRICES
  * (granted only to SHOP_MANAGER/SHOP_OWNER, role-permissions.ts) --
@@ -33,6 +34,7 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
+  @UseGuards(SearchRateLimitGuard)
   @ShopScopedField("query", "shopId")
   list(
     @Req() req: RequestWithUser,

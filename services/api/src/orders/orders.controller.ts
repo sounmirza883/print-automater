@@ -21,6 +21,7 @@ import { CreateOrderDto } from "./dto/create-order.dto.js";
 import { CreateQuoteDto } from "./dto/create-quote.dto.js";
 import { ListOrdersQueryDto } from "./dto/list-orders-query.dto.js";
 import { OrdersService, type OrderResponse, type QuoteResponse } from "./orders.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 @Controller("orders")
 @UseGuards(JwtAuthGuard)
@@ -48,6 +49,7 @@ export class OrdersController {
   }
 
   @Get()
+  @UseGuards(SearchRateLimitGuard)
   listOrders(
     @Req() req: RequestWithUser,
     @Query() query: ListOrdersQueryDto,

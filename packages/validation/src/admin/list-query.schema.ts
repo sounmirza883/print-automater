@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_PAGE_OFFSET } from "../common/pagination.schema.js";
 
 /** §42/16.5: every admin list route is bounded, never an unfiltered dump -- the page size
  * is capped at 200 since these routes see every business/user/audit row on the platform.
@@ -8,9 +9,9 @@ import { z } from "zod";
 const ADMIN_MAX_PAGE = 200;
 export const adminPagingShape = {
   take: z.coerce.number().int().min(1).max(ADMIN_MAX_PAGE).optional(),
-  skip: z.coerce.number().int().min(0).optional(),
+  skip: z.coerce.number().int().min(0).max(MAX_PAGE_OFFSET).optional(),
   limit: z.coerce.number().int().min(1).max(ADMIN_MAX_PAGE).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
+  offset: z.coerce.number().int().min(0).max(MAX_PAGE_OFFSET).optional(),
 };
 
 function resolveAdminPaging<

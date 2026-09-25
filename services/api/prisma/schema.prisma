@@ -67,6 +67,7 @@ model User {
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_name_trgm_idx")
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_email_trgm_idx")
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_phone_trgm_idx")
   @@map("users")
 }
 
@@ -216,6 +217,8 @@ model Product {
   @@index([shopId])
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm_idx")
+  @@index([category(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_category_trgm_idx")
   @@map("products")
 }
 
@@ -251,6 +254,7 @@ model Customer {
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_name_trgm_idx")
   @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_phone_trgm_idx")
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_email_trgm_idx")
+  @@index([company(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_company_trgm_idx")
   @@map("customers")
 }
 
@@ -903,6 +907,8 @@ model Printer {
   @@index([agentId])
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "printers_name_trgm_idx")
+  @@index([model(ops: raw("gin_trgm_ops"))], type: Gin, map: "printers_model_trgm_idx")
+  @@index([location(ops: raw("gin_trgm_ops"))], type: Gin, map: "printers_location_trgm_idx")
   @@map("printers")
 }
 
@@ -1262,6 +1268,7 @@ model InventoryItem {
   @@index([shopId, paperSize])
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "inventory_items_name_trgm_idx")
+  @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin, map: "inventory_items_sku_trgm_idx")
   @@map("inventory_items")
 }
 

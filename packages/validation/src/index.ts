@@ -126,6 +126,7 @@ export {
 export {
   DEFAULT_PAGE_LIMIT,
   MAX_PAGE_LIMIT,
+  MAX_PAGE_OFFSET,
   paginationQuerySchema,
   LEGACY_LIST_CAP,
   optionalPaginationQuerySchema,

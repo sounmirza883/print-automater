@@ -26,6 +26,7 @@ import { RegisterPrinterDto } from "./dto/register-printer.dto.js";
 import { UpdatePrinterDto } from "./dto/update-printer.dto.js";
 import { PrinterShopResolver } from "./printer-shop.resolver.js";
 import { PrintersService, type PrinterResponse } from "./printers.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** §47/16.3: managing the printer fleet (register/update/delete) is
  * MANAGE_PRINTERS-gated -- counter staff can no longer add, edit or
@@ -53,6 +54,7 @@ export class PrintersController {
   constructor(private readonly printersService: PrintersService) {}
 
   @Get()
+  @UseGuards(SearchRateLimitGuard)
   @ShopScopedField("query", "shopId")
   list(
     @Req() req: RequestWithUser,

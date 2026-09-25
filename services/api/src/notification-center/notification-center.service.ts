@@ -1,6 +1,12 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
 import { NotificationChannel, Prisma, ShopStaffStatus } from "@prisma/client";
-import { AppException, PrismaService } from "@print-automated/backend-shared";
+import {
+  AppException,
+  PrismaService,
+  rolesWithPermission,
+  STAFF_ALERT_PERMISSION,
+} from "@print-automated/backend-shared";
+import type { StaffNotificationType } from "@prisma/client";
 import type { NotificationItem, NotificationTargetKind, Page } from "@print-automated/types";
 import type {
   ListNotificationsQueryInput,
@@ -110,10 +116,16 @@ export class NotificationCenterService {
           status: ShopStaffStatus.ACTIVE,
           ...(filter.shopId ? { shopId: filter.shopId } : {}),
         },
-        select: { shopId: true },
+        select: { shopId: true, role: true },
       });
+      // Only alerts the member may STILL see: their current role must hold the permission
+      // that entitles them to that kind of alert (same rule as the list).
+      const visible = memberships.map((m) => ({
+        shopId: m.shopId,
+        type: { in: allowedTypes(m.role) },
+      }));
       const staff = await this.prisma.staffNotification.updateMany({
-        where: { userId, readAt: null, shopId: { in: memberships.map((m) => m.shopId) } },
+        where: { userId, readAt: null, ...(visible.length > 0 ? { OR: visible } : { id: "none" }) },
         data: { readAt: now },
       });
       updated += staff.count;
@@ -150,9 +162,29 @@ export class NotificationCenterService {
             SELECT 1 FROM shop_staff ss
             WHERE ss.shop_id = s.shop_id AND ss.user_id = s.user_id
               AND ss.status = 'ACTIVE'::"ShopStaffStatus"
+              AND (${this.permissionClause()})
           )
       )
     `;
+  }
+
+  /** The member's CURRENT role must hold the permission for the alert's type (23.11): an alert
+   * raised for an operator stops showing once they are demoted to the counter. */
+  private permissionClause(): Prisma.Sql {
+    const byPermission = new Map<string, StaffNotificationType[]>();
+    for (const [type, permission] of Object.entries(STAFF_ALERT_PERMISSION)) {
+      byPermission.set(permission, [
+        ...(byPermission.get(permission) ?? []),
+        type as StaffNotificationType,
+      ]);
+    }
+    return Prisma.join(
+      [...byPermission.entries()].map(
+        ([permission, types]) =>
+          Prisma.sql`(s.type::text = ANY(${types}::text[]) AND ss.role::text = ANY(${rolesWithPermission(permission as never)}::text[]))`,
+      ),
+      " OR ",
+    );
   }
 
   private filters(query: NotificationFilterInput & { unread?: boolean }): Prisma.Sql {
@@ -168,6 +200,13 @@ export class NotificationCenterService {
     }
     return clauses.length === 0 ? Prisma.empty : Prisma.sql`WHERE ${Prisma.join(clauses, " AND ")}`;
   }
+}
+
+/** The alert types a member with this role may see. */
+function allowedTypes(role: string): StaffNotificationType[] {
+  return (Object.entries(STAFF_ALERT_PERMISSION) as Array<[StaffNotificationType, never]>)
+    .filter(([, permission]) => (rolesWithPermission(permission) as string[]).includes(role))
+    .map(([type]) => type);
 }
 
 function toItem(row: FeedRow): NotificationItem {

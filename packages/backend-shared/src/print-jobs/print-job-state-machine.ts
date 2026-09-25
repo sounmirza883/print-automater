@@ -8,8 +8,11 @@ import { periodStart } from "../printers/page-limit-period.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
 import { consumePaperForJobContained } from "../inventory/consume-paper.js";
-import { Permission } from "@print-automated/types";
-import { notifyShopStaffContained, type StaffAlert } from "../notifications/staff-notifications.js";
+import {
+  notifyShopStaffContained,
+  STAFF_ALERT_PERMISSION,
+  type StaffAlert,
+} from "../notifications/staff-notifications.js";
 
 /** 18.1. Every event PrintJobStateMachine accepts. CLAIM/PRINTED keep
  * the exact wire vocabulary the agent already speaks (15.6 froze that
@@ -428,7 +431,7 @@ export class PrintJobStateMachine {
     }
     await notifyShopStaffContained(tx, {
       shopId: context.shopId,
-      permission: Permission.ASSIGN_JOBS,
+      permission: STAFF_ALERT_PERMISSION[signal.type],
       type: signal.type,
       title: signal.title,
       body: signal.body.replace("{order}", label(context.order.publicOrderNumber)),

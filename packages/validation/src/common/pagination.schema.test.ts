@@ -15,7 +15,13 @@ describe("pagination schemas (23.6)", () => {
       limit: 25,
       offset: 5,
     });
-    for (const bad of [{ limit: "0" }, { limit: "101" }, { offset: "-1" }, { limit: "x" }]) {
+    for (const bad of [
+      { limit: "0" },
+      { limit: "101" },
+      { offset: "-1" },
+      { offset: "10001" },
+      { limit: "x" },
+    ]) {
       expect(optionalPaginationQuerySchema.safeParse(bad).success).toBe(false);
     }
     expect(MAX_PAGE_LIMIT).toBe(100);

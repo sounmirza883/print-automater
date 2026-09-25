@@ -13,6 +13,7 @@ import { CreateCustomerDto } from "./dto/create-customer.dto.js";
 import { ListCustomersQueryDto } from "./dto/list-customers-query.dto.js";
 import { UpdateCustomerDto } from "./dto/update-customer.dto.js";
 import { CustomersService, type CustomerResponse } from "./customers.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** §33/34/17.4: walk-in customer records -- see CustomersService's own
  * comment for the CREATE_ORDERS/VIEW_ORDERS/EDIT_ORDERS permission
@@ -30,6 +31,7 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
+  @UseGuards(SearchRateLimitGuard)
   @RequirePermission(Permission.VIEW_ORDERS)
   @ShopScopedField("query", "shopId")
   list(

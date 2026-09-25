@@ -99,6 +99,25 @@ describe("Pagination on every list endpoint (23.6, e2e)", () => {
       }
     });
 
+    it("offset is capped (10000): beyond it is a 400 on every paged list, at it is fine", async () => {
+      expect((await get("/v1/shop/customers", { shopId: fx.shop.id, offset: 10_000 })).status).toBe(
+        200,
+      );
+      for (const path of [
+        "/v1/shop/customers",
+        "/v1/shop/printers",
+        "/v1/shop/products",
+        "/v1/shop/staff",
+        "/v1/shop/orders/search",
+        "/v1/shop/inventory/items",
+        "/v1/shop/suppliers",
+      ]) {
+        expect((await get(path, { shopId: fx.shop.id, offset: 10_001 })).status).toBe(400);
+      }
+      expect((await get("/v1/orders", { offset: 10_001 })).status).toBe(400);
+      expect((await get("/v1/notifications", { offset: 10_001 })).status).toBe(400);
+    });
+
     it("an unpaged call is BOUNDED (500) even with more rows than that", async () => {
       await fx.prisma.customer.createMany({
         data: Array.from({ length: 510 }, (_, i) => ({

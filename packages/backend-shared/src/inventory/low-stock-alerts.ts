@@ -1,5 +1,7 @@
-import { Permission } from "@print-automated/types";
-import { notifyShopStaffContained } from "../notifications/staff-notifications.js";
+import {
+  notifyShopStaffContained,
+  STAFF_ALERT_PERMISSION,
+} from "../notifications/staff-notifications.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
 
 export interface LowStockSyncResult {
@@ -123,7 +125,7 @@ export async function syncLowStockAlerts(prisma: PrismaService): Promise<LowStoc
           const name = names.get(alert.inventoryItemId) ?? "An inventory item";
           await notifyShopStaffContained(tx, {
             shopId: alert.shopId,
-            permission: Permission.VIEW_INVENTORY,
+            permission: STAFF_ALERT_PERMISSION.LOW_STOCK,
             type: "LOW_STOCK",
             title: "Low stock",
             body: `${name} is low: ${alert.quantityAtAlert} left (minimum ${alert.minQuantity}).`,

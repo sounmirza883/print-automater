@@ -362,6 +362,64 @@ describe("Notification centre (23.7, e2e)", () => {
     });
   });
 
+  describe("consistent filters and current permissions (23.11)", () => {
+    it("shopId together with audience=customer is a contradiction: 400 on list, count and read-all", async () => {
+      const q = { shopId: fx.shop.id, audience: "customer" };
+      expect((await list(q)).status).toBe(400);
+      expect(
+        (await http().get("/v1/notifications/unread-count").query(q).set(as(fx.token))).status,
+      ).toBe(400);
+      expect(
+        (await http().post("/v1/notifications/read-all").query(q).set(as(fx.token))).status,
+      ).toBe(400);
+      // shopId + audience=staff (or no audience) stay fine
+      expect((await list({ shopId: fx.shop.id, audience: "staff" })).status).toBe(200);
+    });
+
+    it("alerts vanish for someone who no longer holds the recipient permission (demoted to counter)", async () => {
+      const seen = async () => (await list({ limit: 100 }, fx.operator.token)).body.total;
+      const before = await seen();
+      expect(before).toBeGreaterThan(0);
+      await fx.prisma.shopStaff.updateMany({
+        where: { shopId: fx.shop.id, userId: fx.operator.user.id },
+        data: { role: "SHOP_COUNTER" },
+      });
+      expect(await seen()).toBe(0);
+      expect(
+        (await http().get("/v1/notifications/unread-count").set(as(fx.operator.token))).body,
+      ).toEqual({ count: 0 });
+      // and read-all never touches rows they can no longer see
+      const unreadRows = await fx.prisma.staffNotification.count({
+        where: { userId: fx.operator.user.id, readAt: null },
+      });
+      const all = await http().post("/v1/notifications/read-all").set(as(fx.operator.token));
+      expect(all.body).toEqual({ updated: 0 });
+      expect(
+        await fx.prisma.staffNotification.count({
+          where: { userId: fx.operator.user.id, readAt: null },
+        }),
+      ).toBe(unreadRows);
+      // restored role: visible again
+      await fx.prisma.shopStaff.updateMany({
+        where: { shopId: fx.shop.id, userId: fx.operator.user.id },
+        data: { role: "OPERATOR" },
+      });
+      expect(await seen()).toBe(before);
+    });
+
+    it("a role that keeps only ONE of the permissions sees only that kind of alert", async () => {
+      // PRINTER_MANAGER holds ASSIGN_JOBS and VIEW_INVENTORY; a counter holds neither.
+      const kinds = async (token: string) =>
+        new Set(
+          (await list({ audience: "staff", limit: 100 }, token)).body.items.map(
+            (n: { type: string }) => n.type,
+          ),
+        );
+      expect((await kinds(fx.token)).has("LOW_STOCK")).toBe(true);
+      expect((await kinds(fx.counter.token)).size).toBe(0);
+    });
+  });
+
   describe("customer order notifications share the centre", () => {
     it("lists a customer's APP notices (not their EMAIL rows) with an ORDER target, and marking one read writes readAt", async () => {
       const { orderId } = await fx.makeOrder(1, 1, OrderStatus.WAITING_FOR_SHOP);

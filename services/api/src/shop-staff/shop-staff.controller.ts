@@ -31,6 +31,7 @@ import {
   type ShopStaffListItem,
   type ShopStaffMemberResponse,
 } from "./shop-staff.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** §47/16.4: add/remove/change-role need MANAGE_USERS, granted only to
  * SHOP_MANAGER/SHOP_OWNER (role-permissions.ts) -- COUNTER/OPERATOR/
@@ -55,6 +56,7 @@ export class ShopStaffController {
 
   /** 23.6: the roster the staff-management page needs (MANAGE_USERS: owner and manager). */
   @Get()
+  @UseGuards(SearchRateLimitGuard)
   @RequirePermission(Permission.MANAGE_USERS)
   @ShopScopedField("query", "shopId")
   list(

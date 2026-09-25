@@ -7,7 +7,7 @@ import {
   type StaffNotificationType,
   type UserRole,
 } from "@prisma/client";
-import type { Permission } from "@print-automated/types";
+import { Permission } from "@print-automated/types";
 import { ROLE_PERMISSIONS } from "../auth/role-permissions.js";
 
 /** 23.7 (PRD 37/111): one operational alert for the staff of ONE business, fanned out to
@@ -35,6 +35,17 @@ export interface StaffAlert {
   /** At most one notification per (recipient, key); omit for events that may repeat. */
   dedupeKey?: string;
 }
+
+/** The permission that entitles a member to each kind of staff alert. The SINGLE source of
+ * truth: alerts are fanned out to the holders of it when raised, and the notification centre
+ * re-checks it when they are read, so a member who has since lost the permission (demoted,
+ * role changed) stops seeing alerts they may no longer act on. */
+export const STAFF_ALERT_PERMISSION: Record<StaffNotificationType, Permission> = {
+  LOW_STOCK: Permission.VIEW_INVENTORY,
+  JOB_BLOCKED: Permission.ASSIGN_JOBS,
+  JOB_HELD_LATE_PRINT: Permission.ASSIGN_JOBS,
+  JOB_FAILED: Permission.ASSIGN_JOBS,
+};
 
 /** Shop-side roles whose permission set includes `permission` (ADMIN is a platform role,
  * never a shop member). */

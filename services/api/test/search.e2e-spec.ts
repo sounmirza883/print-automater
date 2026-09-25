@@ -308,5 +308,53 @@ describe("Search and filters (23.6, e2e)", () => {
       expect(last!.body.error_code ?? last!.body.errorCode).toBe("RATE_LIMITED");
       expect(last!.headers["retry-after"]).toBeDefined();
     });
+
+    it("ONE per-user budget covers every q search route, and plain (q-less) listing is never throttled", async () => {
+      // A fresh manager spends ONE budget across DIFFERENT routes; the 61st search anywhere is refused.
+      const rl = await fx.prisma.user.create({
+        data: {
+          role: "SHOP_MANAGER",
+          name: "rl manager",
+          email: "rl-" + randomUUID() + "@print-automated.dev",
+          passwordHash: "irrelevant",
+        },
+      });
+      await fx.prisma.shopStaff.create({
+        data: { shopId: fx.shop.id, userId: rl.id, role: "SHOP_MANAGER", status: "ACTIVE" },
+      });
+      const rlToken = fx.tokens.issueAccessToken(rl);
+      const routes: Array<[string, Record<string, string>]> = [
+        ["/v1/shop/customers", { q: "a" }],
+        ["/v1/shop/products", { q: "a" }],
+        ["/v1/shop/printers", { q: "a" }],
+        ["/v1/shop/staff", { q: "a" }],
+        ["/v1/shop/inventory/items", { search: "a" }],
+        ["/v1/shop/suppliers", { search: "a" }],
+      ];
+      let refusedAt = -1;
+      for (let i = 0; i < 70 && refusedAt < 0; i += 1) {
+        const [path, query] = routes[i % routes.length]!;
+        const res = await http()
+          .get(path)
+          .query({ shopId: fx.shop.id, ...query })
+          .set(as(rlToken));
+        if (res.status === 429) refusedAt = i;
+      }
+      expect(refusedAt).toBe(60); // calls 0..59 pass, the 61st is refused
+      expect((await http().get("/v1/orders").query({ q: "a" }).set(as(rlToken))).status).toBe(429); // the customer route shares the same budget
+      // listing without q is not a search: unaffected even while this user is throttled
+      const plain = await http()
+        .get("/v1/shop/customers")
+        .query({ shopId: fx.shop.id })
+        .set(as(rlToken));
+      expect(plain.status).toBe(200);
+      const searched = await http()
+        .get("/v1/shop/customers")
+        .query({ shopId: fx.shop.id, q: "a" })
+        .set(as(rlToken));
+      expect(searched.status).toBe(429);
+      await fx.prisma.shopStaff.deleteMany({ where: { userId: rl.id } });
+      await fx.prisma.user.delete({ where: { id: rl.id } });
+    });
   });
 });

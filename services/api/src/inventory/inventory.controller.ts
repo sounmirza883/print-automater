@@ -42,6 +42,7 @@ import {
   type InventorySummaryResponse,
   type Page,
 } from "./inventory.service.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** §26/§27/20.2. Reads need VIEW_INVENTORY (operators, printer managers,
  * managers, owners); every write needs MANAGE_INVENTORY (managers, owners) --
@@ -101,6 +102,7 @@ export class InventoryController {
   }
 
   @Get("items")
+  @UseGuards(SearchRateLimitGuard)
   @ShopScopedField("query", "shopId")
   listItems(
     @Req() req: RequestWithUser,

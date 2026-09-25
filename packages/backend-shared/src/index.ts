@@ -145,6 +145,7 @@ export { syncLowStockAlerts, type LowStockSyncResult } from "./inventory/low-sto
 export {
   notifyShopStaff,
   notifyShopStaffContained,
+  STAFF_ALERT_PERMISSION,
   rolesWithPermission,
   type StaffAlert,
 } from "./notifications/staff-notifications.js";

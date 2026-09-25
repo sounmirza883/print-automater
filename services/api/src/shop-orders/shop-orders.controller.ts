@@ -28,8 +28,7 @@ import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
 import { SearchShopOrdersQueryDto } from "./dto/search-shop-orders-query.dto.js";
-import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
-import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
+import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 import { DeliveryRedactionInterceptor } from "../deliveries/delivery-redaction.interceptor.js";
 import { QualityCheckDto } from "./dto/quality-check.dto.js";
 import { RejectOrderDto } from "./dto/reject-order.dto.js";
@@ -88,15 +87,9 @@ export class ShopOrdersController {
   }
 
   /** 23.6 (PRD 43/44): search + filters, one flat page. Declared before any `:id` route.
-   * Rate-limited per user: a leading-wildcard search is the costliest read here. */
+   * Shares the per-user search budget (SearchRateLimitGuard). */
   @Get("search")
-  @UseGuards(RateLimitGuard)
-  @RateLimit({
-    limit: 60,
-    windowMs: 60_000,
-    keyGenerator: (request) =>
-      (request as unknown as RequestWithUser).user?.id ?? request.ip ?? "anon",
-  })
+  @UseGuards(SearchRateLimitGuard)
   @RequirePermission(Permission.VIEW_ORDERS)
   @ShopScopedField("query", "shopId")
   searchOrders(
