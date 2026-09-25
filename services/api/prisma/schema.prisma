@@ -156,6 +156,7 @@ model Shop {
   inventoryAlerts    InventoryAlert[]
   suppliers          Supplier[]
   purchaseOrders     PurchaseOrder[]
+  settings           ShopSettings?
 
   @@map("shops")
 }
@@ -1347,4 +1348,36 @@ model PurchaseOrderLine {
   @@index([shopId])
   @@index([inventoryItemId])
   @@map("purchase_order_lines")
+}
+
+// 22.1 (PRD 75/76): one row per shop, always present (a trigger on `shops`
+// creates it, migration 20260929100000). Holds business configuration and the
+// automation toggles that did not already exist. The four older per-shop flags
+// (auto_failover_enabled, inventory_tracking_enabled, quality_check_enabled,
+// multi_item_enabled) STAY on `shops`, the source of truth for every hot-path
+// read (allocation, machine, sweeps), and are edited through the settings API.
+// `version` is optimistic concurrency: every write bumps it, and a PUT that
+// carries a stale expectedVersion is refused, so two admins cannot silently
+// clobber each other. Defaults reproduce today's behaviour exactly: every
+// automatic path that exists today is ON, and automatic operator assignment
+// (no automatic path exists) is OFF.
+model ShopSettings {
+  shopId                        String   @id @map("shop_id")
+  version                       Int      @default(0)
+  currency                      String   @default("PKR")
+  taxRateBasisPoints            Int?     @map("tax_rate_basis_points")
+  operatingHours                Json?    @map("operating_hours")
+  notificationSettings          Json     @default("{\"emailEnabled\":true,\"appEnabled\":true}") @map("notification_settings")
+  autoPrinterAssignmentEnabled  Boolean  @default(true) @map("auto_printer_assignment_enabled")
+  autoOperatorAssignmentEnabled Boolean  @default(false) @map("auto_operator_assignment_enabled")
+  autoQueueManagementEnabled    Boolean  @default(true) @map("auto_queue_management_enabled")
+  inventoryAlertsEnabled        Boolean  @default(true) @map("inventory_alerts_enabled")
+  automaticNotificationsEnabled Boolean  @default(true) @map("automatic_notifications_enabled")
+  pageLimitEnforcementEnabled   Boolean  @default(true) @map("page_limit_enforcement_enabled")
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("shop_settings")
 }

@@ -22,6 +22,9 @@ import { Permission } from "@print-automated/types";
  *   - Inventory (20.2): VIEW_INVENTORY for OPERATOR and PRINTER_MANAGER (they load
  *     paper and need to see stock); MANAGE_INVENTORY (change stock) only for
  *     SHOP_MANAGER/SHOP_OWNER; SHOP_COUNTER has neither.
+ *   - Settings (22.1): VIEW_SETTINGS for SHOP_MANAGER/SHOP_OWNER; MANAGE_AUTOMATION
+ *     (automation toggles, printer rules) for both; MANAGE_SETTINGS (business
+ *     details) stays owner-only.
  *   - PRINTER_MANAGER: owns the printer fleet -- MANAGE_PRINTERS and
  *     ASSIGN_JOBS, plus VIEW_ORDERS to see what's queued; no order
  *     editing, pricing, or staff management.
@@ -74,6 +77,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.MANAGE_PRICES,
     Permission.VIEW_REPORTS,
     Permission.MANAGE_USERS,
+    Permission.VIEW_SETTINGS,
+    Permission.MANAGE_AUTOMATION,
   ],
   SHOP_OWNER: [
     Permission.VIEW_ORDERS,
@@ -94,6 +99,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.VIEW_REPORTS,
     Permission.MANAGE_USERS,
     Permission.MANAGE_SETTINGS,
+    Permission.VIEW_SETTINGS,
+    Permission.MANAGE_AUTOMATION,
   ],
   ADMIN: Object.values(Permission),
 };

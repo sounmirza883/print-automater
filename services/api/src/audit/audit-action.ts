@@ -64,6 +64,9 @@ export const AuditAction = {
   PURCHASE_ORDER_CANCELLED: "PURCHASE_ORDER_CANCELLED",
   PURCHASE_ORDER_RECEIVED: "PURCHASE_ORDER_RECEIVED",
   PURCHASE_ORDER_PAYMENT_CHANGED: "PURCHASE_ORDER_PAYMENT_CHANGED",
+  // 75/76/22.1: any change to a shop's settings (metadata: before/after of the
+  // changed keys, versions). Printer automation rules (22.3) have their own actions.
+  SHOP_SETTINGS_CHANGED: "SHOP_SETTINGS_CHANGED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

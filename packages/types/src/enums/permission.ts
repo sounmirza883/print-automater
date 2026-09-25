@@ -32,6 +32,14 @@ export const Permission = {
   VIEW_REPORTS: "VIEW_REPORTS",
   MANAGE_USERS: "MANAGE_USERS",
   MANAGE_SETTINGS: "MANAGE_SETTINGS",
+  /** 22.1 (§75): read the business/automation settings and printer rules. */
+  VIEW_SETTINGS: "VIEW_SETTINGS",
+  /** 22.2/22.3 (§76/§77): change the automation toggles and the printer
+   * automation rules. Split from MANAGE_SETTINGS (business details: currency,
+   * tax, hours, notification settings, owner-only) because a manager must be able
+   * to switch automation off and run the floor by hand (§122), while business-level
+   * configuration keeps the 16.3 owner/manager boundary. */
+  MANAGE_AUTOMATION: "MANAGE_AUTOMATION",
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];

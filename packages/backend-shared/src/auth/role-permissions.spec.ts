@@ -86,4 +86,26 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
       }
     }
   });
+  it("settings (22.1): owner and manager may view; only the owner manages business settings; manager also manages automation", () => {
+    for (const role of ["SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_SETTINGS");
+      expect(ROLE_PERMISSIONS[role]).toContain("MANAGE_AUTOMATION");
+    }
+    expect(ROLE_PERMISSIONS.SHOP_OWNER).toContain("MANAGE_SETTINGS");
+    // The owner/manager boundary of 16.3 stands: business-level configuration stays owner-only.
+    expect(ROLE_PERMISSIONS.SHOP_MANAGER).not.toContain("MANAGE_SETTINGS");
+    for (const role of ["SHOP_COUNTER", "OPERATOR", "PRINTER_MANAGER", "CUSTOMER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_SETTINGS");
+      expect(ROLE_PERMISSIONS[role]).not.toContain("MANAGE_AUTOMATION");
+    }
+    // whoever can manage anything here can also view it
+    for (const role of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
+      if (
+        ROLE_PERMISSIONS[role].includes("MANAGE_SETTINGS") ||
+        ROLE_PERMISSIONS[role].includes("MANAGE_AUTOMATION")
+      ) {
+        expect(ROLE_PERMISSIONS[role]).toContain("VIEW_SETTINGS");
+      }
+    }
+  });
 });

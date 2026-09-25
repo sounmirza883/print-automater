@@ -24,6 +24,7 @@ import {
 import { AuditAction } from "../audit/audit-action.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { ShopSettingsService } from "../shop-settings/shop-settings.service.js";
 
 export interface Page<T> {
   items: T[];
@@ -146,6 +147,7 @@ export class InventoryService {
     private readonly shopMembership: ShopMembershipService,
     private readonly audit: AuditService,
     private readonly agentJobs: AgentJobsService,
+    private readonly settings: ShopSettingsService,
   ) {}
 
   async listItems(
@@ -413,15 +415,20 @@ export class InventoryService {
     return { shopId, trackingEnabled: shop.inventoryTrackingEnabled };
   }
 
+  /** 22.1: the legacy route is an alias over the one settings surface (same
+   * column, version bumped, SHOP_SETTINGS_CHANGED audited). It keeps its own
+   * MANAGE_INVENTORY gate, its INVENTORY_TRACKING_CHANGED audit row (written on
+   * every call, as before) and the recovery hook. */
   async updateSettings(
     input: UpdateInventorySettingsInput,
     userId: string,
   ): Promise<InventorySettingsResponse> {
     await this.assertMember(input.shopId, userId);
-    await this.prisma.shop.update({
-      where: { id: input.shopId },
-      data: { inventoryTrackingEnabled: input.trackingEnabled },
-    });
+    await this.settings.update(
+      { shopId: input.shopId, inventoryTrackingEnabled: input.trackingEnabled },
+      userId,
+      { viaInventoryAlias: true },
+    );
     await this.audit.record({
       actorId: userId,
       action: AuditAction.INVENTORY_TRACKING_CHANGED,

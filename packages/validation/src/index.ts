@@ -164,3 +164,16 @@ export {
   updatePurchaseOrderPaymentSchema,
   type UpdatePurchaseOrderPaymentInput,
 } from "./purchase-orders/index.js";
+export {
+  AUTOMATION_SETTING_KEYS,
+  BUSINESS_SETTING_KEYS,
+  WEEKDAYS,
+  getShopSettingsQuerySchema,
+  notificationSettingsSchema,
+  operatingHoursSchema,
+  updateShopSettingsSchema,
+  type GetShopSettingsQueryInput,
+  type NotificationSettings,
+  type OperatingHours,
+  type UpdateShopSettingsInput,
+} from "./shop-settings/index.js";
