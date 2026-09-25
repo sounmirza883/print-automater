@@ -1,0 +1,31 @@
+{
+  "name": "@print-automated/shop-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3002",
+    "build": "next build",
+    "start": "next start --port 3002",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@print-automated/api-client": "workspace:*",
+    "@print-automated/config": "workspace:*",
+    "@print-automated/design-tokens": "workspace:*",
+    "@print-automated/types": "workspace:*",
+    "@print-automated/validation": "workspace:*",
+    "next": "15",
+    "react": "19",
+    "react-dom": "19"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4",
+    "@types/react": "19",
+    "@types/react-dom": "19",
+    "postcss": "^8.5.28",
+    "tailwindcss": "4"
+  }
+}

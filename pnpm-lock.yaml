@@ -234,6 +234,49 @@ importers:
         specifier: ~19.2.2
         version: 19.2.18
 
+  apps/shop-web:
+    dependencies:
+      '@print-automated/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@print-automated/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@print-automated/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
+      '@print-automated/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      '@print-automated/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
+      next:
+        specifier: '15'
+        version: 15.5.25(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@22.20.2)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react:
+        specifier: '19'
+        version: 19.2.3
+      react-dom:
+        specifier: '19'
+        version: 19.2.3(react@19.2.3)
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: '4'
+        version: 4.3.3
+      '@types/react':
+        specifier: '19'
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: '19'
+        version: 19.3.0(@types/react@19.2.18)
+      postcss:
+        specifier: ^8.5.28
+        version: 8.5.28
+      tailwindcss:
+        specifier: '4'
+        version: 4.3.3
+
   packages/api-client:
     dependencies:
       '@print-automated/types':

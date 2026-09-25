@@ -8,6 +8,7 @@ import eslintConfigPrettier from "eslint-config-prettier";
 const REACT_APP_FILES = [
   "apps/customer-web/**/*.{ts,tsx}",
   "apps/marketing-web/**/*.{ts,tsx}",
+  "apps/shop-web/**/*.{ts,tsx}",
   "apps/shop-mobile/**/*.{ts,tsx}",
 ];
 

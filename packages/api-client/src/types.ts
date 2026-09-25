@@ -136,4 +136,7 @@ export interface PrinterResponse {
 export interface MyShopMembership {
   id: string;
   name: string;
+  /** The caller's EFFECTIVE role at this business (`ShopStaff.role`), which
+   * is what decides what they may do there -- not the account-level role. */
+  role: UserRole;
 }
