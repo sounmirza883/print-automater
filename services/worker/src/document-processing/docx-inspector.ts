@@ -1,8 +1,8 @@
 import { inflateRawSync } from "node:zlib";
 import { DocumentRejectedError } from "./document-rejected.error.js";
 import { RejectionReason } from "./rejection-reason.js";
-import { decodeXmlBytes, XmlParseError } from "./strict-xml.js";
-import { scanRelationshipsPart, scanWordPart } from "./docx-external-content.js";
+import { localName } from "./strict-xml.js";
+import { guardXml, scanRelationshipsPart, scanWordPart } from "./docx-external-content.js";
 
 /** 21.10 zip-bomb / structure limits. Every cap is enforced on MEASURED
  * inflation, not on the sizes the archive declares about itself (a
@@ -25,7 +25,8 @@ const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
 const LOCAL_SIGNATURE = 0x04034b50;
 
-const WORD_MAIN_CONTENT_TYPE = "wordprocessingml.document.main+xml";
+const WORD_MAIN_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
 
 interface ZipEntry {
   name: string;
@@ -54,6 +55,16 @@ export function inspectDocx(buffer: Buffer): void {
   if (entries.some((entry) => (entry.flags & 1) !== 0)) {
     reject(RejectionReason.PASSWORD_PROTECTED);
   }
+  // 21.13: no duplicate names (a second "word/document.xml" could show the
+  // gate one part and LibreOffice another), local headers must agree with
+  // the central directory, and no two entries may share bytes.
+  const seen = new Set<string>();
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) reject(RejectionReason.CORRUPT_FILE);
+    seen.add(key);
+  }
+  validateLocalHeaders(buffer, entries);
   const declaredTotal = entries.reduce((sum, entry) => sum + entry.uncompressedSize, 0);
   if (declaredTotal > DOCX_LIMITS.maxTotalUncompressedBytes) {
     reject(RejectionReason.ARCHIVE_TOO_LARGE);
@@ -65,7 +76,8 @@ export function inspectDocx(buffer: Buffer): void {
   // Inflate everything once, against a shared budget, keeping only the
   // content-types part; .rels and word/ parts are scanned as they inflate.
   let budget = DOCX_LIMITS.maxTotalUncompressedBytes;
-  let contentTypes = "";
+  let contentTypesBytes: Buffer | null = null;
+  let rootRelsBytes: Buffer | null = null;
   for (const entry of entries) {
     const data = inflateEntry(buffer, entry, budget);
     budget -= data.length;
@@ -78,31 +90,119 @@ export function inspectDocx(buffer: Buffer): void {
     const lower = entry.name.toLowerCase();
     if (entry.name === "[Content_Types].xml") {
       if (data.length > DOCX_LIMITS.maxXmlPartBytes) reject(RejectionReason.ARCHIVE_TOO_LARGE);
-      try {
-        contentTypes = decodeXmlBytes(data).text;
-      } catch (error) {
-        if (error instanceof XmlParseError) reject(RejectionReason.CORRUPT_FILE);
-        throw error;
-      }
+      contentTypesBytes = data;
     } else if (lower.endsWith(".rels")) {
       if (data.length > DOCX_LIMITS.maxXmlPartBytes) reject(RejectionReason.ARCHIVE_TOO_LARGE);
       scanRelationshipsPart(data);
+      if (lower === "_rels/.rels") rootRelsBytes = data;
     } else if (lower.startsWith("word/") && lower.endsWith(".xml")) {
       if (data.length > DOCX_LIMITS.maxWordPartBytes) reject(RejectionReason.ARCHIVE_TOO_LARGE);
       scanWordPart(data);
     }
   }
 
-  if (/macroEnabled|vbaProject/i.test(contentTypes)) {
+  if (!contentTypesBytes || !rootRelsBytes) reject(RejectionReason.INVALID_FILE_TYPE);
+
+  const { defaults, overrides } = parseContentTypes(contentTypesBytes);
+  const declaredTypes = [...defaults.values(), ...overrides.values()];
+  if (declaredTypes.some((type) => /macroEnabled|vbaProject/i.test(type))) {
     reject(RejectionReason.MACRO_ENABLED_DOCUMENT);
   }
-  // xlsx (xl/), pptx (ppt/), templates and anything else that is not a
-  // plain wordprocessing document.
-  if (
-    !names.some((name) => name.startsWith("word/")) ||
-    !contentTypes.includes(WORD_MAIN_CONTENT_TYPE)
-  ) {
+
+  // The main part is whatever the package's officeDocument relationship
+  // names, and it must be a plain Word document under word/ (so the scanned
+  // parts are the ones LibreOffice will read). xlsx, pptx and templates fail here.
+  const mainPart = resolveMainPart(rootRelsBytes);
+  const mainKey = mainPart.toLowerCase();
+  if (!mainKey.startsWith("word/") || !seen.has(mainKey)) {
     reject(RejectionReason.INVALID_FILE_TYPE);
+  }
+  const extension = mainKey.slice(mainKey.lastIndexOf(".") + 1);
+  const mainType = overrides.get(`/${mainKey}`) ?? defaults.get(extension);
+  if (mainType !== WORD_MAIN_CONTENT_TYPE) {
+    reject(RejectionReason.INVALID_FILE_TYPE);
+  }
+}
+
+/** Parsed (strict XML) content types: Default by extension, Override by part. */
+function parseContentTypes(bytes: Buffer): {
+  defaults: Map<string, string>;
+  overrides: Map<string, string>;
+} {
+  const defaults = new Map<string, string>();
+  const overrides = new Map<string, string>();
+  guardXml(bytes, {
+    onOpen(qname, attrs) {
+      const name = localName(qname).toLowerCase();
+      if (name !== "default" && name !== "override") return;
+      let key = "";
+      let type = "";
+      for (const [attributeName, value] of attrs) {
+        const attribute = localName(attributeName).toLowerCase();
+        if (attribute === "extension" || attribute === "partname") key = value.toLowerCase();
+        if (attribute === "contenttype") type = value;
+      }
+      if (name === "default") defaults.set(key, type);
+      else overrides.set(key, type);
+    },
+  });
+  return { defaults, overrides };
+}
+
+/** Target of the package's officeDocument relationship, as a part name
+ * without a leading slash. Missing, duplicated or external -> not a DOCX. */
+function resolveMainPart(rootRels: Buffer): string {
+  const targets: string[] = [];
+  guardXml(rootRels, {
+    onOpen(qname, attrs) {
+      if (localName(qname).toLowerCase() !== "relationship") return;
+      let type = "";
+      let target = "";
+      let mode = "";
+      for (const [attributeName, value] of attrs) {
+        const attribute = localName(attributeName).toLowerCase();
+        if (attribute === "type") type = value.toLowerCase();
+        if (attribute === "target") target = value;
+        if (attribute === "targetmode") mode = value.toLowerCase();
+      }
+      if (type.endsWith("/officedocument")) {
+        if (mode === "external") reject(RejectionReason.EXTERNAL_CONTENT);
+        targets.push(target);
+      }
+    },
+  });
+  if (targets.length !== 1) reject(RejectionReason.INVALID_FILE_TYPE);
+  return targets[0]!.replace(/^\/+/, "");
+}
+
+/** Local file headers must match the central directory (name, and sizes
+ * unless a data descriptor is used), and stored data ranges must not overlap. */
+function validateLocalHeaders(buffer: Buffer, entries: ZipEntry[]): void {
+  const ranges: Array<[number, number]> = [];
+  for (const entry of entries) {
+    const header = entry.localOffset;
+    if (header + 30 > buffer.length || buffer.readUInt32LE(header) !== LOCAL_SIGNATURE) {
+      reject(RejectionReason.CORRUPT_FILE);
+    }
+    const nameLength = buffer.readUInt16LE(header + 26);
+    const extraLength = buffer.readUInt16LE(header + 28);
+    const localName = buffer.toString("utf8", header + 30, header + 30 + nameLength);
+    if (localName !== entry.name) reject(RejectionReason.CORRUPT_FILE);
+    if ((buffer.readUInt16LE(header + 6) & 8) === 0) {
+      if (
+        buffer.readUInt32LE(header + 18) !== entry.compressedSize ||
+        buffer.readUInt32LE(header + 22) !== entry.uncompressedSize
+      ) {
+        reject(RejectionReason.CORRUPT_FILE);
+      }
+    }
+    const end = header + 30 + nameLength + extraLength + entry.compressedSize;
+    if (end > buffer.length) reject(RejectionReason.CORRUPT_FILE);
+    ranges.push([header, end]);
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < ranges.length; i += 1) {
+    if (ranges[i]![0] < ranges[i - 1]![1]) reject(RejectionReason.CORRUPT_FILE);
   }
 }
 

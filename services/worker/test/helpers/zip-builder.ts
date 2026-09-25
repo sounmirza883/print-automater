@@ -25,6 +25,12 @@ export interface ZipEntrySpec {
   declaredUncompressedSize?: number;
   /** General-purpose flags; bit 0 marks the entry encrypted. */
   flags?: number;
+  /** Name written into the LOCAL header when it should differ from the central one. */
+  localName?: string;
+  /** Compressed size written into the LOCAL header when it should differ. */
+  localCompressedSize?: number;
+  /** Local-header offset written into the CENTRAL entry (overlap fixtures). */
+  centralLocalOffset?: number;
 }
 
 /** Minimal zip writer for tests: enough of the format for the DOCX
@@ -38,6 +44,7 @@ export function buildZip(entries: ZipEntrySpec[]): Buffer {
     const method = entry.method ?? 8;
     const body = method === 8 ? deflateRawSync(raw) : raw;
     const name = Buffer.from(entry.name, "utf8");
+    const localNameBuf = Buffer.from(entry.localName ?? entry.name, "utf8");
     const flags = entry.flags ?? 0;
     const declared = entry.declaredUncompressedSize ?? raw.length;
     const crc = crc32(raw);
@@ -48,10 +55,10 @@ export function buildZip(entries: ZipEntrySpec[]): Buffer {
     local.writeUInt16LE(flags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(entry.localCompressedSize ?? body.length, 18);
     local.writeUInt32LE(declared, 22);
-    local.writeUInt16LE(name.length, 26);
-    locals.push(local, name, body);
+    local.writeUInt16LE(localNameBuf.length, 26);
+    locals.push(local, localNameBuf, body);
 
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
@@ -63,10 +70,10 @@ export function buildZip(entries: ZipEntrySpec[]): Buffer {
     central.writeUInt32LE(body.length, 20);
     central.writeUInt32LE(declared, 24);
     central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(offset, 42);
+    central.writeUInt32LE(entry.centralLocalOffset ?? offset, 42);
     centrals.push(central, name);
 
-    offset += 30 + name.length + body.length;
+    offset += 30 + localNameBuf.length + body.length;
   }
   const centralBuf = Buffer.concat(centrals);
   const eocd = Buffer.alloc(22);

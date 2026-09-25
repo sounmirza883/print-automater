@@ -1,11 +1,43 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DocxConversionError, type DocxConverter } from "./docx-converter.js";
 
 /** Upper bound on the PDF LibreOffice may produce for one document. */
 const MAX_OUTPUT_PDF_BYTES = 100 * 1024 * 1024;
+/** Room for LibreOffice's own profile/caches inside the job dir. */
+const PROFILE_BUDGET_BYTES = 100 * 1024 * 1024;
+const DEFAULT_POLL_MS = 250;
+
+/** One conversion at a time for the WHOLE process, not per converter
+ * instance: LibreOffice is heavy and its profile handling is not
+ * concurrency-friendly, and the /tmp tmpfs is sized for one job. The
+ * document-processing BullMQ worker also runs with concurrency 1. */
+let processWideTail: Promise<unknown> = Promise.resolve();
+
+/** Total size in bytes of every file under `dir` (best effort while files change). */
+async function directorySize(dir: string): Promise<number> {
+  let total = 0;
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await directorySize(full);
+    else {
+      try {
+        total += (await stat(full)).size;
+      } catch {
+        // file vanished between readdir and stat
+      }
+    }
+  }
+  return total;
+}
 
 export interface SofficeOptions {
   /** DOCX_CONVERSION_ENABLED. When false every call is UNAVAILABLE. */
@@ -16,6 +48,13 @@ export interface SofficeOptions {
   timeoutMs: number;
   /** Where per-job directories are made (default: the OS temp dir). */
   tmpRoot?: string;
+  /** Kill the converter and fail the job if the job dir (input + output +
+   * profile) grows beyond this while it runs. Default: input size + the
+   * 100 MB PDF cap + a 100 MB profile budget, which the prod compose
+   * /tmp tmpfs (512m) is sized to hold for the one job that runs at a time. */
+  maxJobDirBytes?: number;
+  /** How often the job dir size is checked while running (default 250 ms). */
+  pollMs?: number;
   /** Test seam: arguments placed before the real ones, so a test can run
    * `node fake-soffice.js <args>`. Always empty in production. */
   binaryArgsPrefix?: string[];
@@ -72,14 +111,12 @@ export function buildSofficeArgs(profileDir: string, outDir: string, inputPath: 
  * the worker where the container cannot reach the internet (see
  * docker-compose.prod.yml notes); this class cannot enforce that alone. */
 export class SofficeDocxConverter implements DocxConverter {
-  private tail: Promise<unknown> = Promise.resolve();
-
   constructor(private readonly options: SofficeOptions) {}
 
   convert(docx: Buffer): Promise<Buffer> {
     // Serialise, and keep the chain alive whatever a single job does.
-    const run = this.tail.then(() => this.convertNow(docx));
-    this.tail = run.catch(() => undefined);
+    const run = processWideTail.then(() => this.convertNow(docx));
+    processWideTail = run.catch(() => undefined);
     return run;
   }
 
@@ -101,7 +138,11 @@ export class SofficeDocxConverter implements DocxConverter {
         REGISTRY_MODIFICATIONS,
       );
 
-      await this.run(buildSofficeArgs(profileDir, outDir, inputPath), jobDir);
+      await this.run(
+        buildSofficeArgs(profileDir, outDir, inputPath),
+        jobDir,
+        this.options.maxJobDirBytes ?? docx.length + MAX_OUTPUT_PDF_BYTES + PROFILE_BUDGET_BYTES,
+      );
 
       const outputPath = path.join(outDir, "input.pdf");
       let size: number;
@@ -126,7 +167,7 @@ export class SofficeDocxConverter implements DocxConverter {
     }
   }
 
-  private run(args: string[], jobDir: string): Promise<void> {
+  private run(args: string[], jobDir: string, maxJobDirBytes: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const isWindows = process.platform === "win32";
       const child = spawn(
@@ -147,6 +188,7 @@ export class SofficeDocxConverter implements DocxConverter {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearInterval(poller);
         if (error) reject(error);
         else resolve();
       };
@@ -160,6 +202,28 @@ export class SofficeDocxConverter implements DocxConverter {
           ),
         );
       }, this.options.timeoutMs);
+
+      // 21.13: enforce the disk budget WHILE the converter runs.
+      let polling = false;
+      const poller = setInterval(() => {
+        if (polling || settled) return;
+        polling = true;
+        void directorySize(jobDir)
+          .then((size) => {
+            if (size > maxJobDirBytes && !settled) {
+              killTree(child.pid, isWindows);
+              finish(
+                new DocxConversionError(
+                  "FAILED",
+                  `The conversion exceeded its ${maxJobDirBytes} byte disk budget and was killed.`,
+                ),
+              );
+            }
+          })
+          .finally(() => {
+            polling = false;
+          });
+      }, this.options.pollMs ?? DEFAULT_POLL_MS);
 
       child.on("error", (error: NodeJS.ErrnoException) => {
         finish(

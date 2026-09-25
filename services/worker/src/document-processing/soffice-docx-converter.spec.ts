@@ -40,13 +40,20 @@ describe("SofficeDocxConverter (fake soffice: behaviour of the sandbox wrapper)"
 
   const make = (
     prefix: string[],
-    overrides: Partial<{ timeoutMs: number; enabled: boolean }> = {},
+    overrides: Partial<{
+      timeoutMs: number;
+      enabled: boolean;
+      maxJobDirBytes: number;
+      pollMs: number;
+    }> = {},
   ) =>
     new SofficeDocxConverter({
       enabled: overrides.enabled ?? true,
       binary: process.execPath,
       binaryArgsPrefix: prefix,
       timeoutMs: overrides.timeoutMs ?? 10_000,
+      maxJobDirBytes: overrides.maxJobDirBytes,
+      pollMs: overrides.pollMs ?? 50,
       tmpRoot,
     });
 
@@ -149,6 +156,34 @@ describe("SofficeDocxConverter (fake soffice: behaviour of the sandbox wrapper)"
     const started = Date.now();
     await Promise.all([converter.convert(buildDocx()), converter.convert(buildDocx())]);
     // Serial: at least two full runs. Parallel would finish in ~400 ms.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(780);
+  }, 20_000);
+
+  it("21.13: kills the converter and fails the job when the job dir outgrows its budget, while it is still running", async () => {
+    const prefix = writeFake(
+      scratch,
+      "fill.js",
+      `fs.writeFileSync(path.join(outdir, "big.bin"), Buffer.alloc(3 * 1024 * 1024));
+setInterval(() => {}, 1000);`,
+    );
+    const started = Date.now();
+    const converter = make(prefix, { maxJobDirBytes: 1024 * 1024, timeoutMs: 20_000 });
+    expect(await failureOf(converter.convert(buildDocx()))).toBe("FAILED");
+    // Stopped by the size poll, not by the 20 s timeout.
+    expect(Date.now() - started).toBeLessThan(8000);
+    expect(readdirSync(tmpRoot)).toEqual([]);
+  }, 20_000);
+
+  it("21.13: the serialisation is process-wide: two converter INSTANCES never run at once", async () => {
+    const prefix = writeFake(
+      scratch,
+      "slow2.js",
+      `setTimeout(() => { fs.writeFileSync(path.join(outdir, "input.pdf"), ${JSON.stringify(FAKE_PDF)}); }, 400);`,
+    );
+    const a = make(prefix);
+    const b = make(prefix);
+    const started = Date.now();
+    await Promise.all([a.convert(buildDocx()), b.convert(buildDocx())]);
     expect(Date.now() - started).toBeGreaterThanOrEqual(780);
   }, 20_000);
 

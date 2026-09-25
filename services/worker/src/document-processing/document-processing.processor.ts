@@ -4,7 +4,9 @@ import type { Job } from "bullmq";
 import { QUEUE_NAMES, type DocumentProcessingJob } from "@print-automated/backend-shared";
 import { DocumentProcessingService } from "./document-processing.service.js";
 
-@Processor(QUEUE_NAMES.DOCUMENT_PROCESSING)
+// concurrency 1 is BullMQ's default; stated explicitly because DOCX
+// conversion (LibreOffice) must never run twice at once in this process.
+@Processor(QUEUE_NAMES.DOCUMENT_PROCESSING, { concurrency: 1 })
 export class DocumentProcessingProcessor extends WorkerHost {
   private readonly logger = new Logger(DocumentProcessingProcessor.name);
 
