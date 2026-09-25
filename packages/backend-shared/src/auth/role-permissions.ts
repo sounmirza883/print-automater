@@ -25,6 +25,9 @@ import { Permission } from "@print-automated/types";
  *   - Settings (22.1): VIEW_SETTINGS for SHOP_MANAGER/SHOP_OWNER; MANAGE_AUTOMATION
  *     (automation toggles, printer rules) for both; MANAGE_SETTINGS (business
  *     details) stays owner-only.
+ *   - Dashboards (23.2): VIEW_DASHBOARD (revenue etc.) is owner/manager only;
+ *     VIEW_OPERATOR_DASHBOARD and VIEW_PRINTER_DASHBOARD go to the production
+ *     roles (operator, printer manager) plus manager/owner; counter gets none.
  *   - PRINTER_MANAGER: owns the printer fleet -- MANAGE_PRINTERS and
  *     ASSIGN_JOBS, plus VIEW_ORDERS to see what's queued; no order
  *     editing, pricing, or staff management.
@@ -48,6 +51,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.RECORD_JOB_FAILURE,
     Permission.QUALITY_CHECK,
     Permission.VIEW_INVENTORY,
+    Permission.VIEW_OPERATOR_DASHBOARD,
+    Permission.VIEW_PRINTER_DASHBOARD,
   ],
   PRINTER_MANAGER: [
     Permission.VIEW_ORDERS,
@@ -58,6 +63,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.QUALITY_CHECK,
     Permission.REPRINT_JOBS,
     Permission.VIEW_INVENTORY,
+    Permission.VIEW_OPERATOR_DASHBOARD,
+    Permission.VIEW_PRINTER_DASHBOARD,
   ],
   SHOP_MANAGER: [
     Permission.VIEW_ORDERS,
@@ -79,6 +86,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.MANAGE_USERS,
     Permission.VIEW_SETTINGS,
     Permission.MANAGE_AUTOMATION,
+    Permission.VIEW_DASHBOARD,
+    Permission.VIEW_OPERATOR_DASHBOARD,
+    Permission.VIEW_PRINTER_DASHBOARD,
   ],
   SHOP_OWNER: [
     Permission.VIEW_ORDERS,
@@ -101,6 +111,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.MANAGE_SETTINGS,
     Permission.VIEW_SETTINGS,
     Permission.MANAGE_AUTOMATION,
+    Permission.VIEW_DASHBOARD,
+    Permission.VIEW_OPERATOR_DASHBOARD,
+    Permission.VIEW_PRINTER_DASHBOARD,
   ],
   ADMIN: Object.values(Permission),
 };

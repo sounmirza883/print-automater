@@ -3,6 +3,8 @@ import { UserRole } from "@prisma/client";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
+import type { AdminDashboardResponse } from "@print-automated/types";
+import { AdminDashboardService } from "./admin-dashboard.service.js";
 import { AdminListQueryDto } from "./dto/admin-list-query.dto.js";
 import { AdminAuditQueryDto } from "./dto/admin-audit-query.dto.js";
 import {
@@ -23,7 +25,16 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly adminDashboard: AdminDashboardService,
+  ) {}
+
+  /** 23.2 (§42): platform-wide dashboard. Reuses this controller's ADMIN-only gate. */
+  @Get("dashboard")
+  dashboard(): Promise<AdminDashboardResponse> {
+    return this.adminDashboard.get();
+  }
 
   @Get("businesses")
   listBusinesses(

@@ -108,4 +108,21 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
       }
     }
   });
+  it("dashboards (23.2): business dashboard is owner/manager only; operator and printer dashboards go to the production roles; counter and customers get none", () => {
+    for (const role of ["SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_DASHBOARD");
+    }
+    for (const role of ["OPERATOR", "PRINTER_MANAGER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_DASHBOARD");
+    }
+    for (const role of ["OPERATOR", "PRINTER_MANAGER", "SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_OPERATOR_DASHBOARD");
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_PRINTER_DASHBOARD");
+    }
+    for (const role of ["SHOP_COUNTER", "CUSTOMER", "SUPPLIER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_DASHBOARD");
+      expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_OPERATOR_DASHBOARD");
+      expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_PRINTER_DASHBOARD");
+    }
+  });
 });

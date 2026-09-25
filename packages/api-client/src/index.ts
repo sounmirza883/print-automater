@@ -18,6 +18,7 @@ export {
   type UpdatePrinterInput,
 } from "./resources/printers.resource.js";
 export { ShopStaffResource } from "./resources/shop-staff.resource.js";
+export { DashboardResource } from "./resources/dashboard.resource.js";
 export type {
   AuthTokens,
   AuthUser,

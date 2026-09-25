@@ -320,6 +320,7 @@ model AuditLog {
 
   @@index([resourceType, resourceId])
   @@index([actorId])
+  @@index([action, createdAt])
   @@map("audit_logs")
 }
 
@@ -481,6 +482,9 @@ model Order {
   @@index([orderStatus])
   @@index([customerId])
   @@index([customerRecordId])
+  // 23.2: per-shop aggregates (dashboards, reports, search).
+  @@index([shopId, orderStatus])
+  @@index([shopId, createdAt])
   @@map("orders")
 }
 
@@ -655,6 +659,7 @@ model Payment {
 
   @@index([orderId])
   @@index([status])
+  @@index([status, updatedAt])
   @@map("payments")
 }
 
@@ -899,6 +904,9 @@ model PrintJob {
   @@index([printerId])
   @@index([orderItemId])
   @@index([operatorId])
+  // 23.2: per-shop job aggregates by status and completion time; the operator's own queue.
+  @@index([shopId, status, updatedAt])
+  @@index([operatorId, status])
   @@map("print_jobs")
 }
 

@@ -191,3 +191,12 @@ export {
   type ReorderPrinterRulesInput,
   type UpdatePrinterRuleInput,
 } from "./printer-rules/index.js";
+export {
+  MAX_DASHBOARD_RANGE_DAYS,
+  shopDashboardQuerySchema,
+  type ShopDashboardQueryInput,
+  ownerDashboardQuerySchema,
+  type OwnerDashboardQueryInput,
+  operatorDashboardQuerySchema,
+  type OperatorDashboardQueryInput,
+} from "./dashboard/index.js";

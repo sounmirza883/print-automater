@@ -28,3 +28,12 @@ export {
 export type { PageSelection, PrintConfiguration } from "./print-configuration.js";
 export type { ApiError } from "./api-error.js";
 export type { PrinterCapabilities } from "./printer-capabilities.js";
+export type {
+  DashboardOrderGroups,
+  OwnerDashboardResponse,
+  DashboardJob,
+  OperatorDashboardResponse,
+  DashboardPrinter,
+  PrinterDashboardResponse,
+  AdminDashboardResponse,
+} from "./dashboard.js";

@@ -40,6 +40,13 @@ export const Permission = {
    * to switch automation off and run the floor by hand (§122), while business-level
    * configuration keeps the 16.3 owner/manager boundary. */
   MANAGE_AUTOMATION: "MANAGE_AUTOMATION",
+  /** 23.2 (§39): the business-owner dashboard (revenue, order counts, alerts). Owner
+   * and manager only: it carries revenue, which counter staff and operators do not see. */
+  VIEW_DASHBOARD: "VIEW_DASHBOARD",
+  /** 23.2 (§40): the operator's own production dashboard (my queue, blocked jobs). */
+  VIEW_OPERATOR_DASHBOARD: "VIEW_OPERATOR_DASHBOARD",
+  /** 23.2 (§41): the per-printer dashboard (status, queue, page allowance). */
+  VIEW_PRINTER_DASHBOARD: "VIEW_PRINTER_DASHBOARD",
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];

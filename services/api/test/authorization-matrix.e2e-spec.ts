@@ -680,4 +680,66 @@ describe("Authorization matrix (12.1, e2e)", () => {
       expect(res.status).toBe(200);
     });
   });
+  // ---------------------------------------------------------------
+  // Phase 23 surfaces (dashboards, reports, search, notification centre).
+  // Table-driven: every route x {owner, manager, counter} of shop A x
+  // {shop B staff, admin, anonymous}. Each cell is asserted.
+  // ---------------------------------------------------------------
+  describe("phase 23 read surfaces", () => {
+    type Cell = { owner: number; manager: number; counter: number };
+    const SHOP_ROUTES: Array<{ name: string; path: string; expected: Cell }> = [
+      {
+        name: "owner dashboard",
+        path: "/v1/shop/dashboard/owner",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "operator dashboard",
+        path: "/v1/shop/dashboard/operator",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
+        name: "printer dashboard",
+        path: "/v1/shop/dashboard/printers",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+    ];
+
+    describe.each(SHOP_ROUTES)("$name", ({ path, expected }) => {
+      const get = (token: string | null, shopId: string) => {
+        const r = request(app.getHttpServer()).get(path).query({ shopId });
+        return token ? r.set("Authorization", `Bearer ${token}`) : r;
+      };
+      it.each([
+        [UserRole.SHOP_OWNER, "owner"],
+        [UserRole.SHOP_MANAGER, "manager"],
+        [UserRole.SHOP_COUNTER, "counter"],
+      ] as const)("shop A %s -> its own shop", async (role, key) => {
+        expect((await get(staffTokens.A![role]!, shopA.id)).status).toBe(expected[key]);
+      });
+      it.each(SHOP_STAFF_ROLES)("shop B %s -> shop A is always 403", async (role) => {
+        expect((await get(staffTokens.B![role]!, shopA.id)).status).toBe(403);
+      });
+      it("admin (no shop membership) and customer -> 403; anonymous -> 401", async () => {
+        expect((await get(adminToken, shopA.id)).status).toBe(403);
+        expect((await get(customerOwnerToken, shopA.id)).status).toBe(403);
+        expect((await get(null, shopA.id)).status).toBe(401);
+      });
+    });
+
+    it("admin dashboard: ADMIN 200; every shop role and customer 403; anonymous 401", async () => {
+      const get = (token: string | null) => {
+        const r = request(app.getHttpServer()).get("/v1/admin/dashboard");
+        return token ? r.set("Authorization", `Bearer ${token}`) : r;
+      };
+      expect((await get(adminToken)).status).toBe(200);
+      for (const label of ["A", "B"] as const) {
+        for (const role of SHOP_STAFF_ROLES) {
+          expect((await get(staffTokens[label]![role]!)).status).toBe(403);
+        }
+      }
+      expect((await get(customerOwnerToken)).status).toBe(403);
+      expect((await get(null)).status).toBe(401);
+    });
+  });
 });
