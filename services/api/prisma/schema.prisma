@@ -460,6 +460,8 @@ model Order {
   customerRecord Customer?      @relation(fields: [customerRecordId], references: [id], onDelete: SetNull)
   shop           Shop           @relation(fields: [shopId], references: [id])
   document       Document       @relation(fields: [documentId], references: [id])
+  // 21.5: the optional delivery record.
+  delivery       OrderDelivery?
   payments       Payment[]
   notifications  Notification[]
   printJobs      PrintJob[]
@@ -931,6 +933,39 @@ model OrderItem {
   @@index([orderId])
   @@index([documentId])
   @@map("order_items")
+}
+
+// 21.5 (PRD 71). Mirrored in packages/types (enum-mirror.spec.ts).
+enum DeliveryStatus {
+  PENDING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+// 21.5 (PRD 71). The optional delivery workflow: at most one record per order.
+// The fee is recorded only (a price change never alters a confirmed order, so
+// the order's pricing snapshot is never touched). shop_id is a plain column, like
+// print_jobs.shop_id.
+model OrderDelivery {
+  id             String         @id @default(uuid())
+  orderId        String         @unique @map("order_id")
+  shopId         String         @map("shop_id")
+  status         DeliveryStatus @default(PENDING)
+  address        String
+  courier        String?
+  trackingNumber String?        @map("tracking_number")
+  feeMinor       Int            @default(0) @map("fee_minor")
+  dispatchedAt   DateTime?      @map("dispatched_at")
+  deliveredAt    DateTime?      @map("delivered_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status])
+  @@map("order_deliveries")
 }
 
 // 21.4 (PRD 67). Mirrored in packages/types (enum-mirror.spec.ts).

@@ -28,6 +28,7 @@ export type {
   OrderStatus,
   PaymentStatus,
   JobFailureReason,
+  DeliveryStatus,
   ReprintReason,
   ShopRejectionReason,
   ShopOrderResponse,

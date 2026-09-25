@@ -32,7 +32,12 @@ import { Permission } from "@print-automated/types";
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   CUSTOMER: [],
   SUPPLIER: [],
-  SHOP_COUNTER: [Permission.VIEW_ORDERS, Permission.CREATE_ORDERS, Permission.EDIT_ORDERS],
+  SHOP_COUNTER: [
+    Permission.VIEW_ORDERS,
+    Permission.CREATE_ORDERS,
+    Permission.EDIT_ORDERS,
+    Permission.MANAGE_DELIVERY,
+  ],
   OPERATOR: [
     Permission.VIEW_ORDERS,
     Permission.ASSIGN_JOBS,
@@ -61,6 +66,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.RECORD_JOB_FAILURE,
     Permission.QUALITY_CHECK,
     Permission.REPRINT_JOBS,
+    Permission.MANAGE_DELIVERY,
     Permission.MANAGE_PRINTERS,
     Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,
@@ -79,6 +85,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.RECORD_JOB_FAILURE,
     Permission.QUALITY_CHECK,
     Permission.REPRINT_JOBS,
+    Permission.MANAGE_DELIVERY,
     Permission.MANAGE_PRINTERS,
     Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,

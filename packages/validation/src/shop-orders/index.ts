@@ -7,6 +7,13 @@ export {
   qualityCheckSchema,
   type QualityCheckInput,
 } from "./quality-check.schema.js";
+export {
+  DELIVERY_TARGET_STATUSES,
+  deliveryStatusSchema,
+  saveDeliverySchema,
+  type DeliveryStatusInput,
+  type SaveDeliveryInput,
+} from "./delivery.schema.js";
 export { rejectOrderSchema, type RejectOrderInput } from "./reject-order.schema.js";
 export { changePrinterSchema, type ChangePrinterInput } from "./change-printer.schema.js";
 export {

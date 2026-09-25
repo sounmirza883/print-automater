@@ -118,6 +118,9 @@ export async function createPhase19Fixture(
       await step("payments", () =>
         prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } }),
       );
+      await step("order_deliveries", () =>
+        prisma.orderDelivery.deleteMany({ where: { orderId: { in: orderIds } } }),
+      );
       await step("order_items", () =>
         prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } }),
       );

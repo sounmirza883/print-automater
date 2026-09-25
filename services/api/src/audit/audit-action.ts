@@ -42,6 +42,9 @@ export const AuditAction = {
   JOB_FAILURE_REASON_RECORDED: "JOB_FAILURE_REASON_RECORDED",
   // 67/21.4: a reprint of a printed job (audit row on the NEW job).
   JOB_REPRINT_CREATED: "JOB_REPRINT_CREATED",
+  // 71/21.5: the optional delivery workflow (the address is never put in metadata).
+  DELIVERY_DETAILS_SAVED: "DELIVERY_DETAILS_SAVED",
+  DELIVERY_STATUS_CHANGED: "DELIVERY_STATUS_CHANGED",
   // 26/27/20.2. Every stock movement itself is audited by applyStockMovement as
   // INVENTORY_MOVEMENT; these two cover the item's own metadata.
   INVENTORY_ITEM_CREATED: "INVENTORY_ITEM_CREATED",

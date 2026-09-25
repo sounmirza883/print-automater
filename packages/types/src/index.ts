@@ -15,6 +15,7 @@ export {
   ShopRejectionReason,
   JobFailureReason,
   ReprintReason,
+  DeliveryStatus,
   BlockedReason,
   QualityCheckStatus,
   JobPriority,

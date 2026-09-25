@@ -27,6 +27,7 @@ import { PaymentReconciliationModule } from "./payment-reconciliation/payment-re
 import { AdminModule } from "./admin/admin.module.js";
 import { InventoryModule } from "./inventory/inventory.module.js";
 import { SuppliersModule } from "./suppliers/suppliers.module.js";
+import { DeliveriesModule } from "./deliveries/deliveries.module.js";
 import { PurchaseOrdersModule } from "./purchase-orders/purchase-orders.module.js";
 import { ProductsModule } from "./products/products.module.js";
 import { PricingRulesModule } from "./pricing-rules/pricing-rules.module.js";
@@ -82,6 +83,7 @@ import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
     ProductsModule,
     InventoryModule,
     SuppliersModule,
+    DeliveriesModule,
     PurchaseOrdersModule,
     PricingRulesModule,
     CustomersModule,

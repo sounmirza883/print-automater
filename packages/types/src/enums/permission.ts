@@ -19,6 +19,9 @@ export const Permission = {
   /** 21.4 (§67): create a reprint of a printed job. Carries a cost, so it is a
    * manager-level action (plus the printer manager), not an operator one. */
   REPRINT_JOBS: "REPRINT_JOBS",
+  /** 21.5 (§71): create and update an order's delivery details and status. Front
+   * of house (the counter) handles delivery; reading it needs only VIEW_ORDERS. */
+  MANAGE_DELIVERY: "MANAGE_DELIVERY",
   /** 20.2: read stock and movements (operators need to see paper stock;
    * counter staff do not). MANAGE_INVENTORY (change stock) implies it by
    * being granted alongside it in ROLE_PERMISSIONS. */

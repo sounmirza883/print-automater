@@ -30,6 +30,11 @@ export {
   QUALITY_CHECK_RESULTS,
   qualityCheckSchema,
   type QualityCheckInput,
+  DELIVERY_TARGET_STATUSES,
+  deliveryStatusSchema,
+  saveDeliverySchema,
+  type DeliveryStatusInput,
+  type SaveDeliveryInput,
 } from "./shop-orders/index.js";
 export {
   printerCapabilitiesSchema,

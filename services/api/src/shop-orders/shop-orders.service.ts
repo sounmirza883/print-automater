@@ -47,6 +47,7 @@ import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
+import { toDeliveryResponse, type DeliveryResponse } from "../deliveries/deliveries.service.js";
 import { ManualPaymentService } from "../payments/manual-payment.service.js";
 import { RefundService } from "../payments/refund.service.js";
 
@@ -61,6 +62,8 @@ const SHOP_ORDER_INCLUDE = {
   // customerRecord at all, so its own `customer.name` is unaffected.
   customerRecord: { select: { name: true } },
   document: { select: { filename: true } },
+  // 21.5: the optional delivery record.
+  delivery: true,
   // §37's own printing screen needs a printer name to show. 18.5:
   // `supersededAt: null` (not `take: 1, orderBy: createdAt desc`) is
   // what "the current job(s)" means once an order can hold more than
@@ -170,6 +173,8 @@ export interface ShopOrderResponse {
   printJobs: ShopOrderJobSummary[];
   // 21.3 (§68): NOT_REQUIRED unless the shop runs quality checks.
   qualityCheckStatus: string | null;
+  // 21.5 (§71): the optional delivery record, null when the order has none.
+  delivery: DeliveryResponse | null;
 }
 
 export interface ShopOrdersGrouped {
@@ -1461,6 +1466,7 @@ export class ShopOrdersService {
       createdAt: order.createdAt,
       printerName: order.printJobs[0]?.printer?.name ?? null,
       qualityCheckStatus: order.qualityCheckStatus,
+      delivery: order.delivery ? toDeliveryResponse(order.delivery) : null,
       printJobs: order.printJobs.map((job) => ({
         id: job.id,
         status: job.status,
