@@ -63,3 +63,24 @@ describe("PrintJobStateMachine (19.13): late agent reports land as UNKNOWN", () 
     }
   });
 });
+
+/** 21.1. Staff pause/resume. Never re-dispatch a job an agent may already hold:
+ * PAUSE is legal only from WAITING/QUEUED, and a resumed job either re-enters
+ * allocation (WAITING) or goes straight to a freshly validated printer (QUEUED). */
+describe("PrintJobStateMachine (21.1): pause and resume edges", () => {
+  const edges = jobTransitionEdges();
+  const pick = (event: string) =>
+    edges
+      .filter((edge) => edge.event === event)
+      .map((edge) => `${edge.from}->${edge.to}`)
+      .sort();
+
+  it("PAUSE is legal from exactly WAITING and QUEUED, never CLAIMED/PRINTING/terminal", () => {
+    expect(pick("PAUSE")).toEqual(["QUEUED->PAUSED", "WAITING->PAUSED"]);
+  });
+
+  it("RESUME and RESUME_QUEUE leave PAUSED only, to WAITING and QUEUED respectively", () => {
+    expect(pick("RESUME")).toEqual(["PAUSED->WAITING"]);
+    expect(pick("RESUME_QUEUE")).toEqual(["PAUSED->QUEUED"]);
+  });
+});

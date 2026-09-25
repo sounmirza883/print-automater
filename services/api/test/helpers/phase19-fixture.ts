@@ -283,6 +283,7 @@ export async function createPhase19Fixture(
       cleanup,
       printerIds: reg.printerIds,
       orderIds: reg.orderIds,
+      userIds: reg.userIds,
     };
   } catch (error) {
     // Creation failed midway: clean up whatever was recorded, then surface

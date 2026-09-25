@@ -54,6 +54,11 @@ export const PrintJobEvent = {
   // same printer/claim state still applies.
   PAUSE: "PAUSE",
   RESUME: "RESUME",
+  // PAUSED -> QUEUED (21.1): resume straight onto a printer the caller already
+  // validated (and re-validates under the lock via `guard`), so a resumed job
+  // never sits in WAITING with a stale reason. RESUME (-> WAITING) is the
+  // "nothing suitable right now" branch and carries a fresh blockedReason.
+  RESUME_QUEUE: "RESUME_QUEUE",
   // any non-terminal -> CANCELLED: cascades from an order-level cancel.
   CANCEL: "CANCEL",
   // WAITING|QUEUED|CLAIMED -> REASSIGNED (18.7): the OLD row's own
@@ -126,6 +131,7 @@ const JOB_TRANSITIONS: Record<PrintJobStatus, Partial<Record<PrintJobEvent, Prin
   PRINTED: {},
   PAUSED: {
     [PrintJobEvent.RESUME]: "WAITING",
+    [PrintJobEvent.RESUME_QUEUE]: "QUEUED",
     [PrintJobEvent.CANCEL]: "CANCELLED",
   },
   FAILED: { [PrintJobEvent.LATE_REPORT]: "UNKNOWN" },
@@ -453,6 +459,12 @@ export class PrintJobStateMachine {
               ...(ctx.osJobId !== undefined ? { osJobId: ctx.osJobId } : {}),
               ...(nextStatus === "CLAIMED" ? { claimedAt: ctx.now ?? new Date() } : {}),
               ...(nextStatus === "REASSIGNED" ? { supersededAt: ctx.now ?? new Date() } : {}),
+              // 21.1: pausedAt is set on entering PAUSED and cleared on leaving it.
+              ...(nextStatus === "PAUSED"
+                ? { pausedAt: ctx.now ?? new Date() }
+                : job.status === "PAUSED"
+                  ? { pausedAt: null }
+                  : {}),
             },
           });
 

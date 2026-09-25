@@ -43,6 +43,10 @@ export {
   type ReassignJobInput,
   assignOperatorSchema,
   type AssignOperatorInput,
+  pauseJobSchema,
+  type PauseJobInput,
+  resumeJobSchema,
+  type ResumeJobInput,
 } from "./print-jobs/index.js";
 export { issuePairingCodeSchema, type IssuePairingCodeInput } from "./shop-agents/index.js";
 export {

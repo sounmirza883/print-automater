@@ -28,6 +28,14 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
     expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("MANAGE_USERS");
   });
 
+  it("pause/resume (21.1): held by the production roles (same set as ASSIGN_JOBS), never SHOP_COUNTER or customers", () => {
+    for (const role of ["OPERATOR", "PRINTER_MANAGER", "SHOP_MANAGER", "SHOP_OWNER"] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("PAUSE_JOBS");
+    }
+    expect(ROLE_PERMISSIONS.SHOP_COUNTER).not.toContain("PAUSE_JOBS");
+    expect(ROLE_PERMISSIONS.CUSTOMER).not.toContain("PAUSE_JOBS");
+  });
+
   it("inventory (20.2): operators and printer managers may view, only manager/owner may manage, counter neither", () => {
     expect(ROLE_PERMISSIONS.OPERATOR).toContain("VIEW_INVENTORY");
     expect(ROLE_PERMISSIONS.PRINTER_MANAGER).toContain("VIEW_INVENTORY");

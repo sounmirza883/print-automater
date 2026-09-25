@@ -1,15 +1,19 @@
 import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, PrintJobStatus, ShopStaffStatus, UserRole } from "@prisma/client";
-import type { PrintConfiguration } from "@print-automated/types";
+import { OrderStatus, Prisma, PrintJobStatus, ShopStaffStatus, UserRole } from "@prisma/client";
+import { BlockedReason, type PrintConfiguration } from "@print-automated/types";
 import {
   allocatePrinter,
   AppException,
   AuditService,
+  buildPrinterCandidates,
   jobPages,
   logJobPagesFallback,
+  paperNeedFor,
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
+  withPaperAvailability,
+  type AllocationRequest,
   type PrinterCandidate,
 } from "@print-automated/backend-shared";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
@@ -26,6 +30,32 @@ export interface PrintJobResponse {
   priority: number;
   attempt: number;
 }
+
+/** Order statuses in which a paused job may be resumed: the derived,
+ * still-in-production ones. A closed order (cancelled, ready, completed...)
+ * must never get a job dispatched again. */
+const RESUMABLE_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
+  OrderStatus.QUEUED_FOR_PRINT,
+  OrderStatus.PRINTING,
+  OrderStatus.PRINTED,
+  OrderStatus.PRINT_FAILED,
+  OrderStatus.PRINT_STATUS_UNKNOWN,
+  OrderStatus.PREPARING,
+  OrderStatus.ASSIGNED,
+  OrderStatus.PAUSED,
+  OrderStatus.QUALITY_CHECK,
+]);
+
+type ResumePlan =
+  | {
+      kind: "QUEUE";
+      printerId: string;
+      deviceId: string | undefined;
+      request: AllocationRequest;
+      explicit: boolean;
+      need: ReturnType<typeof paperNeedFor>;
+    }
+  | { kind: "BLOCK"; blockedReason: string };
 
 /** 18.7/18.9. Every reassignment and manual operator assignment reuses
  * 16.6's own `AuditService` pattern (a plain post-write `record()` call,
@@ -268,6 +298,255 @@ export class PrintJobsService {
     });
 
     return this.toResponse(updated);
+  }
+
+  /** 21.1 (§65): staff pause. Legal only from WAITING/QUEUED (the machine's
+   * own table): a CLAIMED/PRINTING job is in an agent's hands and pausing it
+   * would only invite a duplicate, so it is a clean 409. The job is unallocated
+   * (printerId null) and its stale blockedReason cleared: resume decides both
+   * afresh. Two concurrent pauses serialise on the machine's orders-row lock;
+   * the loser finds the job PAUSED and gets ILLEGAL_JOB_TRANSITION. */
+  async pause(jobId: string, actorId: string, reason?: string): Promise<PrintJobResponse> {
+    await this.jobStateMachine.transition(
+      jobId,
+      PrintJobEvent.PAUSE,
+      { id: actorId },
+      {
+        printerId: null,
+        blockedReason: null,
+        metadata: { source: "STAFF", ...(reason ? { reason } : {}) },
+      },
+    );
+    return this.loadResponse(jobId);
+  }
+
+  /** 21.1 (§65): staff resume. Never leaves the job with the stale
+   * MANUAL_APPROVAL_REQUIRED the late-print hold (19.18) set: allocation is
+   * re-run (or the named printer validated) and the job either goes straight
+   * to QUEUED on a printer re-validated UNDER the locks, or to WAITING with the
+   * fresh reason allocation returned (visible to staff and to the recovery
+   * sweep). A job held because a late PRINTED report says its paper may
+   * already exist needs `acknowledgeLatePrint`, recorded as its own audit row
+   * in the same transaction. */
+  async resume(
+    jobId: string,
+    actorId: string,
+    opts: { printerId?: string; acknowledgeLatePrint?: boolean } = {},
+  ): Promise<PrintJobResponse> {
+    const job = await this.prisma.printJob.findUnique({
+      where: { id: jobId },
+      select: {
+        status: true,
+        orderId: true,
+        shopId: true,
+        orderItemId: true,
+        orderItem: {
+          select: {
+            documentId: true,
+            quantity: true,
+            printConfiguration: true,
+            document: { select: { pageCount: true } },
+          },
+        },
+      },
+    });
+    if (!job) {
+      throw new NotFoundException("Print job not found.");
+    }
+    if (job.status !== PrintJobStatus.PAUSED) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "ILLEGAL_JOB_TRANSITION",
+        `Cannot apply RESUME to a print job in ${job.status}.`,
+        false,
+      );
+    }
+    if (!job.orderItemId || !job.orderItem) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "JOB_NOT_RESUMABLE",
+        "This job has no order item to re-dispatch against.",
+        false,
+      );
+    }
+
+    const plan = await this.planResume(job.shopId, job.orderItem, opts.printerId);
+
+    const guard = async (
+      tx: Prisma.TransactionClient,
+      locked: { id: string; orderId: string; blockedReason: string | null },
+    ): Promise<void> => {
+      const orderRows = await tx.$queryRaw<Array<{ order_status: OrderStatus }>>`
+        SELECT order_status FROM orders WHERE id = ${locked.orderId}
+      `;
+      if (!orderRows[0] || !RESUMABLE_ORDER_STATUSES.has(orderRows[0].order_status)) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "ORDER_NOT_ACTIVE",
+          "This job's order is closed, so the job cannot be resumed.",
+          false,
+        );
+      }
+
+      // Duplicate printing is the cardinal rule: a job held by a late PRINTED
+      // report resumes only on an explicit, audited acknowledgement.
+      const hold = await tx.auditLog.findFirst({
+        where: {
+          action: "PRINT_JOB_LATE_PRINT_SUCCESSOR",
+          metadata: { path: ["successorJobId"], equals: locked.id },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, resourceId: true },
+      });
+      const ack = await tx.auditLog.findFirst({
+        where: { action: "PRINT_JOB_LATE_PRINT_ACKNOWLEDGED", resourceId: locked.id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      const heldByLatePrint =
+        locked.blockedReason === BlockedReason.MANUAL_APPROVAL_REQUIRED ||
+        (hold !== null && (ack === null || ack.createdAt < hold.createdAt));
+      if (heldByLatePrint) {
+        if (opts.acknowledgeLatePrint !== true) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "LATE_PRINT_ACK_REQUIRED",
+            "This job was held because an earlier attempt for the same item reported PRINTED late, so its paper may already exist. Check the output, then resume with acknowledgeLatePrint.",
+            false,
+          );
+        }
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: "PRINT_JOB_LATE_PRINT_ACKNOWLEDGED",
+            resourceType: "print_job",
+            resourceId: locked.id,
+            metadata: { supersededJobId: hold?.resourceId ?? null, orderId: locked.orderId },
+          },
+        });
+      }
+
+      if (plan.kind === "QUEUE") {
+        // Same re-validation the recovery sweep does: the chosen printer must
+        // still be suitable now that the job/order locks are held.
+        await tx.$queryRaw`SELECT id FROM printers WHERE id = ${plan.printerId} FOR SHARE`;
+        const fresh = await buildPrinterCandidates(tx, job.shopId, new Date());
+        const freshCandidates = plan.explicit
+          ? fresh.candidates
+          : await withPaperAvailability(tx, job.shopId, fresh.candidates, plan.need);
+        const recheck = allocatePrinter(
+          plan.request,
+          freshCandidates.filter((candidate) => candidate.id === plan.printerId),
+        );
+        if (recheck.outcome === "BLOCKED") {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "RESUME_TARGET_STALE",
+            "The chosen printer is no longer suitable; try resuming again.",
+            true,
+          );
+        }
+      }
+    };
+
+    await this.jobStateMachine.transition(
+      jobId,
+      plan.kind === "QUEUE" ? PrintJobEvent.RESUME_QUEUE : PrintJobEvent.RESUME,
+      { id: actorId },
+      plan.kind === "QUEUE"
+        ? {
+            guard,
+            printerId: plan.printerId,
+            blockedReason: null,
+            metadata: {
+              printerId: plan.printerId,
+              explicitPrinter: plan.explicit,
+              acknowledgedLatePrint: opts.acknowledgeLatePrint === true,
+            },
+          }
+        : {
+            guard,
+            printerId: null,
+            blockedReason: plan.blockedReason,
+            metadata: {
+              blockedReason: plan.blockedReason,
+              acknowledgedLatePrint: opts.acknowledgeLatePrint === true,
+            },
+          },
+    );
+
+    if (plan.kind === "QUEUE" && plan.deviceId) {
+      // Only after commit: wake the printer's agent long-poll.
+      await this.agentJobsService.notify(plan.deviceId);
+    }
+    return this.loadResponse(jobId);
+  }
+
+  private async planResume(
+    shopId: string,
+    item: {
+      documentId: string;
+      quantity: number;
+      printConfiguration: Prisma.JsonValue;
+      document: { pageCount: number | null };
+    },
+    requestedPrinterId: string | undefined,
+  ): Promise<ResumePlan> {
+    const config = item.printConfiguration as unknown as PrintConfiguration;
+    const jp = jobPages(
+      config,
+      item.document.pageCount,
+      item.quantity,
+      logJobPagesFallback({ documentId: item.documentId }),
+    );
+    const need = paperNeedFor(config, jp);
+    const built = await buildPrinterCandidates(this.prisma, shopId, new Date());
+    const request: AllocationRequest = {
+      printConfiguration: config,
+      pageCount: jp.total,
+      pagesPerCopy: jp.pagesPerCopy,
+      allowUnknownCapabilities: requestedPrinterId !== undefined,
+      requestedPrinterId,
+    };
+    // The paper gate is an automatic-path check; naming a printer overrides it.
+    const candidates =
+      requestedPrinterId === undefined
+        ? await withPaperAvailability(this.prisma, shopId, built.candidates, need)
+        : built.candidates;
+    const allocation = allocatePrinter(request, candidates);
+    if (allocation.outcome === "ALLOCATED") {
+      return {
+        kind: "QUEUE",
+        printerId: allocation.printerId,
+        deviceId: built.deviceIdsByPrinterId.get(allocation.printerId),
+        request,
+        explicit: requestedPrinterId !== undefined,
+        need,
+      };
+    }
+    if (requestedPrinterId !== undefined) {
+      const unavailable =
+        allocation.blockedReason === BlockedReason.PRINTER_DISABLED ||
+        allocation.blockedReason === BlockedReason.PRINTER_OFFLINE ||
+        !built.candidates.some((candidate) => candidate.id === requestedPrinterId);
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        unavailable ? "PRINTER_NOT_AVAILABLE" : "PRINTER_CAPABILITY_MISMATCH",
+        unavailable
+          ? "That printer is not available for this shop."
+          : "That printer cannot fulfil this job's configuration.",
+        unavailable,
+      );
+    }
+    return { kind: "BLOCK", blockedReason: allocation.blockedReason };
+  }
+
+  private async loadResponse(jobId: string): Promise<PrintJobResponse> {
+    const job = await this.prisma.printJob.findUniqueOrThrow({
+      where: { id: jobId },
+      include: { printer: { select: { name: true } } },
+    });
+    return this.toResponse(job);
   }
 
   private toResponse(job: {

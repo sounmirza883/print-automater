@@ -455,6 +455,9 @@ export class AgentJobsService implements OnModuleDestroy {
             in: [
               PrintJobStatus.WAITING,
               PrintJobStatus.QUEUED,
+              // 21.1: a successor staff already paused is held too; resume
+              // then needs the late-print acknowledgement (audit row below).
+              PrintJobStatus.PAUSED,
               PrintJobStatus.CLAIMED,
               PrintJobStatus.PRINTING,
               PrintJobStatus.PRINTED,
@@ -464,7 +467,9 @@ export class AgentJobsService implements OnModuleDestroy {
         select: { id: true, status: true },
       });
       for (const successor of successors) {
-        let held = false;
+        // An already-PAUSED successor cannot dispatch; the audit row below is
+        // what makes its later resume require an acknowledgement.
+        let held = successor.status === PrintJobStatus.PAUSED;
         let foundStatus: PrintJobStatus = successor.status;
         if (
           successor.status === PrintJobStatus.WAITING ||

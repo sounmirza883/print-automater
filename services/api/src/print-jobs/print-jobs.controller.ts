@@ -18,7 +18,9 @@ import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped } from "../auth/shop-scoped.decorator.js";
 import { AssignOperatorDto } from "./dto/assign-operator.dto.js";
+import { PauseJobDto } from "./dto/pause-job.dto.js";
 import { ReassignJobDto } from "./dto/reassign-job.dto.js";
+import { ResumeJobDto } from "./dto/resume-job.dto.js";
 import { PrintJobShopResolver } from "./print-job-shop.resolver.js";
 import { PrintJobsService, type PrintJobResponse } from "./print-jobs.service.js";
 
@@ -56,5 +58,37 @@ export class PrintJobsController {
     @Body() dto: AssignOperatorDto,
   ): Promise<PrintJobResponse> {
     return this.printJobsService.assignOperator(id, req.user!.id, dto.operatorId);
+  }
+
+  /** 21.1 (§65): pause a WAITING/QUEUED job. PAUSE_JOBS is a data row in
+   * ROLE_PERMISSIONS, held by the production roles (not SHOP_COUNTER). */
+  @Post(":id/pause")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.PAUSE_JOBS)
+  @ShopScoped("id", PrintJobShopResolver)
+  pause(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: PauseJobDto,
+  ): Promise<PrintJobResponse> {
+    return this.printJobsService.pause(id, req.user!.id, dto.reason);
+  }
+
+  /** 21.1 (§65): resume a paused job; re-runs allocation (or honours an
+   * explicit printerId) and needs an explicit acknowledgement for a job held
+   * by a late PRINTED report. */
+  @Post(":id/resume")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.PAUSE_JOBS)
+  @ShopScoped("id", PrintJobShopResolver)
+  resume(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: ResumeJobDto,
+  ): Promise<PrintJobResponse> {
+    return this.printJobsService.resume(id, req.user!.id, {
+      printerId: dto.printerId,
+      acknowledgeLatePrint: dto.acknowledgeLatePrint,
+    });
   }
 }
