@@ -3,12 +3,13 @@ import type { ReactNode } from "react";
 import { ApiClientError } from "@print-automated/api-client";
 import { describeError, isForbidden } from "@/lib/api";
 import { formatAge } from "@/lib/format";
+import type { Tone } from "@/lib/job-status";
 
 /** The console's small component kit: dense panels, big tabular numbers,
  * status pills that never rely on colour alone (each carries text), and
  * consistent loading / empty / error / forbidden states. */
 
-export type Tone = "neutral" | "good" | "caution" | "danger" | "accent";
+export type { Tone };
 
 const TONE_PILL: Record<Tone, string> = {
   neutral: "bg-panel-2 text-muted border-line",
@@ -27,7 +28,7 @@ const TONE_BORDER: Record<Tone, string> = {
 };
 
 const TONE_DOT: Record<Tone, string> = {
-  neutral: "bg-neutral",
+  neutral: "bg-quiet",
   good: "bg-good",
   caution: "bg-caution",
   danger: "bg-danger",
@@ -399,7 +400,7 @@ export function DataTable({
   children,
 }: {
   caption: string;
-  head: string[];
+  head: Array<string | { label: string; align: "right" }>;
   children: ReactNode;
 }): ReactNode {
   return (
@@ -408,11 +409,19 @@ export function DataTable({
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
-            {head.map((label) => (
-              <th key={label} scope="col" className="px-4 py-2 font-medium whitespace-nowrap">
-                {label}
-              </th>
-            ))}
+            {head.map((cell) => {
+              const label = typeof cell === "string" ? cell : cell.label;
+              const right = typeof cell !== "string" && cell.align === "right";
+              return (
+                <th
+                  key={label}
+                  scope="col"
+                  className={`px-4 py-2 font-medium whitespace-nowrap ${right ? "text-right" : ""}`}
+                >
+                  {label}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody className="divide-y divide-line">{children}</tbody>

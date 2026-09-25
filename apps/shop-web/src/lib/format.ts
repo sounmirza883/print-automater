@@ -1,23 +1,40 @@
 /** Display formatting shared by every screen. Pure, so unit-tested. */
 
-const digitsCache = new Map<string, number | null>();
+/** ISO 4217 minor-unit exponents that are NOT 2. Deliberately a fixed
+ * table, not `Intl`: Intl reports CLDR *cash* digits, which differ by
+ * engine and version (Chromium says PKR has 0 decimals, Node says 2), and
+ * a wrong answer here shows money off by a factor of 100. The API stores
+ * PKR as paisa (x100), so the table is the contract, not the runtime. */
+const ZERO_DECIMAL = new Set([
+  "BIF",
+  "CLP",
+  "DJF",
+  "GNF",
+  "ISK",
+  "JPY",
+  "KMF",
+  "KRW",
+  "PYG",
+  "RWF",
+  "UGX",
+  "VND",
+  "VUV",
+  "XAF",
+  "XOF",
+  "XPF",
+]);
+const THREE_DECIMAL = new Set(["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"]);
 
-/** How many decimal places one major unit has in `currency` (PKR/USD 2,
- * JPY 0, KWD 3), or null for a code Intl does not know. */
+/** How many decimal places one major unit has in `currency`, or null for
+ * something that is not a three-letter code. */
 function minorUnitDigits(currency: string): number | null {
-  const cached = digitsCache.get(currency);
-  if (cached !== undefined) {
-    return cached;
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return null;
   }
-  let digits: number | null;
-  try {
-    digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
-      .maximumFractionDigits as number;
-  } catch {
-    digits = null;
+  if (ZERO_DECIMAL.has(currency)) {
+    return 0;
   }
-  digitsCache.set(currency, digits);
-  return digits;
+  return THREE_DECIMAL.has(currency) ? 3 : 2;
 }
 
 /** Money on the wire is an integer count of minor units in an explicit

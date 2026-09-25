@@ -52,6 +52,7 @@
   --color-side: var(--side);
   --color-side-ink: var(--side-ink);
   --color-side-line: var(--side-line);
+  --color-quiet: var(--color-neutral);
   --color-accent: var(--color-primary-action);
   --color-accent-fg: var(--accent-fg);
   --color-good: var(--color-success);

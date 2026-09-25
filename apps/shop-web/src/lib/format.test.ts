@@ -2,6 +2,7 @@ import { formatAge, formatBytes, formatMoney, humanizeEnum, priorityLabel } from
 
 describe("formatMoney", () => {
   it("scales integer minor units by the currency's own exponent", () => {
+    // PKR is 2-decimal whatever the runtime's CLDR cash-digits say (Chromium reports 0).
     expect(formatMoney(12550, "PKR")).toBe("PKR 125.50");
     expect(formatMoney(0, "USD")).toBe("USD 0.00");
     expect(formatMoney(1500, "JPY")).toBe("JPY 1,500");
