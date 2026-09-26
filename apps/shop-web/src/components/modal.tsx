@@ -83,7 +83,7 @@ export function FormDialog({
   }
   return (
     <Modal title={title} onClose={onCancel} busy={busy}>
-      <form onSubmit={handleSubmit}>
+      <form noValidate onSubmit={handleSubmit}>
         <div className="grid gap-3 px-5 py-4 text-sm">{children}</div>
         {error !== null && (
           <p
