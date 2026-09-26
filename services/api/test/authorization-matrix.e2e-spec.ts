@@ -680,6 +680,33 @@ describe("Authorization matrix (12.1, e2e)", () => {
       expect(res.status).toBe(200);
     });
   });
+  // 23.12: staff-mutation hierarchy. Only an owner may change or remove an owner.
+  describe("staff hierarchy (23.12)", () => {
+    it("owner membership: manager, counter and shop-B owner are all refused; the owner reaches the last-owner rule (409)", async () => {
+      const ownerMembership = await prisma.shopStaff.findFirstOrThrow({
+        where: { shopId: shopA.id, role: UserRole.SHOP_OWNER },
+      });
+      const attempt = (token: string, verb: "patch" | "delete") => {
+        const r =
+          verb === "patch"
+            ? request(app.getHttpServer())
+                .patch(`/v1/shop/staff/${ownerMembership.id}/role`)
+                .send({ role: "SHOP_COUNTER" })
+            : request(app.getHttpServer()).delete(`/v1/shop/staff/${ownerMembership.id}`);
+        return r.set("Authorization", `Bearer ${token}`);
+      };
+      for (const verb of ["patch", "delete"] as const) {
+        expect((await attempt(staffTokens.A![UserRole.SHOP_MANAGER]!, verb)).status).toBe(403);
+        expect((await attempt(staffTokens.A![UserRole.SHOP_COUNTER]!, verb)).status).toBe(403);
+        expect((await attempt(staffTokens.B![UserRole.SHOP_OWNER]!, verb)).status).toBe(403);
+        expect((await attempt(adminToken, verb)).status).toBe(403);
+        const owner = await attempt(staffTokens.A![UserRole.SHOP_OWNER]!, verb);
+        expect(owner.status).toBe(409);
+        expect(owner.body.error_code).toBe("CANNOT_REMOVE_LAST_OWNER");
+      }
+    });
+  });
+
   // ---------------------------------------------------------------
   // Phase 23 surfaces (dashboards, reports, search, notification centre).
   // Table-driven: every route x {owner, manager, counter} of shop A x

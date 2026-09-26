@@ -514,4 +514,195 @@ describe("Shop staff management API (§54, 16.4, e2e)", () => {
     });
     expect(remainingActiveOwners).toBe(1);
   });
+
+  // 23.12: rank enforcement. Owner > manager > everyone else. A non-owner may not
+  // modify (role change, removal, or the add-upsert) a member whose CURRENT role
+  // outranks theirs, and may not hand out a role above their own.
+  describe("role hierarchy (23.12)", () => {
+    interface Fixture {
+      shopId: string;
+      owner: { id: string; membershipId: string; token: string };
+      manager: { id: string; membershipId: string; token: string };
+      counter: { id: string; membershipId: string };
+    }
+
+    async function makeUser(label: string) {
+      const user = await prisma.user.create({
+        data: {
+          role: UserRole.CUSTOMER,
+          name: `Hierarchy ${label}`,
+          email: `staff-mgmt-e2e-h-${label}-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      userIds.push(user.id);
+      return user;
+    }
+
+    async function makeFixture(): Promise<Fixture> {
+      const shop = await prisma.shop.create({
+        data: {
+          name: `Staff Mgmt E2E Hierarchy ${randomUUID()}`,
+          address: "4",
+          status: ShopStatus.OPEN,
+        },
+      });
+      shopIds.push(shop.id);
+      const member = async (label: string, role: UserRole) => {
+        const user = await makeUser(label);
+        const m = await prisma.shopStaff.create({
+          data: { shopId: shop.id, userId: user.id, role, status: ShopStaffStatus.ACTIVE },
+        });
+        return { id: user.id, membershipId: m.id, token: tokenService.issueAccessToken(user) };
+      };
+      return {
+        shopId: shop.id,
+        owner: await member("owner", UserRole.SHOP_OWNER),
+        manager: await member("manager", UserRole.SHOP_MANAGER),
+        counter: await member("counter", UserRole.SHOP_COUNTER),
+      };
+    }
+
+    const roleOf = async (membershipId: string) =>
+      (await prisma.shopStaff.findUniqueOrThrow({ where: { id: membershipId } })).role;
+
+    it("a manager cannot demote an owner (PATCH role), even when a second owner exists", async () => {
+      const f = await makeFixture();
+      const second = await makeUser("second-owner");
+      const secondMembership = await prisma.shopStaff.create({
+        data: {
+          shopId: f.shopId,
+          userId: second.id,
+          role: UserRole.SHOP_OWNER,
+          status: ShopStaffStatus.ACTIVE,
+        },
+      });
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${secondMembership.id}/role`)
+        .set("Authorization", `Bearer ${f.manager.token}`)
+        .send({ role: "SHOP_COUNTER" });
+      expect(res.status).toBe(403);
+      expect(await roleOf(secondMembership.id)).toBe("SHOP_OWNER");
+    });
+
+    it("a manager cannot remove an owner", async () => {
+      const f = await makeFixture();
+      const second = await makeUser("second-owner-rm");
+      const secondMembership = await prisma.shopStaff.create({
+        data: {
+          shopId: f.shopId,
+          userId: second.id,
+          role: UserRole.SHOP_OWNER,
+          status: ShopStaffStatus.ACTIVE,
+        },
+      });
+      const res = await request(app.getHttpServer())
+        .delete(`/v1/shop/staff/${secondMembership.id}`)
+        .set("Authorization", `Bearer ${f.manager.token}`);
+      expect(res.status).toBe(403);
+      const stored = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: secondMembership.id },
+      });
+      expect(stored.status).toBe("ACTIVE");
+    });
+
+    it("a manager cannot demote or reactivate an owner through the add-staff upsert", async () => {
+      const f = await makeFixture();
+      const res = await request(app.getHttpServer())
+        .post("/v1/shop/staff")
+        .set("Authorization", `Bearer ${f.manager.token}`)
+        .send({ shopId: f.shopId, userId: f.owner.id, role: "SHOP_COUNTER" });
+      expect(res.status).toBe(403);
+      expect(await roleOf(f.owner.membershipId)).toBe("SHOP_OWNER");
+    });
+
+    it("a manager cannot promote themselves to owner or above their own rank", async () => {
+      const f = await makeFixture();
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${f.manager.membershipId}/role`)
+        .set("Authorization", `Bearer ${f.manager.token}`)
+        .send({ role: "SHOP_OWNER" });
+      expect(res.status).toBe(403);
+      expect(await roleOf(f.manager.membershipId)).toBe("SHOP_MANAGER");
+    });
+
+    it("a manager can still manage members below them (change role, remove) and demote themselves", async () => {
+      const f = await makeFixture();
+      const change = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${f.counter.membershipId}/role`)
+        .set("Authorization", `Bearer ${f.manager.token}`)
+        .send({ role: "OPERATOR" });
+      expect(change.status).toBe(200);
+      const remove = await request(app.getHttpServer())
+        .delete(`/v1/shop/staff/${f.counter.membershipId}`)
+        .set("Authorization", `Bearer ${f.manager.token}`);
+      expect(remove.status).toBe(204);
+      const self = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${f.manager.membershipId}/role`)
+        .set("Authorization", `Bearer ${f.manager.token}`)
+        .send({ role: "SHOP_COUNTER" });
+      expect(self.status).toBe(200);
+    });
+
+    it("an owner can demote and remove another owner and a manager; the last owner stays protected", async () => {
+      const f = await makeFixture();
+      const second = await makeUser("second-owner-ok");
+      const secondMembership = await prisma.shopStaff.create({
+        data: {
+          shopId: f.shopId,
+          userId: second.id,
+          role: UserRole.SHOP_OWNER,
+          status: ShopStaffStatus.ACTIVE,
+        },
+      });
+      const demote = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${secondMembership.id}/role`)
+        .set("Authorization", `Bearer ${f.owner.token}`)
+        .send({ role: "SHOP_MANAGER" });
+      expect(demote.status).toBe(200);
+      const last = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${f.owner.membershipId}/role`)
+        .set("Authorization", `Bearer ${f.owner.token}`)
+        .send({ role: "SHOP_MANAGER" });
+      expect(last.status).toBe(409);
+      const removeMgr = await request(app.getHttpServer())
+        .delete(`/v1/shop/staff/${f.manager.membershipId}`)
+        .set("Authorization", `Bearer ${f.owner.token}`);
+      expect(removeMgr.status).toBe(204);
+    });
+
+    it("concurrent: a manager demoting the owner while the owner demotes the manager -- the owner always wins", async () => {
+      for (let round = 0; round < 3; round += 1) {
+        const f = await makeFixture();
+        const [managerAttempt, ownerAttempt] = await Promise.all([
+          request(app.getHttpServer())
+            .patch(`/v1/shop/staff/${f.owner.membershipId}/role`)
+            .set("Authorization", `Bearer ${f.manager.token}`)
+            .send({ role: "SHOP_COUNTER" }),
+          request(app.getHttpServer())
+            .patch(`/v1/shop/staff/${f.manager.membershipId}/role`)
+            .set("Authorization", `Bearer ${f.owner.token}`)
+            .send({ role: "SHOP_COUNTER" }),
+        ]);
+        expect(managerAttempt.status).toBe(403);
+        expect(ownerAttempt.status).toBe(200);
+        expect(await roleOf(f.owner.membershipId)).toBe("SHOP_OWNER");
+        expect(await roleOf(f.manager.membershipId)).toBe("SHOP_COUNTER");
+      }
+    });
+
+    it("a manager demoted a moment ago cannot act on a stale role (authority is re-read under the lock)", async () => {
+      const f = await makeFixture();
+      await prisma.shopStaff.update({
+        where: { id: f.manager.membershipId },
+        data: { role: UserRole.SHOP_COUNTER },
+      });
+      // The JWT still says SHOP_MANAGER but the membership no longer does: the guard 403s.
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${f.counter.membershipId}/role`)
+        .set("Authorization", `Bearer ${f.manager.token}`)
+        .send({ role: "OPERATOR" });
+      expect(res.status).toBe(403);
+    });
+  });
 });

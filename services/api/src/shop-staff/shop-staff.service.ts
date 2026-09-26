@@ -7,6 +7,21 @@ import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { ilike } from "../common/search.js";
 
+/** 23.12: shop-role rank for the hierarchy rules -- owner above manager above every
+ * other staff role. Non-staff roles rank 0 (never granted at a shop). */
+function roleRank(role: UserRole): number {
+  if (role === UserRole.SHOP_OWNER) return 3;
+  if (role === UserRole.SHOP_MANAGER) return 2;
+  if (
+    role === UserRole.SHOP_COUNTER ||
+    role === UserRole.OPERATOR ||
+    role === UserRole.PRINTER_MANAGER
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
 export interface MyShopMembership {
   id: string;
   name: string;
@@ -45,13 +60,7 @@ export interface ShopStaffListItem extends ShopStaffMemberResponse {
  *
  * §54/16.4: add/remove/change-role work on an EXISTING `User` id --
  * there's no invite-by-email-for-a-not-yet-registered-person flow in
- * this sub-phase. That overlaps with auth/registration (who creates the
- * account, how they set a password, whether an invite token is a
- * distinct kind of credential) -- concerns this phase doesn't own, and
- * the PRD's own §54 text doesn't insist on it either. TODO (out of this
- * sub-phase's scope): a real "invite a new person by email" flow that
- * creates the User account too, once auth/registration decides how it
- * wants unsolicited-account-creation-by-someone-else to work. */
+ * this sub-phase. */
 @Injectable()
 export class ShopStaffService {
   constructor(
@@ -127,22 +136,33 @@ export class ShopStaffService {
    * already established for this codebase. */
   async addStaff(actorId: string, input: AddShopStaffInput): Promise<ShopStaffMemberResponse> {
     await this.assertMember(input.shopId, actorId);
-    await this.assertCanGrantRole(input.shopId, actorId, input.role);
 
     const targetUser = await this.prisma.user.findUnique({ where: { id: input.userId } });
     if (!targetUser) {
       throw new NotFoundException("No such user.");
     }
 
-    const membership = await this.prisma.shopStaff.upsert({
-      where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
-      create: {
+    // 23.12: the upsert can also demote/reactivate an EXISTING membership, so it is held
+    // to the same rank rules as changeRole/removeStaff, decided under the same row locks.
+    const membership = await this.prisma.$transaction(async (tx) => {
+      await this.authorizeMutationLocked(tx, {
         shopId: input.shopId,
-        userId: input.userId,
-        role: input.role,
-        status: ShopStaffStatus.ACTIVE,
-      },
-      update: { role: input.role, status: ShopStaffStatus.ACTIVE },
+        actorId,
+        targetMembershipId: null,
+        targetUserId: input.userId,
+        newRole: input.role,
+        removing: false,
+      });
+      return tx.shopStaff.upsert({
+        where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
+        create: {
+          shopId: input.shopId,
+          userId: input.userId,
+          role: input.role,
+          status: ShopStaffStatus.ACTIVE,
+        },
+        update: { role: input.role, status: ShopStaffStatus.ACTIVE },
+      });
     });
 
     // §45/16.6: shop-staff changes previously wrote no audit row at all.
@@ -158,36 +178,29 @@ export class ShopStaffService {
   }
 
   /** Soft delete (§54's own `ShopStaffStatus.REMOVED`), never a hard
-   * delete -- the row is the audit trail's own subject in 16.6. Blocks
-   * removing a shop's last active SHOP_OWNER so a shop can never be
-   * left with nobody able to manage it.
-   *
-   * Code review finding (16.6 review): the last-owner check and the
-   * write that acts on it must happen under the SAME lock, not as a
-   * separate `count()` read followed by an unguarded `update()` --
-   * otherwise two concurrent removals of two different owners at the
-   * same shop can each read "the other owner still exists", both pass,
-   * and both commit, leaving zero owners. Fixed the same way
-   * order-state-machine.ts's own `SELECT ... FOR UPDATE` prevents the
-   * identical class of race on order_status: lock every active
-   * SHOP_OWNER row at this shop first, inside a transaction, so a
-   * second concurrent removal/demotion at the same shop blocks until
-   * the first one commits and re-reads the post-commit state. */
-  async removeStaff(shopStaffId: string, actorId: string | null): Promise<void> {
+   * delete -- the row is the audit trail's own subject in 16.6. Authority and the
+   * last-owner rule are decided under row locks by `authorizeMutationLocked` (see it):
+   * only an owner can remove an owner, and a shop can never be left with nobody able
+   * to manage it (the 16.6 review's race fix lives in that same lock). */
+  async removeStaff(shopStaffId: string, actorId: string): Promise<void> {
     const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
     if (!membership) {
       throw new NotFoundException("No such shop staff membership.");
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      if (membership.role === UserRole.SHOP_OWNER && membership.status === ShopStaffStatus.ACTIVE) {
-        await this.assertNotLastOwnerLocked(tx, membership.shopId, membership.id);
-      }
-
+    const before = await this.prisma.$transaction(async (tx) => {
+      const target = await this.authorizeMutationLocked(tx, {
+        shopId: membership.shopId,
+        actorId,
+        targetMembershipId: membership.id,
+        targetUserId: membership.userId,
+        removing: true,
+      });
       await tx.shopStaff.update({
         where: { id: shopStaffId },
         data: { status: ShopStaffStatus.REMOVED },
       });
+      return target;
     });
 
     await this.audit.record({
@@ -195,37 +208,35 @@ export class ShopStaffService {
       action: AuditAction.SHOP_STAFF_REMOVED,
       resourceType: "shop_staff",
       resourceId: shopStaffId,
-      metadata: { shopId: membership.shopId, userId: membership.userId, role: membership.role },
+      metadata: { shopId: membership.shopId, userId: membership.userId, role: before.role },
     });
   }
 
-  /** Same last-owner safety net as `removeStaff` (same locked-transaction
-   * fix -- see its own comment), plus the same "granting SHOP_OWNER
-   * requires already being SHOP_OWNER" check `addStaff` applies. */
+  /** Same locked authority + last-owner checks as `removeStaff` (see its comment). */
   async changeRole(
     shopStaffId: string,
     newRole: UserRole,
-    actorId: string | null,
+    actorId: string,
   ): Promise<ShopStaffMemberResponse> {
     const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
     if (!membership) {
       throw new NotFoundException("No such shop staff membership.");
     }
-    await this.assertCanGrantRole(membership.shopId, actorId, newRole);
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      if (
-        membership.role === UserRole.SHOP_OWNER &&
-        newRole !== UserRole.SHOP_OWNER &&
-        membership.status === ShopStaffStatus.ACTIVE
-      ) {
-        await this.assertNotLastOwnerLocked(tx, membership.shopId, membership.id);
-      }
-
-      return tx.shopStaff.update({
+    const { updated, before } = await this.prisma.$transaction(async (tx) => {
+      const target = await this.authorizeMutationLocked(tx, {
+        shopId: membership.shopId,
+        actorId,
+        targetMembershipId: membership.id,
+        targetUserId: membership.userId,
+        newRole,
+        removing: false,
+      });
+      const row = await tx.shopStaff.update({
         where: { id: shopStaffId },
         data: { role: newRole },
       });
+      return { updated: row, before: target };
     });
 
     await this.audit.record({
@@ -236,7 +247,7 @@ export class ShopStaffService {
       metadata: {
         shopId: membership.shopId,
         userId: membership.userId,
-        from: membership.role,
+        from: before.role,
         to: newRole,
       },
     });
@@ -251,61 +262,96 @@ export class ShopStaffService {
     }
   }
 
-  /** Code review finding (16.6 review): `MANAGE_USERS` (held by both
-   * SHOP_MANAGER and SHOP_OWNER) let a SHOP_MANAGER -- who deliberately
-   * lacks MANAGE_SETTINGS -- grant themselves or anyone else SHOP_OWNER
-   * via `addStaff`/`changeRole`, bypassing the owner/manager boundary
-   * entirely. Granting or changing a membership TO SHOP_OWNER now
-   * additionally requires the ACTOR to already be an active SHOP_OWNER
-   * at this same shop -- a permission alone (MANAGE_USERS) is not
-   * enough to hand out the platform's highest per-shop role; only an
-   * existing holder of that role can extend it. actorId is nullable on
-   * the shared type (system-driven calls elsewhere in this codebase
-   * pass null), but every real caller of addStaff/changeRole is an
-   * authenticated controller route, so a null actor here can never
-   * legitimately claim to already be an owner. */
-  private async assertCanGrantRole(
-    shopId: string,
-    actorId: string | null,
-    targetRole: UserRole,
-  ): Promise<void> {
-    if (targetRole !== UserRole.SHOP_OWNER) {
-      return;
-    }
-    const actorRole = actorId ? await this.shopMembership.getEffectiveRole(shopId, actorId) : null;
-    if (actorRole !== UserRole.SHOP_OWNER) {
-      throw new ForbiddenException("Only an existing owner can grant the SHOP_OWNER role.");
-    }
-  }
-
-  /** Must run inside the SAME transaction as the write it's guarding --
-   * see removeStaff/changeRole's own comments. Locks every active
-   * SHOP_OWNER row at this shop (not just the one being acted on) so
-   * two concurrent calls targeting two DIFFERENT owner rows at the same
-   * shop still serialize against each other: whichever transaction's
-   * `FOR UPDATE` runs first holds the lock until it commits, and the
-   * second one blocks until then and re-reads the true post-commit
-   * count, rather than both reading a stale "someone else is still an
-   * owner" snapshot concurrently. */
-  private async assertNotLastOwnerLocked(
+  /** 23.12 (supersedes 16.6's owner-grant-only check). One authority decision for every
+   * membership mutation (add-upsert, change role, remove), taken INSIDE the caller's
+   * transaction on rows locked FOR UPDATE, so it can never act on a stale role:
+   *   - the actor must hold an ACTIVE membership at this shop, read under the lock
+   *     (a manager demoted a moment ago is refused, not honoured on a stale role);
+   *   - a non-owner cannot touch a member whose CURRENT role outranks theirs (so only an
+   *     owner can demote or remove an owner) and cannot grant a role above their own
+   *     (so only an owner can grant SHOP_OWNER, and nobody escalates themselves);
+   *   - the last active owner can never be demoted or removed (409), checked AFTER
+   *     authority so an unauthorised caller gets 403, not a hint about owner counts.
+   * Rank: SHOP_OWNER > SHOP_MANAGER > every other role. A manager may manage other
+   * managers (equal rank) and anyone below; self-demotion/self-removal is allowed.
+   *
+   * Locking: ONE statement locks the actor's row, the target's row and every active
+   * owner row, `ORDER BY id`, so concurrent mutations at the same shop take the locks in
+   * the same order (no deadlock) and the loser re-reads the winner's committed state.
+   * Returns the target's locked (pre-change) row (a placeholder row with an empty id when the add creates a brand-new member). */
+  private async authorizeMutationLocked(
     tx: Prisma.TransactionClient,
-    shopId: string,
-    excludingShopStaffId: string,
-  ): Promise<void> {
-    const lockedOwnerRows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM shop_staff
-      WHERE shop_id = ${shopId} AND role = 'SHOP_OWNER' AND status = 'ACTIVE'
+    params: {
+      shopId: string;
+      actorId: string;
+      targetMembershipId: string | null;
+      targetUserId: string;
+      newRole?: UserRole;
+      removing: boolean;
+    },
+  ): Promise<{ id: string; role: UserRole; status: ShopStaffStatus }> {
+    const { shopId, actorId, targetMembershipId, targetUserId, newRole, removing } = params;
+    const rows = await tx.$queryRaw<
+      Array<{ id: string; user_id: string; role: UserRole; status: ShopStaffStatus }>
+    >`
+      SELECT id, user_id, role::text AS role, status::text AS status FROM shop_staff
+      WHERE shop_id = ${shopId}
+        AND (
+          user_id = ${actorId}
+          OR user_id = ${targetUserId}
+          OR id = ${targetMembershipId ?? ""}
+          OR (role = 'SHOP_OWNER' AND status = 'ACTIVE')
+        )
+      ORDER BY id
       FOR UPDATE
     `;
-    const remainingOwners = lockedOwnerRows.filter((row) => row.id !== excludingShopStaffId).length;
-    if (remainingOwners === 0) {
-      throw new AppException(
-        HttpStatus.CONFLICT,
-        "CANNOT_REMOVE_LAST_OWNER",
-        "A shop must always have at least one active owner.",
-        false,
+
+    const actor = rows.find((row) => row.user_id === actorId && row.status === "ACTIVE");
+    if (!actor) {
+      throw new ForbiddenException("You do not have access to this shop's staff.");
+    }
+    const actorRank = roleRank(actor.role);
+
+    const target = rows.find((row) => row.user_id === targetUserId) ?? null;
+    if (targetMembershipId !== null && !target) {
+      throw new NotFoundException("No such shop staff membership.");
+    }
+    if (target && roleRank(target.role) > actorRank) {
+      throw new ForbiddenException(
+        target.role === UserRole.SHOP_OWNER
+          ? "Only an owner can change or remove an owner."
+          : "You cannot change or remove a member whose role outranks yours.",
       );
     }
+    if (newRole && roleRank(newRole) > actorRank) {
+      throw new ForbiddenException(
+        newRole === UserRole.SHOP_OWNER
+          ? "Only an existing owner can grant the SHOP_OWNER role."
+          : "You cannot grant a role above your own.",
+      );
+    }
+
+    if (
+      target &&
+      target.role === UserRole.SHOP_OWNER &&
+      target.status === "ACTIVE" &&
+      (removing || newRole !== UserRole.SHOP_OWNER)
+    ) {
+      const remainingOwners = rows.filter(
+        (row) =>
+          row.id !== target.id && row.role === UserRole.SHOP_OWNER && row.status === "ACTIVE",
+      ).length;
+      if (remainingOwners === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "CANNOT_REMOVE_LAST_OWNER",
+          "A shop must always have at least one active owner.",
+          false,
+        );
+      }
+    }
+
+    return target ?? { id: "", role: UserRole.CUSTOMER, status: ShopStaffStatus.ACTIVE };
   }
 
   private toResponse(membership: ShopStaff): ShopStaffMemberResponse {
