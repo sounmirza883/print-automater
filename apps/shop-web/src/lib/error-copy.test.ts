@@ -100,5 +100,13 @@ describe("interpretActionFailure", () => {
     expect(errorCodeOf(apiError(409, "JOB_NOT_FAILED"))).toBe("JOB_NOT_FAILED");
     expect(isStaleStateError(apiError(409, "JOB_NOT_FAILED"))).toBe(true);
     expect(isStaleStateError(null)).toBe(false);
+    // A version conflict means the screen must reload the latest before the next try.
+    for (const code of [
+      "SETTINGS_VERSION_CONFLICT",
+      "RULE_VERSION_CONFLICT",
+      "RULE_ORDER_MISMATCH",
+    ]) {
+      expect(isStaleStateError(apiError(409, code))).toBe(true);
+    }
   });
 });

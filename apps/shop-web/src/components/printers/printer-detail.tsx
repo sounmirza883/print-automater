@@ -206,7 +206,7 @@ function PrinterBody({ row, runner }: { row: PrinterRow; runner: Runner }): Reac
             </div>
             <p className="text-xs text-muted">
               Which printer new jobs prefer or avoid is set in{" "}
-              <Link href="/settings" className="underline">
+              <Link href="/settings/printer-rules" className="underline">
                 Settings, printer rules
               </Link>
               .
