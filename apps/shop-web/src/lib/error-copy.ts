@@ -63,6 +63,8 @@ const COPY: Record<string, string> = {
   DELIVERY_STATUS_INVALID: "That delivery status change is not allowed from the current status.",
   DELIVERY_COURIER_REQUIRED: "Enter a courier before handing the delivery over.",
   DELIVERY_ORDER_NOT_READY: "The order is not ready to be sent out for delivery yet.",
+  PRINTER_HAS_ACTIVE_JOB:
+    "This printer has an active print job, so it cannot be removed. Wait for it to finish, or disable the printer instead.",
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
   UPSTREAM_UNREACHABLE: "The service is unreachable right now. Try again in a moment.",
   CROSS_ORIGIN_BLOCKED: "That request was blocked for safety. Reload the page and try again.",

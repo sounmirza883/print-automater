@@ -23,6 +23,7 @@ describe("errorMessageFor", () => {
     ["REPRINT_IN_PROGRESS", /reprint of this order is still in progress/],
     ["DELIVERY_COURIER_REQUIRED", /courier/],
     ["RESUME_TARGET_STALE", /Choose a printer/],
+    ["PRINTER_HAS_ACTIVE_JOB", /disable the printer instead/],
   ])("gives %s its own precise copy", (code, pattern) => {
     expect(errorMessageFor(apiError(409, code))).toMatch(pattern);
   });
