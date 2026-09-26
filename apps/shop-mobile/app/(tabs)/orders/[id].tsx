@@ -51,6 +51,18 @@ export default function OrderDetailScreen(): ReactNode {
   // disabled too, not just left to fail into actionError on tap.
   const actionBlocked = actionInFlight || isOffline;
 
+  /** The API requires WHICH unresolved job is being resolved (409
+   * UNKNOWN_JOB_ID_REQUIRED without it). The order carries its live jobs. */
+  function resolveUnknownJob(
+    resolution: "CONFIRMED_PRINTED" | "RETRY" | "MARK_FAILED",
+  ): ReturnType<typeof apiClient.shopOrders.resolveUnknownPrint> {
+    const job = order?.printJobs.find((candidate) => candidate.status === "UNKNOWN");
+    if (job === undefined || order === null) {
+      return Promise.reject(new Error("No unresolved print job on this order."));
+    }
+    return apiClient.shopOrders.resolveUnknownPrint(order.id, { resolution, jobId: job.id });
+  }
+
   useEffect(() => {
     if (isOffline) {
       return;
@@ -324,11 +336,7 @@ export default function OrderDetailScreen(): ReactNode {
           <Pressable
             accessibilityRole="button"
             disabled={actionBlocked}
-            onPress={() =>
-              void runAction(() =>
-                apiClient.shopOrders.resolveUnknown(order.id, "CONFIRMED_PRINTED"),
-              )
-            }
+            onPress={() => void runAction(() => resolveUnknownJob("CONFIRMED_PRINTED"))}
             style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
           >
             {actionInFlight ? (
@@ -340,9 +348,7 @@ export default function OrderDetailScreen(): ReactNode {
           <Pressable
             accessibilityRole="button"
             disabled={actionBlocked}
-            onPress={() =>
-              void runAction(() => apiClient.shopOrders.resolveUnknown(order.id, "RETRY"))
-            }
+            onPress={() => void runAction(() => resolveUnknownJob("RETRY"))}
             style={styles.secondaryButton}
           >
             <Text style={styles.secondaryButtonText}>Retry Printing</Text>
@@ -350,9 +356,7 @@ export default function OrderDetailScreen(): ReactNode {
           <Pressable
             accessibilityRole="button"
             disabled={actionBlocked}
-            onPress={() =>
-              void runAction(() => apiClient.shopOrders.resolveUnknown(order.id, "MARK_FAILED"))
-            }
+            onPress={() => void runAction(() => resolveUnknownJob("MARK_FAILED"))}
             style={styles.secondaryButton}
           >
             <Text style={styles.secondaryButtonText}>It Failed</Text>
