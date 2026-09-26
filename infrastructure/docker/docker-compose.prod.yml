@@ -14,10 +14,11 @@
 # infrastructure/docker/README.md documents the backup/restore
 # procedure that risk explicitly calls for.
 #
-# apps/shop-web (Phase 23) is not added yet -- that app does not exist
-# in this repo until Phase 23 builds it. When it does, it slots in here
-# as a fourth built-and-deployed service alongside api/worker/
-# customer-web, the same shape as customer-web below.
+# apps/shop-web (23.17) is the fourth built-and-deployed service alongside
+# api/worker/customer-web, the same shape as customer-web below (port 3002,
+# shop-web.Dockerfile). There is no reverse proxy in this stack: every
+# service publishes its own host port, so TLS and routing (e.g.
+# https://shop.<domain> -> host:3002) belong to whatever fronts this host.
 #
 # This file intentionally has no top-level `version:` key, matching
 # docker-compose.dev.yml and docker-compose.apps.yml -- the modern
@@ -305,11 +306,40 @@ services:
           cpus: "1"
           memory: 512m
 
-  # TODO (Phase 23): apps/shop-web does not exist yet. Once built, add
-  # a `shop-web` service here mirroring `customer-web` above (own
-  # web.Dockerfile-style build, own NEXT_PUBLIC_API_BASE_URL build arg,
-  # own host port), matching CONTEXT.md's locked decision that
-  # apps/shop-web is a new Next.js app, not a route inside customer-web.
+  # 23.17: the back-office app (apps/shop-web), mirroring customer-web. It talks to
+  # the API server-to-server (its BFF proxy), so no CORS entry is needed for it.
+  # Sessions: run ONE instance, or put sticky sessions on the reverse proxy in
+  # front of several -- the refresh single-flight is in-process (see
+  # shop-web.Dockerfile).
+  shop-web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/shop-web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
+    image: ${SHOP_WEB_IMAGE:-print-automated-shop-web:latest}
+    restart: unless-stopped
+    ports:
+      - "${SHOP_WEB_HOST_PORT:-3002}:3002"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
+    depends_on:
+      - api
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3002/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
 
 networks:
   # `internal: true` = no gateway, so no route to the outside world.

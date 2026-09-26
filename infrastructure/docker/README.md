@@ -2,11 +2,11 @@
 
 Three compose files, one job each:
 
-| File                      | Purpose                                                                                                     |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `docker-compose.dev.yml`  | Local dev infra only (Postgres/Redis/MinIO/MailHog/ClamAV) -- apps run via `pnpm dev` against it directly.  |
-| `docker-compose.apps.yml` | Verifies the built api/worker/web images against the dev stack (§12.6). Not for production use.             |
-| `docker-compose.prod.yml` | **The full production stack** (14.3) -- api, worker, customer-web, postgres, redis, minio, clamav, mailhog. |
+| File                      | Purpose                                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `docker-compose.dev.yml`  | Local dev infra only (Postgres/Redis/MinIO/MailHog/ClamAV) -- apps run via `pnpm dev` against it directly.            |
+| `docker-compose.apps.yml` | Verifies the built api/worker/web images against the dev stack (§12.6). Not for production use.                       |
+| `docker-compose.prod.yml` | **The full production stack** (14.3) -- api, worker, customer-web, shop-web, postgres, redis, minio, clamav, mailhog. |
 
 ## Why Docker Compose and not Terraform/AWS
 
@@ -35,9 +35,9 @@ service SLA, no automatic failover, no vendor-run backups -- see
    if one is missing, rather than silently booting with a dev
    placeholder.
 
-2. Bring the stack up (builds api/worker/customer-web locally from
+2. Bring the stack up (builds api/worker/customer-web/shop-web locally from
    this repo's own Dockerfiles unless `API_IMAGE`/`WORKER_IMAGE`/
-   `CUSTOMER_WEB_IMAGE` are set to point at already-built registry
+   `CUSTOMER_WEB_IMAGE`/`SHOP_WEB_IMAGE` are set to point at already-built registry
    images -- see `.github/workflows/deploy-staging.yml`, 14.4):
 
    ```
@@ -134,9 +134,27 @@ of.
 
 ## Resource limits
 
-`api`/`worker`/`customer-web` each set `deploy.resources.limits`
+`api`/`worker`/`customer-web`/`shop-web` each set `deploy.resources.limits`
 (`cpus`/`memory`) -- honored by plain `docker compose up` on the
 Compose Specification this file uses (no Swarm required), not just a
 Swarm-only hint. Tune these for the real host's actual capacity;
 the values here are conservative starting points, not measured
 production numbers.
+
+## shop-web (back office, 23.17)
+
+`shop-web` (apps/shop-web, port `SHOP_WEB_HOST_PORT`, default 3002) is built
+from `shop-web.Dockerfile`, mirrors `customer-web`, has a container
+healthcheck (`GET /` on 3002) and the same 512m/1 CPU limits. There is no
+reverse proxy in this stack: put TLS and the `shop.<domain>` route on
+whatever fronts the host. It calls the API server-to-server, so it needs no
+`CORS_ALLOWED_ORIGINS` entry.
+
+**Scaling:** its refresh-and-retry single-flight is in-process (per browser
+tab) and the API rotates refresh tokens with reuse detection. Run one
+instance, or configure sticky sessions on the reverse proxy if you run more
+than one, so two instances do not race a refresh for the same session.
+
+**CI/deploy wiring is NOT in this commit** (the workflows are outside this
+directory): see "CI change needed" in
+docs/architecture/2026-09-22-prd-v2-alignment.md.

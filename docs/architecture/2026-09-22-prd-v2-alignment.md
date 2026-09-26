@@ -376,3 +376,52 @@ Independent review found two warnings (external-link gate bypass, PNG bomb) plus
 - **Notification centre:** one merged, user-scoped feed over the customer `notifications` (APP rows only) and the new `staff_notifications`. Staff alerts are visible only while the person is an ACTIVE member AND their current role still holds the permission for that alert type (`STAFF_ALERT_PERMISSION`, the single map used both to raise and to read). `shopId` selects staff alerts, so `shopId` + `audience=customer` is a 400 everywhere. Staff alerts are raised inside the causing transaction, in a savepoint, and can never fail or roll back a job transition.
 - **Required customer notices vs the "automatic notifications" switch (decision):** PRD s76/s122 only say each automation "should have an enable or disable control" and that manual intervention stays available; they do not say a switch may silence notices about a customer's money or a failed job. We therefore keep `ORDER_REJECTED` (a rejection refunds the customer) and `PRINT_FAILED` as REQUIRED notices that ignore `automaticNotifications=false`, always in-app (the channel switches still govern email). Routine chatter stays suppressible. The settings UI must say so. If product decides the switch must be absolute, remove the types from `REQUIRED_CUSTOMER_NOTICES` in `order-state-machine.ts`.
 - **Not built:** cancellation/refund customer notice types (none exist; add them to `REQUIRED_CUSTOMER_NOTICES` when they do), printer-offline / job-reassigned staff alerts, unpaginated small per-shop lists (printer rules, agents, deliveries).
+
+## Phase 23 backend gaps found by shop-web (2026-09-26): 23.12-23.17
+
+- **23.12 staff hierarchy (security).** One authority decision, `authorizeMutationLocked` in `shop-staff.service.ts`, covers add-upsert, change-role and remove, inside the caller's transaction on rows locked `FOR UPDATE` in ONE `ORDER BY id` statement (actor, target, every active owner). Rank: SHOP_OWNER > SHOP_MANAGER > every other staff role. A non-owner cannot touch a member whose CURRENT role outranks theirs and cannot grant a role above their own (so only an owner changes/removes an owner or grants owner; nobody self-escalates); managers may manage peer managers and anyone below; self-demotion/removal allowed; the actor's active membership is re-read under the lock; last-owner 409 is evaluated after authority (403 first). The add-by-id upsert can no longer be used to demote or reactivate an owner and now also protects the last owner. Actor id is no longer nullable.
+- **23.13 order detail and history.** `GET /shop/orders/:id` adds `items` (document name, quantity, config, status from the item's live job, price from the item's own snapshot; one line is synthesised before acceptance, `id: null`), `customerContact` (`WALK_IN` = Customer record, or a counter order with none -> name only; `ACCOUNT` = the customer's account), `payment` (provider, status, amount, currency, paidAt; never provider id or checkout link) and `refunds` (count, refundedMinor, pendingMinor). `priority` and per-job `attempt/priority/createdAt/updatedAt/pausedAt/supersededAt` are also on the list shape (plain columns). Phone/email ride `MANAGE_DELIVERY` through the existing `DeliveryRedactionInterceptor` (operators/printer managers get `contactRedacted: true`). `GET /shop/orders/:id/history` (VIEW_ORDERS): audit rows of the order, ALL its jobs (incl. superseded), payments, refunds and delivery, oldest first, paged (limit/offset caps as elsewhere), metadata stripped on read of secrets, payment links/ids, addresses and contact keys (`order-history.ts`); uses the `(resource_type, resource_id)` index.
+- **23.14 printers.** `GET /shop/printers/:id` (capabilities, profile, page-limit usage + period start, agent last seen, active job count, rules naming the printer). Reads are permission-as-data: new `VIEW_PRINTERS` (every shop staff role, incl. OPERATOR who was previously excluded by `@Roles`); `MANAGE_PRINTERS` stays write-only and is not implied. Pickers should request `limit=100`; an unpaged call is a legacy bare array capped at 500.
+- **23.15 identity.** `GET /shop/staff/me` -> `{ user, shops:[{id,name,role,permissions}] }` (permissions from `ROLE_PERMISSIONS`; display only). `POST /shop/staff` takes exactly one of `userId` (unchanged 201) or `email`; the email form returns ONE uniform `202 {result:"PROCESSED"}` whether the address had an account (added now, authority-checked) or not (invited), sends the same kind of email either way, is rate limited (20/h per inviting person, 3/h per addressee) and audited with a masked address. Invitations: table `shop_staff_invites` (token stored only as a hash, 7-day expiry, unique per shop+email, re-invite refreshes). `POST /shop/staff-invites/accept {token}` needs the emailed token AND a signed-in account whose email equals the invited one (registration does no email verification, so registering an invited address alone grants nothing); the inviter's authority is re-run at accept time. `GET /shop/staff/invites` + `DELETE /shop/staff/invites/:id` (MANAGE_USERS). `GET /shop/staff/directory` (new `VIEW_STAFF_DIRECTORY`, every staff role): `{userId,name}` only, paged, `role`/`q` filters.
+- **23.16.** Product/customer PATCH accept explicit `null` to clear optional fields (JSON columns write SQL NULL); order responses carry `pricingRuleVersion` from the order's own snapshot.
+- **23.17 infra.** `infrastructure/docker/shop-web.Dockerfile` (mirror of `web.Dockerfile`, port 3002), `shop-web` service in `docker-compose.prod.yml` (healthcheck, 512m/1 CPU, `SHOP_WEB_HOST_PORT`, `SHOP_WEB_IMAGE`) and `docker-compose.apps.yml`, `.env.prod.example`, README, `rollback.sh` (now rolls back shop-web too). There is no reverse proxy in the stack (each service publishes its own port), so no route was added. The refresh single-flight is in-process (per browser tab) and refresh tokens rotate with reuse detection: run one shop-web instance or use sticky sessions at whatever proxy fronts the host. `docker compose config` parses for prod and dev+apps; the image was NOT built here (turbo prune of `@print-automated/shop-web` was verified).
+
+### CI change needed (not applied: `.github/workflows/ci.yml` is the user's dirty file, and deploy-staging.yml is outside the backend agent's directories)
+
+`ci.yml` needs no change for shop-web to be linted, typechecked, tested and built (`pnpm -w ...` already covers it). Recommended addition, after the `Build` step, so the new compose service cannot silently rot:
+
+```yaml
+- name: Validate compose files
+  run: |
+    docker compose --env-file infrastructure/docker/.env.prod.example -f infrastructure/docker/docker-compose.prod.yml config -q
+    docker compose -f infrastructure/docker/docker-compose.dev.yml -f infrastructure/docker/docker-compose.apps.yml config -q
+```
+
+`.github/workflows/deploy-staging.yml` must build, push and roll shop-web (otherwise the compose file's `shop-web` service would build locally on the host or fail to pull):
+
+```diff
+-      - name: Build and push api/worker/customer-web images
++      - name: Build and push api/worker/customer-web/shop-web images
+...
+             [customer-web]=infrastructure/docker/web.Dockerfile
++            [shop-web]=infrastructure/docker/shop-web.Dockerfile
+           )
+-          for service in api worker customer-web; do
++          for service in api worker customer-web shop-web; do
+             BUILD_ARGS=()
+-            if [ "$service" = "customer-web" ]; then
++            if [ "$service" = "customer-web" ] || [ "$service" = "shop-web" ]; then
+               BUILD_ARGS=(--build-arg "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL")
+             fi
+...
+             export CUSTOMER_WEB_IMAGE="$IMAGE_NAMESPACE/customer-web:$IMAGE_TAG"
++            export SHOP_WEB_IMAGE="$IMAGE_NAMESPACE/shop-web:$IMAGE_TAG"
+...
+-              -f infrastructure/docker/docker-compose.prod.yml pull api worker customer-web
++              -f infrastructure/docker/docker-compose.prod.yml pull api worker customer-web shop-web
+...
+-              -f infrastructure/docker/docker-compose.prod.yml up -d api worker customer-web
++              -f infrastructure/docker/docker-compose.prod.yml up -d api worker customer-web shop-web
+```
+
+Also add `SHOP_WEB_HOST_PORT`/`SHOP_WEB_IMAGE` handling on the staging host's `.env.prod` (defaults exist), and a `shop.<STAGING_DOMAIN>` route at the host's TLS proxy.

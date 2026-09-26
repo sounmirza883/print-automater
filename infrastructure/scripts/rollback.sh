@@ -7,7 +7,7 @@
 # infrastructure/docker/docker-compose.prod.yml on a single Docker
 # host, and "rolling back" is just re-pulling the previous ghcr.io
 # image tags (a git commit SHA) and re-applying the compose file with
-# those tags -- api/worker/customer-web only, matching
+# those tags -- api/worker/customer-web/shop-web, matching
 # .github/workflows/deploy-staging.yml's own deploy step.
 #
 # Requires SSH access to the same host the deploy pipeline deploys to,
@@ -47,7 +47,7 @@ validate_safe_token "ROLLBACK_TAG" "$ROLLBACK_TAG" '^[A-Za-z0-9._-]+$'
 validate_safe_token "REGISTRY_NAMESPACE" "$REGISTRY_NAMESPACE" '^[A-Za-z0-9./_-]+$'
 validate_safe_token "COMPOSE_DIR" "$COMPOSE_DIR" '^[A-Za-z0-9/._-]+$'
 
-echo "Rolling back api/worker/customer-web to ${REGISTRY_NAMESPACE}/*:${ROLLBACK_TAG} on ${SSH_HOST}..."
+echo "Rolling back api/worker/customer-web/shop-web to ${REGISTRY_NAMESPACE}/*:${ROLLBACK_TAG} on ${SSH_HOST}..."
 
 # shellcheck disable=SC2087
 ssh "${SSH_USER}@${SSH_HOST}" bash -s <<REMOTE
@@ -56,10 +56,11 @@ cd "${COMPOSE_DIR}"
 export API_IMAGE="${REGISTRY_NAMESPACE}/api:${ROLLBACK_TAG}"
 export WORKER_IMAGE="${REGISTRY_NAMESPACE}/worker:${ROLLBACK_TAG}"
 export CUSTOMER_WEB_IMAGE="${REGISTRY_NAMESPACE}/customer-web:${ROLLBACK_TAG}"
+export SHOP_WEB_IMAGE="${REGISTRY_NAMESPACE}/shop-web:${ROLLBACK_TAG}"
 docker compose --env-file infrastructure/docker/.env.prod \
-  -f infrastructure/docker/docker-compose.prod.yml pull api worker customer-web
+  -f infrastructure/docker/docker-compose.prod.yml pull api worker customer-web shop-web
 docker compose --env-file infrastructure/docker/.env.prod \
-  -f infrastructure/docker/docker-compose.prod.yml up -d api worker customer-web
+  -f infrastructure/docker/docker-compose.prod.yml up -d api worker customer-web shop-web
 REMOTE
 
 echo "Waiting for /v1/health/ready to return 200 on the rolled-back version..."

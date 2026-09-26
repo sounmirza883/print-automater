@@ -94,3 +94,17 @@ services:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
     depends_on:
       - api
+
+  # 23.17: the back-office app, mirroring `web` (customer-web) above.
+  shop-web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/shop-web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+    ports:
+      - "${SHOP_WEB_HOST_PORT:-3002}:3002"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+    depends_on:
+      - api
