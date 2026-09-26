@@ -26,6 +26,7 @@ import {
 import type {
   CreateCounterOrderInput,
   ListShopOrdersQueryInput,
+  OrderHistoryQueryInput,
   SearchShopOrdersQueryInput,
   QualityCheckInput,
   ResolveUnknownPrintInput,
@@ -50,6 +51,7 @@ import {
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
 import { resolvePagination } from "../common/pagination.js";
 import { ilike } from "../common/search.js";
+import { sanitizeHistoryMetadata } from "./order-history.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
@@ -91,11 +93,56 @@ const SHOP_ORDER_INCLUDE = {
       // 21.4: set when this job IS a reprint of another job.
       reprintOf: { select: { originalJobId: true, reason: true, additionalCostMinor: true } },
       printer: { select: { name: true } },
+      // 23.13: per-job timeline and ordering facts (all plain columns, no extra join).
+      orderItemId: true,
+      attempt: true,
+      priority: true,
+      createdAt: true,
+      updatedAt: true,
+      pausedAt: true,
+      supersededAt: true,
+    },
+  },
+} satisfies Prisma.OrderInclude;
+
+/** 23.13: what ONE order's detail view adds to the list shape -- line items, the
+ * customer's contact details and the payment, so a list of 50-1000 orders never pays for
+ * them. A superset of SHOP_ORDER_INCLUDE (same keys, wider selects). */
+const SHOP_ORDER_DETAIL_INCLUDE = {
+  ...SHOP_ORDER_INCLUDE,
+  customer: { select: { name: true, email: true, phone: true } },
+  customerRecord: { select: { name: true, email: true, phone: true } },
+  items: {
+    orderBy: { sequence: "asc" },
+    select: {
+      id: true,
+      sequence: true,
+      itemType: true,
+      required: true,
+      quantity: true,
+      printConfiguration: true,
+      pricingSnapshot: true,
+      document: { select: { filename: true } },
+    },
+  },
+  // Only what the shop may see: never providerPaymentId or checkoutUrl.
+  payments: {
+    orderBy: { createdAt: "desc" },
+    select: {
+      provider: true,
+      status: true,
+      amountMinor: true,
+      currency: true,
+      paidAt: true,
+      refunds: { select: { amountMinor: true, status: true, currency: true } },
     },
   },
 } satisfies Prisma.OrderInclude;
 
 type ShopOrderWithRelations = Prisma.OrderGetPayload<{ include: typeof SHOP_ORDER_INCLUDE }>;
+type ShopOrderDetailWithRelations = Prisma.OrderGetPayload<{
+  include: typeof SHOP_ORDER_DETAIL_INCLUDE;
+}>;
 
 // 18.6's own Done-when: a blocked job's reason must be "visible via the
 // shop-orders API response," not just a database column nothing ever
@@ -110,6 +157,67 @@ export interface ShopOrderJobSummary {
   failureNote: string | null;
   // 21.4 (§67): non-null when this job is a reprint of `originalJobId`.
   reprint: { originalJobId: string; reason: string; additionalCostMinor: number } | null;
+  // 23.13: per-job timeline/ordering facts (additive).
+  attempt: number;
+  priority: number;
+  createdAt: Date;
+  updatedAt: Date;
+  pausedAt: Date | null;
+  supersededAt: Date | null;
+}
+
+/** 23.13: one line of an order. `status` is the current (non-superseded) job's status for
+ * this item, null before dispatch. `priceMinor` comes from the item's own price snapshot,
+ * else the order quote when the order has a single item (never a live price lookup). */
+export interface ShopOrderItemSummary {
+  id: string | null;
+  sequence: number;
+  itemType: string;
+  required: boolean;
+  documentName: string;
+  quantity: number;
+  printConfiguration: unknown;
+  status: string | null;
+  priceMinor: number | null;
+}
+
+/** 23.13: contact details. `kind` WALK_IN = the shop's own customer record (or a counter
+ * order with none: then only the placing staff member's name is known); ACCOUNT = the
+ * customer's own account. phone/email are nulled and `contactRedacted` set for roles that
+ * cannot manage deliveries (DeliveryRedactionInterceptor). */
+export interface ShopOrderCustomerContact {
+  kind: "WALK_IN" | "ACCOUNT";
+  name: string;
+  phone: string | null;
+  email: string | null;
+  contactRedacted?: boolean;
+}
+
+/** 23.13: the paying side, without any provider identifier or checkout link. */
+export interface ShopOrderPaymentSummary {
+  provider: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  paidAt: Date | null;
+}
+
+export interface ShopOrderDetailResponse extends ShopOrderResponse {
+  items: ShopOrderItemSummary[];
+  customerContact: ShopOrderCustomerContact;
+  payment: ShopOrderPaymentSummary | null;
+  refunds: { count: number; refundedMinor: number; pendingMinor: number; currency: string | null };
+}
+
+/** 23.13: one row of `GET /shop/orders/:id/history`. */
+export interface OrderHistoryEvent {
+  id: string;
+  at: Date;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  actor: { id: string; name: string } | null;
+  metadata: unknown;
 }
 
 /** 21.4 (§67): what POST /print-jobs/:id/reprint returns. */
@@ -181,6 +289,8 @@ export interface ShopOrderResponse {
   qualityCheckStatus: string | null;
   // 21.5 (§71): the optional delivery record, null when the order has none.
   delivery: DeliveryResponse | null;
+  // 23.13: the highest priority among the order's current jobs (0 when none/unset).
+  priority: number;
 }
 
 export interface ShopOrdersGrouped {
@@ -549,15 +659,73 @@ export class ShopOrdersService {
   /** §34. ShopScopeGuard (via OrderShopResolver, at the route level)
    * has already confirmed the caller is active staff at this exact
    * order's shop by the time this runs. */
-  async getOrder(orderId: string): Promise<ShopOrderResponse> {
+  async getOrder(orderId: string): Promise<ShopOrderDetailResponse> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: SHOP_ORDER_INCLUDE,
+      include: SHOP_ORDER_DETAIL_INCLUDE,
     });
     if (!order) {
       throw new NotFoundException("Order not found.");
     }
-    return this.toResponse(order);
+    return this.toDetailResponse(order);
+  }
+
+  /** 23.13: the order's timeline for staff (VIEW_ORDERS), oldest first, paged. It gathers the
+   * audit rows of the order itself and of everything that hangs off it -- every print job
+   * (including superseded ones: reassignments, late-print holds, inventory shortfalls and
+   * failed consumption are recorded on jobs), its payments, refunds and delivery -- and
+   * strips secrets and personal data (order-history.ts). The scope is the order id, which
+   * ShopScopeGuard has already tied to the caller's business; the id sets are read here
+   * from that order only. Uses the (resource_type, resource_id) index. */
+  async getHistory(
+    orderId: string,
+    query: OrderHistoryQueryInput,
+  ): Promise<Page<OrderHistoryEvent>> {
+    const [jobs, payments, refunds, delivery] = await Promise.all([
+      this.prisma.printJob.findMany({ where: { orderId }, select: { id: true } }),
+      this.prisma.payment.findMany({ where: { orderId }, select: { id: true } }),
+      this.prisma.refund.findMany({ where: { orderId }, select: { id: true } }),
+      this.prisma.orderDelivery.findUnique({ where: { orderId }, select: { id: true } }),
+    ]);
+    const where: Prisma.AuditLogWhereInput = {
+      OR: [
+        { resourceType: "order", resourceId: orderId },
+        ...(jobs.length
+          ? [{ resourceType: "print_job", resourceId: { in: jobs.map((j) => j.id) } }]
+          : []),
+        ...(payments.length
+          ? [{ resourceType: "payment", resourceId: { in: payments.map((p) => p.id) } }]
+          : []),
+        ...(refunds.length
+          ? [{ resourceType: "refund", resourceId: { in: refunds.map((r) => r.id) } }]
+          : []),
+        ...(delivery ? [{ resourceType: "order_delivery", resourceId: delivery.id }] : []),
+      ],
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: query.limit,
+        skip: query.offset,
+        include: { actor: { select: { id: true, name: true } } },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        at: row.createdAt,
+        action: row.action,
+        resourceType: row.resourceType,
+        resourceId: row.resourceId,
+        actor: row.actor,
+        metadata: sanitizeHistoryMetadata(row.metadata),
+      })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   /** §36/8.3/§44/9.13: one user-facing action, two internal transitions
@@ -1678,6 +1846,98 @@ export class ShopOrdersService {
     return this.getOrder(orderId);
   }
 
+  /** 23.13: the list shape plus items, contact and payment. */
+  private toDetailResponse(order: ShopOrderDetailWithRelations): ShopOrderDetailResponse {
+    const base = this.toResponse(order);
+    const quoteTotal =
+      (order.pricingSnapshot as { quote?: { totalMinor?: number } } | null)?.quote?.totalMinor ??
+      null;
+    const config = order.printConfiguration as { copies?: number } | null;
+
+    const items: ShopOrderItemSummary[] =
+      order.items.length > 0
+        ? order.items.map((item) => {
+            const own = (item.pricingSnapshot as { totalMinor?: number } | null)?.totalMinor;
+            return {
+              id: item.id,
+              sequence: item.sequence,
+              itemType: item.itemType,
+              required: item.required,
+              documentName: item.document.filename,
+              quantity: item.quantity,
+              printConfiguration: item.printConfiguration,
+              status: order.printJobs.find((job) => job.orderItemId === item.id)?.status ?? null,
+              priceMinor: own ?? (order.items.length === 1 ? quoteTotal : null),
+            };
+          })
+        : [
+            // Before acceptance no order_items row exists yet (dispatch creates it): show the
+            // order's own single document so the screen has a line to render.
+            {
+              id: null,
+              sequence: 0,
+              itemType: OrderItemType.PRINT,
+              required: true,
+              documentName: order.document.filename,
+              quantity: config?.copies ?? 1,
+              printConfiguration: order.printConfiguration,
+              status: order.printJobs[0]?.status ?? null,
+              priceMinor: quoteTotal,
+            },
+          ];
+
+    const moneyStates: PaymentStatus[] = [
+      PaymentStatus.PAID,
+      PaymentStatus.REFUND_PENDING,
+      PaymentStatus.REFUNDED,
+      PaymentStatus.REFUND_FAILED,
+    ];
+    // payments are newest first; the one that became money wins, else the latest attempt.
+    const primary = order.payments.find((p) => moneyStates.includes(p.status)) ?? order.payments[0];
+    const allRefunds = order.payments.flatMap((p) => p.refunds);
+
+    return {
+      ...base,
+      items,
+      customerContact: order.customerRecord
+        ? {
+            kind: "WALK_IN",
+            name: order.customerRecord.name,
+            phone: order.customerRecord.phone,
+            email: order.customerRecord.email,
+          }
+        : order.creationSource === OrderCreationSource.COUNTER
+          ? // A counter order with no customer record: `customer` is the STAFF member who
+            // placed it, so their phone/email are not the customer's and are not exposed.
+            { kind: "WALK_IN", name: order.customer.name, phone: null, email: null }
+          : {
+              kind: "ACCOUNT",
+              name: order.customer.name,
+              phone: order.customer.phone,
+              email: order.customer.email,
+            },
+      payment: primary
+        ? {
+            provider: primary.provider,
+            status: primary.status,
+            amountMinor: primary.amountMinor,
+            currency: primary.currency,
+            paidAt: primary.paidAt,
+          }
+        : null,
+      refunds: {
+        count: allRefunds.length,
+        refundedMinor: allRefunds
+          .filter((r) => r.status === PaymentStatus.REFUNDED)
+          .reduce((sum, r) => sum + r.amountMinor, 0),
+        pendingMinor: allRefunds
+          .filter((r) => r.status === PaymentStatus.REFUND_PENDING)
+          .reduce((sum, r) => sum + r.amountMinor, 0),
+        currency: allRefunds[0]?.currency ?? primary?.currency ?? null,
+      },
+    };
+  }
+
   private toResponse(order: ShopOrderWithRelations): ShopOrderResponse {
     return {
       id: order.id,
@@ -1692,6 +1952,7 @@ export class ShopOrdersService {
       printerName: order.printJobs[0]?.printer?.name ?? null,
       qualityCheckStatus: order.qualityCheckStatus,
       delivery: order.delivery ? toDeliveryResponse(order.delivery) : null,
+      priority: order.printJobs.reduce((max, job) => Math.max(max, job.priority), 0),
       printJobs: order.printJobs.map((job) => ({
         id: job.id,
         status: job.status,
@@ -1699,6 +1960,12 @@ export class ShopOrdersService {
         blockedReason: job.blockedReason,
         failureReason: job.failureReason,
         failureNote: job.failureNote,
+        attempt: job.attempt,
+        priority: job.priority,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        pausedAt: job.pausedAt,
+        supersededAt: job.supersededAt,
         reprint: job.reprintOf
           ? {
               originalJobId: job.reprintOf.originalJobId,

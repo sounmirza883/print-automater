@@ -11,8 +11,20 @@ function isDelivery(value: object): boolean {
   return "address" in value && "trackingNumber" in value && "feeMinor" in value;
 }
 
+/** 23.13: the customer contact block of an order detail. */
+function isCustomerContact(value: object): boolean {
+  const kind = (value as { kind?: unknown }).kind;
+  return (
+    (kind === "WALK_IN" || kind === "ACCOUNT") &&
+    "name" in value &&
+    "phone" in value &&
+    "email" in value
+  );
+}
+
 /** Replaces the address of every delivery record found in `body` (a single
- * order, a grouped list, or a delivery itself) with null and flags it. */
+ * order, a grouped list, or a delivery itself) with null and flags it; the same
+ * roles also lose an order's customer phone/email (23.13). */
 export function redactDeliveryAddresses(body: unknown): unknown {
   if (Array.isArray(body)) {
     return body.map(redactDeliveryAddresses);
@@ -22,6 +34,9 @@ export function redactDeliveryAddresses(body: unknown): unknown {
   }
   if (isDelivery(body)) {
     return { ...body, address: null, addressRedacted: true };
+  }
+  if (isCustomerContact(body)) {
+    return { ...body, phone: null, email: null, contactRedacted: true };
   }
   return Object.fromEntries(
     Object.entries(body).map(([key, value]) => [key, redactDeliveryAddresses(value)]),

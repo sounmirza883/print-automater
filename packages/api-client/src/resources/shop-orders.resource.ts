@@ -1,9 +1,11 @@
 import type { HttpClient } from "../http-client.js";
 import type {
   JobFailureReason,
+  OrderHistoryEvent,
   Page,
   ReprintReason,
   ShopOrderDelivery,
+  ShopOrderDetail,
   ShopOrderResponse,
   ShopOrdersGrouped,
   ShopRejectionReason,
@@ -52,8 +54,18 @@ export class ShopOrdersResource {
     });
   }
 
-  get(orderId: string): Promise<ShopOrderResponse> {
-    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}`);
+  get(orderId: string): Promise<ShopOrderDetail> {
+    return this.http.request<ShopOrderDetail>(`/v1/shop/orders/${orderId}`);
+  }
+
+  /** 23.13: the order's timeline (always a page, oldest first). */
+  history(
+    orderId: string,
+    params: { limit?: number; offset?: number } = {},
+  ): Promise<Page<OrderHistoryEvent>> {
+    return this.http.request<Page<OrderHistoryEvent>>(`/v1/shop/orders/${orderId}/history`, {
+      query: params,
+    });
   }
 
   accept(orderId: string): Promise<ShopOrderResponse> {

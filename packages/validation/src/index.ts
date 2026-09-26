@@ -27,6 +27,8 @@ export {
   SHOP_ORDER_GROUPS,
   searchShopOrdersQuerySchema,
   type SearchShopOrdersQueryInput,
+  orderHistoryQuerySchema,
+  type OrderHistoryQueryInput,
   rejectOrderSchema,
   type RejectOrderInput,
   resolveUnknownPrintSchema,

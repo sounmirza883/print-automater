@@ -29,3 +29,7 @@ export {
   searchShopOrdersQuerySchema,
   type SearchShopOrdersQueryInput,
 } from "./search-shop-orders-query.schema.js";
+export {
+  orderHistoryQuerySchema,
+  type OrderHistoryQueryInput,
+} from "./order-history-query.schema.js";

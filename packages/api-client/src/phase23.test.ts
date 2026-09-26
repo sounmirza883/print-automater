@@ -110,4 +110,11 @@ describe("Phase 23 ApiClient resources", () => {
       ]);
     });
   });
+
+  it("order history route (23.13)", async () => {
+    await withClient(async (client, seen) => {
+      await client.shopOrders.history("o1", { limit: 20, offset: 40 });
+      expect(seen.map((r) => r.url)).toEqual(["/v1/shop/orders/o1/history?limit=20&offset=40"]);
+    });
+  });
 });

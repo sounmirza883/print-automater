@@ -274,7 +274,9 @@ describe("Shop orders API (8.2, e2e)", () => {
     // under needsAttention (it used to be `printing`).
     const listed = list.body.needsAttention.find((o: { id: string }) => o.id === orderId);
     expect(listed.printerName).toBeNull();
-    expect(listed.printJobs).toEqual([
+    // toMatchObject, not toEqual: 23.13 added per-job fields (attempt, timestamps, ...) and
+    // this list shape is additive by contract.
+    expect(listed.printJobs).toMatchObject([
       {
         id: job.id,
         status: "WAITING",

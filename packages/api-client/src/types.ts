@@ -115,6 +115,63 @@ export interface ShopOrderJobSummary {
   failureReason: string | null;
   failureNote: string | null;
   reprint: { originalJobId: string; reason: string; additionalCostMinor: number } | null;
+  /** 23.13 (always sent; optional here so older fixtures still typecheck). */
+  attempt?: number;
+  priority?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  pausedAt?: string | null;
+  supersededAt?: string | null;
+}
+
+/** 23.13: one line of an order (GET /v1/shop/orders/:id). `id` is null for the single
+ * line synthesised from an order not yet accepted. */
+export interface ShopOrderItem {
+  id: string | null;
+  sequence: number;
+  itemType: string;
+  required: boolean;
+  documentName: string;
+  quantity: number;
+  printConfiguration: unknown;
+  status: string | null;
+  priceMinor: number | null;
+}
+
+export interface ShopOrderCustomerContact {
+  kind: "WALK_IN" | "ACCOUNT";
+  name: string;
+  phone: string | null;
+  email: string | null;
+  /** True when the caller's role cannot see phone/email (they arrive null). */
+  contactRedacted?: boolean;
+}
+
+export interface ShopOrderPayment {
+  provider: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  paidAt: string | null;
+}
+
+/** 23.13/23.16: what GET /v1/shop/orders/:id returns on top of ShopOrderResponse. */
+export interface ShopOrderDetail extends ShopOrderResponse {
+  items: ShopOrderItem[];
+  customerContact: ShopOrderCustomerContact;
+  payment: ShopOrderPayment | null;
+  refunds: { count: number; refundedMinor: number; pendingMinor: number; currency: string | null };
+}
+
+/** 23.13: one row of GET /v1/shop/orders/:id/history (oldest first). */
+export interface OrderHistoryEvent {
+  id: string;
+  at: string;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  actor: { id: string; name: string } | null;
+  metadata: unknown;
 }
 
 export interface ShopOrderDelivery {

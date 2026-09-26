@@ -27,6 +27,7 @@ import type { OrderResponse } from "../orders/orders.service.js";
 import { ChangePrinterDto } from "./dto/change-printer.dto.js";
 import { CreateCounterOrderDto } from "./dto/create-counter-order.dto.js";
 import { ListShopOrdersQueryDto } from "./dto/list-shop-orders-query.dto.js";
+import { OrderHistoryQueryDto } from "./dto/order-history-query.dto.js";
 import { SearchShopOrdersQueryDto } from "./dto/search-shop-orders-query.dto.js";
 import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 import { DeliveryRedactionInterceptor } from "../deliveries/delivery-redaction.interceptor.js";
@@ -36,6 +37,8 @@ import { ResolveUnknownPrintDto } from "./dto/resolve-unknown-print.dto.js";
 import { OrderShopResolver } from "./order-shop.resolver.js";
 import {
   ShopOrdersService,
+  type OrderHistoryEvent,
+  type ShopOrderDetailResponse,
   type ShopOrderResponse,
   type ShopOrdersGrouped,
 } from "./shop-orders.service.js";
@@ -117,8 +120,21 @@ export class ShopOrdersController {
   @RequirePermission(Permission.VIEW_ORDERS)
   @UseGuards(ShopScopeGuard)
   @ShopScoped("id", OrderShopResolver)
-  getOrder(@Param("id") id: string): Promise<ShopOrderResponse> {
+  getOrder(@Param("id") id: string): Promise<ShopOrderDetailResponse> {
     return this.shopOrdersService.getOrder(id);
+  }
+
+  /** 23.13: the order's timeline for staff. VIEW_ORDERS, same guard chain as the detail;
+   * paged (limit 1-100, default 50), oldest first, secrets and personal data stripped. */
+  @Get(":id/history")
+  @RequirePermission(Permission.VIEW_ORDERS)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", OrderShopResolver)
+  getHistory(
+    @Param("id") id: string,
+    @Query() query: OrderHistoryQueryDto,
+  ): Promise<Page<OrderHistoryEvent>> {
+    return this.shopOrdersService.getHistory(id, query);
   }
 
   /** §36/17.7: shop staff's own access to any order at their shop.
