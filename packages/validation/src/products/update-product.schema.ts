@@ -6,16 +6,18 @@ import {
 
 /** §13/17.1's own "edit" action. Every field optional (a PATCH), same
  * "at least one field" refinement `updatePrinterSchema` already
- * established -- an empty body is a client error, not a silent no-op. */
+ * established -- an empty body is a client error, not a silent no-op.
+ * 23.16: the optional columns also accept an explicit `null`, which CLEARS the value
+ * (omitting a key still leaves it untouched). `name` and `available` cannot be null. */
 export const updateProductSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
-    description: z.string().max(2000).optional(),
-    category: z.string().max(100).optional(),
-    unit: z.string().max(50).optional(),
-    taxRateBasisPoints: z.number().int().min(0).max(10_000).optional(),
-    printerRequirements: productPrinterRequirementsSchema.optional(),
-    paperRequirements: productPaperRequirementsSchema.optional(),
+    description: z.string().max(2000).nullable().optional(),
+    category: z.string().max(100).nullable().optional(),
+    unit: z.string().max(50).nullable().optional(),
+    taxRateBasisPoints: z.number().int().min(0).max(10_000).nullable().optional(),
+    printerRequirements: productPrinterRequirementsSchema.nullable().optional(),
+    paperRequirements: productPaperRequirementsSchema.nullable().optional(),
     available: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {

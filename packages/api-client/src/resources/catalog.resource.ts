@@ -29,6 +29,25 @@ export interface ProductInput {
   available?: boolean;
 }
 
+/** 23.16: a PATCH body. The optional columns accept an explicit `null` to CLEAR the value;
+ * omitting a key leaves it untouched. `name` and `available` cannot be null. */
+export type ProductUpdateInput = Omit<
+  ProductInput,
+  | "description"
+  | "category"
+  | "unit"
+  | "taxRateBasisPoints"
+  | "printerRequirements"
+  | "paperRequirements"
+> & {
+  description?: string | null;
+  category?: string | null;
+  unit?: string | null;
+  taxRateBasisPoints?: number | null;
+  printerRequirements?: Caps | null;
+  paperRequirements?: { paperSize?: string; paperType?: string } | null;
+};
+
 export interface PricingRule {
   id: string;
   shopId: string;
@@ -79,6 +98,14 @@ export interface CustomerInput {
   active?: boolean;
 }
 
+/** 23.16: PATCH body; `null` clears an optional contact field, omitting leaves it untouched. */
+export type CustomerUpdateInput = Omit<CustomerInput, "phone" | "email" | "company" | "address"> & {
+  phone?: string | null;
+  email?: string | null;
+  company?: string | null;
+  address?: string | null;
+};
+
 /** MANAGE_PRICES. Products have no delete: `available: false` hides one. */
 export class ProductsResource {
   constructor(private readonly http: HttpClient) {}
@@ -102,7 +129,7 @@ export class ProductsResource {
     return this.http.request("/v1/shop/products", { method: "POST", body: { shopId, ...input } });
   }
 
-  update(id: string, input: ProductInput): Promise<Product> {
+  update(id: string, input: ProductUpdateInput): Promise<Product> {
     return this.http.request(`/v1/shop/products/${id}`, { method: "PATCH", body: input });
   }
 }
@@ -145,7 +172,7 @@ export class CustomersResource {
     return this.http.request("/v1/shop/customers", { method: "POST", body: { shopId, ...input } });
   }
 
-  update(id: string, input: CustomerInput): Promise<Customer> {
+  update(id: string, input: CustomerUpdateInput): Promise<Customer> {
     return this.http.request(`/v1/shop/customers/${id}`, { method: "PATCH", body: input });
   }
 }

@@ -189,6 +189,59 @@ describe("Products CRUD API (§13/17.3, e2e)", () => {
     expect(res.body.available).toBe(false);
   });
 
+  it("23.16: PATCH with an explicit null clears optional fields; omitted fields are untouched", async () => {
+    const product = await prisma.product.create({
+      data: {
+        shopId: shopA.id,
+        name: "Clearable",
+        description: "old description",
+        category: "Stationery",
+        unit: "per pack",
+        taxRateBasisPoints: 1700,
+        printerRequirements: { color: true, duplex: false, a4: true, a3: false },
+        paperRequirements: { paperType: "CARD" },
+      },
+    });
+    productIds.push(product.id);
+
+    const res = await request(app.getHttpServer())
+      .patch(`/v1/shop/products/${product.id}`)
+      .set("Authorization", `Bearer ${managerAToken}`)
+      .send({
+        description: null,
+        category: null,
+        unit: null,
+        taxRateBasisPoints: null,
+        printerRequirements: null,
+        paperRequirements: null,
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      name: "Clearable",
+      description: null,
+      category: null,
+      unit: null,
+      taxRateBasisPoints: null,
+      printerRequirements: null,
+      paperRequirements: null,
+    });
+    const stored = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+    expect(stored.printerRequirements).toBeNull();
+    expect(stored.paperRequirements).toBeNull();
+
+    // Omitted stays; a name cannot be cleared.
+    const keep = await request(app.getHttpServer())
+      .patch(`/v1/shop/products/${product.id}`)
+      .set("Authorization", `Bearer ${managerAToken}`)
+      .send({ description: "back" });
+    expect(keep.body).toMatchObject({ name: "Clearable", description: "back", category: null });
+    const badName = await request(app.getHttpServer())
+      .patch(`/v1/shop/products/${product.id}`)
+      .set("Authorization", `Bearer ${managerAToken}`)
+      .send({ name: null });
+    expect(badName.status).toBe(400);
+  });
+
   it("§47: SHOP_COUNTER (lacking MANAGE_PRICES) is blocked from create/list/update at the same shop a SHOP_MANAGER can act on", async () => {
     const created = await request(app.getHttpServer())
       .post("/v1/shop/products")

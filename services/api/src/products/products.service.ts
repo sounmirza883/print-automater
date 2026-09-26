@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma, Product } from "@prisma/client";
+import { Prisma, type Product } from "@prisma/client";
 import type { Page } from "@print-automated/types";
 import type {
   ListProductsQueryInput,
@@ -26,6 +26,16 @@ export interface ProductResponse {
   available: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** 23.16: PATCH semantics for a nullable JSON column -- `undefined` (key omitted) leaves it
+ * alone, an explicit `null` writes SQL NULL (`Prisma.DbNull`), an object is stored. */
+function jsonOrClear(
+  value: object | null | undefined,
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return Prisma.DbNull;
+  return value as unknown as Prisma.InputJsonValue;
 }
 
 /** §13/17.3: a shop's own named product catalog. `shopId` arrives in
@@ -90,9 +100,8 @@ export class ProductsService {
         category: input.category,
         unit: input.unit,
         taxRateBasisPoints: input.taxRateBasisPoints,
-        printerRequirements: input.printerRequirements as unknown as
-          Prisma.InputJsonValue | undefined,
-        paperRequirements: input.paperRequirements as unknown as Prisma.InputJsonValue | undefined,
+        printerRequirements: jsonOrClear(input.printerRequirements),
+        paperRequirements: jsonOrClear(input.paperRequirements),
         ...(input.available === undefined ? {} : { available: input.available }),
       },
     });
@@ -130,9 +139,8 @@ export class ProductsService {
         category: input.category,
         unit: input.unit,
         taxRateBasisPoints: input.taxRateBasisPoints,
-        printerRequirements: input.printerRequirements as unknown as
-          Prisma.InputJsonValue | undefined,
-        paperRequirements: input.paperRequirements as unknown as Prisma.InputJsonValue | undefined,
+        printerRequirements: jsonOrClear(input.printerRequirements),
+        paperRequirements: jsonOrClear(input.paperRequirements),
         available: input.available,
       },
     });

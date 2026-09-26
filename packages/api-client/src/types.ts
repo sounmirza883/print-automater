@@ -113,6 +113,11 @@ export interface ShopOrderResponse {
   /** The optional delivery record. `address` is null (and `addressRedacted` true)
    * for a role without MANAGE_DELIVERY. */
   delivery: ShopOrderDelivery | null;
+  /** 23.13/23.16 (always sent; optional so older fixtures still typecheck). The highest
+   * priority among the current jobs, and the pricing-rule version the order was quoted under
+   * (from its own snapshot; null when it predates versioning). */
+  priority?: number;
+  pricingRuleVersion?: number | null;
 }
 
 export interface ShopOrderJobSummary {

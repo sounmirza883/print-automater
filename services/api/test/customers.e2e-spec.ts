@@ -189,6 +189,44 @@ describe("Customer records API (§33/34/17.4, e2e)", () => {
     expect(stillThere.name).toBe("Shop A Only Customer");
   });
 
+  it("23.16: PATCH with an explicit null clears optional contact fields; omitted fields are untouched", async () => {
+    const created = await prisma.customer.create({
+      data: {
+        shopId: shopA.id,
+        name: "Clear Me",
+        phone: "+923001112222",
+        email: "clear.me@example.test",
+        company: "Acme",
+        address: "1 Road",
+      },
+    });
+    customerIds.push(created.id);
+
+    const res = await request(app.getHttpServer())
+      .patch(`/v1/shop/customers/${created.id}`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ phone: null, email: null, company: null, address: null });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      name: "Clear Me",
+      phone: null,
+      email: null,
+      company: null,
+      address: null,
+    });
+
+    const keep = await request(app.getHttpServer())
+      .patch(`/v1/shop/customers/${created.id}`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ phone: "+923009998888" });
+    expect(keep.body).toMatchObject({ name: "Clear Me", phone: "+923009998888", email: null });
+    const badName = await request(app.getHttpServer())
+      .patch(`/v1/shop/customers/${created.id}`)
+      .set("Authorization", `Bearer ${counterAToken}`)
+      .send({ name: null });
+    expect(badName.status).toBe(400);
+  });
+
   it("update rejects an empty body", async () => {
     const created = await prisma.customer.create({ data: { shopId: shopA.id, name: "P" } });
     customerIds.push(created.id);

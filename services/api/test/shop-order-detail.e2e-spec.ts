@@ -566,4 +566,30 @@ describe("Shop order detail and history (23.13, e2e)", () => {
       ]);
     });
   });
+
+  describe("pricing-rule version (23.16)", () => {
+    it("is exposed from the order's own snapshot (null when the snapshot predates versions)", async () => {
+      const withVersion = await request(app.getHttpServer())
+        .get(`/v1/shop/orders/${selfServiceOrderId}`)
+        .set(auth("ownerA"));
+      expect(withVersion.body.pricingRuleVersion).toBe(3);
+      const without = await request(app.getHttpServer())
+        .get(`/v1/shop/orders/${counterOrderId}`)
+        .set(auth("ownerA"));
+      expect(without.body.pricingRuleVersion).toBeNull();
+    });
+
+    it("is also on the list shape, and a later price change cannot alter it", async () => {
+      // The value is read from the order's stored snapshot, never a live pricing rule.
+      const list = await request(app.getHttpServer())
+        .get("/v1/shop/orders")
+        .query({ shopId: shopA.id })
+        .set(auth("ownerA"));
+      const all = Object.values(list.body).flat() as Array<{
+        id: string;
+        pricingRuleVersion: number | null;
+      }>;
+      expect(all.find((o) => o.id === selfServiceOrderId)?.pricingRuleVersion).toBe(3);
+    });
+  });
 });

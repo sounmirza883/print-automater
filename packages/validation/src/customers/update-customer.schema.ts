@@ -5,10 +5,11 @@ import { z } from "zod";
 export const updateCustomerSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
-    phone: z.string().max(50).optional(),
-    email: z.string().email().max(320).optional(),
-    company: z.string().max(200).optional(),
-    address: z.string().max(500).optional(),
+    // 23.16: an explicit null clears the value (omitting a key leaves it untouched).
+    phone: z.string().max(50).nullable().optional(),
+    email: z.string().email().max(320).nullable().optional(),
+    company: z.string().max(200).nullable().optional(),
+    address: z.string().max(500).nullable().optional(),
     active: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {

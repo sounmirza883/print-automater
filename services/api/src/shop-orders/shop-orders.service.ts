@@ -291,6 +291,9 @@ export interface ShopOrderResponse {
   delivery: DeliveryResponse | null;
   // 23.13: the highest priority among the order's current jobs (0 when none/unset).
   priority: number;
+  // 23.16: the pricing-rule version this order was quoted under, read from the order's OWN
+  // pricing snapshot (never a live rule); null for a snapshot that predates versioning.
+  pricingRuleVersion: number | null;
 }
 
 export interface ShopOrdersGrouped {
@@ -398,6 +401,12 @@ export const HISTORY_GROUP_CAP = 200;
 export const SHOP_VISIBLE_STATUSES = (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter(
   (status) => GROUP_BY_STATUS[status] !== "hidden",
 );
+
+/** 23.16: the rule version stored in an order's own pricing snapshot, if any. */
+function pricingRuleVersionOf(snapshot: unknown): number | null {
+  const version = (snapshot as { pricingRuleVersion?: unknown } | null)?.pricingRuleVersion;
+  return typeof version === "number" && Number.isInteger(version) ? version : null;
+}
 
 /** 18.17: the job statuses a PRINT_FAILED order's retry/change-printer
  * acts on -- FAILED and TIMEOUT are the two that derive PRINT_FAILED. */
@@ -1953,6 +1962,7 @@ export class ShopOrdersService {
       qualityCheckStatus: order.qualityCheckStatus,
       delivery: order.delivery ? toDeliveryResponse(order.delivery) : null,
       priority: order.printJobs.reduce((max, job) => Math.max(max, job.priority), 0),
+      pricingRuleVersion: pricingRuleVersionOf(order.pricingSnapshot),
       printJobs: order.printJobs.map((job) => ({
         id: job.id,
         status: job.status,

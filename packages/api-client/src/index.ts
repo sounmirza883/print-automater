@@ -42,10 +42,12 @@ export type {
 export type {
   Product,
   ProductInput,
+  ProductUpdateInput,
   PricingRule,
   PricingRuleInput,
   Customer,
   CustomerInput,
+  CustomerUpdateInput,
 } from "./resources/catalog.resource.js";
 export type {
   ShopSettings,
