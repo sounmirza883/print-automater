@@ -117,4 +117,11 @@ describe("Phase 23 ApiClient resources", () => {
       expect(seen.map((r) => r.url)).toEqual(["/v1/shop/orders/o1/history?limit=20&offset=40"]);
     });
   });
+
+  it("printer detail route (23.14)", async () => {
+    await withClient(async (client, seen) => {
+      await client.printers.get("p1");
+      expect(seen.map((r) => r.url)).toEqual(["/v1/shop/printers/p1"]);
+    });
+  });
 });

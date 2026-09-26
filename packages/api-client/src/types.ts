@@ -220,6 +220,23 @@ export interface PrinterResponse {
   pageLimitPeriod: "DAILY" | "WEEKLY" | "MONTHLY";
   pagesUsedInPeriod: number;
   remainingAllowance: number | null;
+  /** 23.14 (always sent; optional so older fixtures still typecheck). */
+  model?: string | null;
+  location?: string | null;
+  maintenanceStatus?: string | null;
+  lastStatusAt?: string | null;
+}
+
+/** 23.14: GET /v1/shop/printers/:id. */
+export interface PrinterDetail extends PrinterResponse {
+  connectionType: string | null;
+  supportedSizes: string[];
+  supportedPaperTypes: string[];
+  maxJobPages: number | null;
+  lastSeenAt: string | null;
+  pageLimitPeriodStart: string;
+  activeJobs: number;
+  rules: Array<{ id: string; name: string; action: string; enabled: boolean; position: number }>;
 }
 
 /** Mirrors services/api's `ShopStaffService.MyShopMembership`. */

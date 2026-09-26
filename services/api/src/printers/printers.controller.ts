@@ -25,7 +25,11 @@ import { ListPrintersQueryDto } from "./dto/list-printers-query.dto.js";
 import { RegisterPrinterDto } from "./dto/register-printer.dto.js";
 import { UpdatePrinterDto } from "./dto/update-printer.dto.js";
 import { PrinterShopResolver } from "./printer-shop.resolver.js";
-import { PrintersService, type PrinterResponse } from "./printers.service.js";
+import {
+  PrintersService,
+  type PrinterDetailResponse,
+  type PrinterResponse,
+} from "./printers.service.js";
 import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
 
 /** §47/16.3: managing the printer fleet (register/update/delete) is
@@ -46,21 +50,44 @@ import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
  * clerk retrying a failed job at the counter. §47's own permission
  * list has no separate "view printers" permission; any active shop
  * staff member listed in `@Roles()` below can read the list, matching
- * "MANAGE means write access", not "MANAGE means all access". */
+ * "MANAGE means write access", not "MANAGE means all access".
+ *
+ * 23.14 turns that convention into data: reads need VIEW_PRINTERS, granted (role-permissions.ts)
+ * to every shop staff role including OPERATOR, so the assign-printer picker works for the
+ * people who assign; writes still need MANAGE_PRINTERS and VIEW does not imply it. Pickers
+ * should request `limit=100` (the page maximum); an unpaged call is a legacy bare array
+ * bounded to 500 rows. */
 @Controller("shop/printers")
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.SHOP_COUNTER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER, UserRole.PRINTER_MANAGER)
+@Roles(
+  UserRole.SHOP_COUNTER,
+  UserRole.SHOP_MANAGER,
+  UserRole.SHOP_OWNER,
+  UserRole.PRINTER_MANAGER,
+  UserRole.OPERATOR,
+)
 export class PrintersController {
   constructor(private readonly printersService: PrintersService) {}
 
   @Get()
   @UseGuards(SearchRateLimitGuard)
+  @RequirePermission(Permission.VIEW_PRINTERS)
   @ShopScopedField("query", "shopId")
   list(
     @Req() req: RequestWithUser,
     @Query() query: ListPrintersQueryDto,
   ): Promise<PrinterResponse[] | Page<PrinterResponse>> {
     return this.printersService.list(req.user!.id, query);
+  }
+
+  /** 23.14: detail (capabilities, page-limit usage, last seen, referencing rules). Same
+   * VIEW_PRINTERS read permission as the list. */
+  @Get(":id")
+  @RequirePermission(Permission.VIEW_PRINTERS)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", PrinterShopResolver)
+  detail(@Param("id") id: string): Promise<PrinterDetailResponse> {
+    return this.printersService.getDetail(id);
   }
 
   @Post()

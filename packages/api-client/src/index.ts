@@ -86,5 +86,6 @@ export type {
   PrinterCapabilities,
   PrinterStatus,
   PrinterResponse,
+  PrinterDetail,
   MyShopMembership,
 } from "./types.js";

@@ -139,4 +139,26 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
       expect(ROLE_PERMISSIONS[role]).not.toContain("VIEW_REPORTS");
     }
   });
+
+  it("VIEW_PRINTERS (23.14): every shop staff role can read printers; only the fleet roles can manage them", () => {
+    for (const role of [
+      "SHOP_COUNTER",
+      "OPERATOR",
+      "PRINTER_MANAGER",
+      "SHOP_MANAGER",
+      "SHOP_OWNER",
+    ] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_PRINTERS");
+    }
+    for (const role of ["SHOP_COUNTER", "OPERATOR"] as const) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain("MANAGE_PRINTERS");
+    }
+    expect(ROLE_PERMISSIONS.CUSTOMER).not.toContain("VIEW_PRINTERS");
+    // Anyone who can manage printers can also read them.
+    for (const role of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
+      if (ROLE_PERMISSIONS[role].includes("MANAGE_PRINTERS")) {
+        expect(ROLE_PERMISSIONS[role]).toContain("VIEW_PRINTERS");
+      }
+    }
+  });
 });

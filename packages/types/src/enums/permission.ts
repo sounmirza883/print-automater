@@ -10,6 +10,11 @@ export const Permission = {
   CANCEL_ORDERS: "CANCEL_ORDERS",
   ASSIGN_JOBS: "ASSIGN_JOBS",
   MANAGE_PRINTERS: "MANAGE_PRINTERS",
+  /** 23.14: READ the printer fleet (list and detail) -- what the assign-printer picker and
+   * the printer screens need. MANAGE_PRINTERS is write-only (register/update/delete) and does
+   * not imply this: ROLE_PERMISSIONS grants both together where both apply. Every shop staff
+   * role has it (the counter's change-printer picker has needed it since Phase 17). */
+  VIEW_PRINTERS: "VIEW_PRINTERS",
   /** 21.1 (§65): pause and resume a print job. */
   PAUSE_JOBS: "PAUSE_JOBS",
   /** 21.2 (§66): pick the failure reason on a failed job. */

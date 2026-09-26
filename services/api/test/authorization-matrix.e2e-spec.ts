@@ -771,6 +771,11 @@ describe("Authorization matrix (12.1, e2e)", () => {
         expected: { owner: 200, manager: 200, counter: 403 },
       },
       {
+        name: "printer list (VIEW_PRINTERS)",
+        path: "/v1/shop/printers",
+        expected: { owner: 200, manager: 200, counter: 200 },
+      },
+      {
         name: "order search",
         path: "/v1/shop/orders/search",
         expected: { owner: 200, manager: 200, counter: 200 },

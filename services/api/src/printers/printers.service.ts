@@ -37,6 +37,27 @@ export interface PrinterResponse {
   pagesUsedInPeriod: number;
   /** null when enforcement is disabled or no limit is set. */
   remainingAllowance: number | null;
+  // 23.14 (additive, plain columns): the printer profile and when its status last changed.
+  model: string | null;
+  location: string | null;
+  maintenanceStatus: string | null;
+  lastStatusAt: Date | null;
+}
+
+/** 23.14: `GET /shop/printers/:id`. */
+export interface PrinterDetailResponse extends PrinterResponse {
+  connectionType: string | null;
+  supportedSizes: string[];
+  supportedPaperTypes: string[];
+  maxJobPages: number | null;
+  /** The paired agent's last heartbeat (null when no agent, or never seen). */
+  lastSeenAt: Date | null;
+  /** Start (UTC) of the period `pagesUsedInPeriod` counts. */
+  pageLimitPeriodStart: Date;
+  /** Jobs currently queued/claimed/printing/unknown on this printer. */
+  activeJobs: number;
+  /** Automation rules (22.3) whose printer set names this printer, in rule order. */
+  rules: Array<{ id: string; name: string; action: string; enabled: boolean; position: number }>;
 }
 
 /** §110/10.2's own "may still be physically printing, unresolved"
@@ -89,6 +110,41 @@ export class PrintersService {
       pagination.paged ? this.prisma.printer.count({ where }) : Promise.resolve(0),
     ]);
     return listResult(pagination, await this.withUsage(printers), total);
+  }
+
+  /** 23.14. ShopScopeGuard (PrinterShopResolver) has already confirmed the caller is active
+   * staff at this printer's business. */
+  async getDetail(printerId: string): Promise<PrinterDetailResponse> {
+    const printer = await this.prisma.printer.findUnique({
+      where: { id: printerId },
+      include: { agent: { select: { lastSeenAt: true } } },
+    });
+    if (!printer) {
+      throw new NotFoundException("Printer not found.");
+    }
+    const [base, rules, activeJobs] = await Promise.all([
+      this.toResponseWithUsage(printer),
+      // Same business only (defence in depth: rules carry printer ids, not a foreign key).
+      this.prisma.printerAutomationRule.findMany({
+        where: { shopId: printer.shopId, printerIds: { has: printerId } },
+        orderBy: [{ position: "asc" }, { id: "asc" }],
+        select: { id: true, name: true, action: true, enabled: true, position: true },
+      }),
+      this.prisma.printJob.count({
+        where: { printerId, status: { in: ACTIVE_JOB_STATUSES } },
+      }),
+    ]);
+    return {
+      ...base,
+      connectionType: printer.connectionType,
+      supportedSizes: printer.supportedSizes,
+      supportedPaperTypes: printer.supportedPaperTypes,
+      maxJobPages: printer.maxJobPages,
+      lastSeenAt: printer.agent?.lastSeenAt ?? null,
+      pageLimitPeriodStart: periodStart(printer.pageLimitPeriod, new Date()),
+      activeJobs,
+      rules,
+    };
   }
 
   async register(requestingUserId: string, input: RegisterPrinterInput): Promise<PrinterResponse> {
@@ -274,6 +330,10 @@ export class PrintersService {
       pageLimit: printer.pageLimit,
       pageLimitEnabled: printer.pageLimitEnabled,
       pageLimitPeriod: printer.pageLimitPeriod,
+      model: printer.model,
+      location: printer.location,
+      maintenanceStatus: printer.maintenanceStatus,
+      lastStatusAt: printer.lastStatusAt,
     };
   }
 }

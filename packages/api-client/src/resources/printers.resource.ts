@@ -1,5 +1,11 @@
 import type { HttpClient } from "../http-client.js";
-import type { Page, PrinterCapabilities, PrinterResponse, PrinterStatus } from "../types.js";
+import type {
+  Page,
+  PrinterCapabilities,
+  PrinterDetail,
+  PrinterResponse,
+  PrinterStatus,
+} from "../types.js";
 
 export interface RegisterPrinterInput {
   shopId: string;
@@ -32,6 +38,11 @@ export class PrintersResource {
     return this.http.request<Page<PrinterResponse>>("/v1/shop/printers", {
       query: { shopId, ...params, limit: params.limit ?? 50 },
     });
+  }
+
+  /** 23.14: capabilities, page-limit usage, last seen and the rules that name this printer. */
+  get(printerId: string): Promise<PrinterDetail> {
+    return this.http.request<PrinterDetail>(`/v1/shop/printers/${printerId}`);
   }
 
   register(input: RegisterPrinterInput): Promise<PrinterResponse> {
