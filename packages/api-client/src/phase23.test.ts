@@ -124,4 +124,17 @@ describe("Phase 23 ApiClient resources", () => {
       expect(seen.map((r) => r.url)).toEqual(["/v1/shop/printers/p1"]);
     });
   });
+
+  it("staff identity, directory and invitation routes (23.15)", async () => {
+    await withClient(async (client, seen) => {
+      await client.shopStaff.directory("s1", { role: "OPERATOR", limit: 100 });
+      await client.shopStaff.listInvites("s1");
+      await client.shopStaff.revokeInvite("i1");
+      expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual([
+        "GET /v1/shop/staff/directory?shopId=s1&role=OPERATOR&limit=100",
+        "GET /v1/shop/staff/invites?shopId=s1",
+        "DELETE /v1/shop/staff/invites/i1",
+      ]);
+    });
+  });
 });

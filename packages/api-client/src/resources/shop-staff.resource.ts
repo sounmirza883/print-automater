@@ -1,5 +1,5 @@
 import type { HttpClient } from "../http-client.js";
-import type { MyShopMembership, Page } from "../types.js";
+import type { MyShopsResponse, Page } from "../types.js";
 
 export interface ShopStaffListItem {
   id: string;
@@ -20,6 +20,21 @@ export interface ShopStaffMember {
   status: "ACTIVE" | "SUSPENDED" | "REMOVED";
 }
 
+/** 23.15: one row of the minimal staff directory. */
+export interface StaffDirectoryItem {
+  userId: string;
+  name: string;
+}
+
+export interface StaffInvite {
+  id: string;
+  email: string;
+  role: string;
+  invitedBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export class ShopStaffResource {
   constructor(private readonly http: HttpClient) {}
 
@@ -38,6 +53,41 @@ export class ShopStaffResource {
     return this.http.request("/v1/shop/staff", { method: "POST", body: { shopId, userId, role } });
   }
 
+  /** 23.15 (MANAGE_USERS): add by email. The answer is the same `{result:"PROCESSED"}` (HTTP 202)
+   * whether the address had an account (added now) or not (invited by email). */
+  addByEmail(shopId: string, email: string, role: string): Promise<{ result: "PROCESSED" }> {
+    return this.http.request("/v1/shop/staff", { method: "POST", body: { shopId, email, role } });
+  }
+
+  /** 23.15: id + display name of active members (any staff role), e.g. for the operator filter. */
+  directory(
+    shopId: string,
+    params: { q?: string; role?: string; limit?: number; offset?: number } = {},
+  ): Promise<Page<StaffDirectoryItem>> {
+    return this.http.request<Page<StaffDirectoryItem>>("/v1/shop/staff/directory", {
+      query: { shopId, ...params },
+    });
+  }
+
+  /** 23.15 (MANAGE_USERS): pending invitations. */
+  listInvites(
+    shopId: string,
+    params: { limit?: number; offset?: number } = {},
+  ): Promise<Page<StaffInvite>> {
+    return this.http.request<Page<StaffInvite>>("/v1/shop/staff/invites", {
+      query: { shopId, ...params },
+    });
+  }
+
+  revokeInvite(inviteId: string): Promise<void> {
+    return this.http.request<void>(`/v1/shop/staff/invites/${inviteId}`, { method: "DELETE" });
+  }
+
+  /** 23.15: the signed-in person redeems the emailed code (their account email must match). */
+  acceptInvite(token: string): Promise<{ shopId: string; role: string }> {
+    return this.http.request("/v1/shop/staff-invites/accept", { method: "POST", body: { token } });
+  }
+
   changeRole(membershipId: string, role: string): Promise<ShopStaffMember> {
     return this.http.request(`/v1/shop/staff/${membershipId}/role`, {
       method: "PATCH",
@@ -49,7 +99,7 @@ export class ShopStaffResource {
     return this.http.request(`/v1/shop/staff/${membershipId}`, { method: "DELETE" });
   }
 
-  myShops(): Promise<{ shops: MyShopMembership[] }> {
-    return this.http.request<{ shops: MyShopMembership[] }>("/v1/shop/staff/me");
+  myShops(): Promise<MyShopsResponse> {
+    return this.http.request<MyShopsResponse>("/v1/shop/staff/me");
   }
 }

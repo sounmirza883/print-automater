@@ -776,6 +776,16 @@ describe("Authorization matrix (12.1, e2e)", () => {
         expected: { owner: 200, manager: 200, counter: 200 },
       },
       {
+        name: "staff directory (VIEW_STAFF_DIRECTORY)",
+        path: "/v1/shop/staff/directory",
+        expected: { owner: 200, manager: 200, counter: 200 },
+      },
+      {
+        name: "pending staff invitations",
+        path: "/v1/shop/staff/invites",
+        expected: { owner: 200, manager: 200, counter: 403 },
+      },
+      {
         name: "order search",
         path: "/v1/shop/orders/search",
         expected: { owner: 200, manager: 200, counter: 200 },

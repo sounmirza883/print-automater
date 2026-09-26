@@ -24,4 +24,29 @@ export class NotificationService {
       text: `Use this code to reset your password: ${rawToken}\n\nIf you didn't request this, you can ignore this email.`,
     });
   }
+
+  /** 23.15: sent for EVERY add-by-email, whether or not the address has an account, so the
+   * caller-visible behaviour (and the side effects) do not reveal which. `rawToken` is set only
+   * when an invitation was created; an existing account is simply told it now has access. */
+  async sendStaffInvite(
+    email: string,
+    shopName: string,
+    role: string,
+    rawToken: string | null,
+  ): Promise<void> {
+    const text = rawToken
+      ? `You have been invited to join ${shopName} as ${role}.
+
+Sign in (or create an account with this email address) and enter this code under "Accept invitation": ${rawToken}
+
+The code expires in 7 days. If you were not expecting this, ignore this email.`
+      : `You have been added to ${shopName} as ${role}. Sign in to see it.
+
+If you were not expecting this, contact the business.`;
+    await this.notificationsQueue.add("send-email", {
+      to: email,
+      subject: `Your access to ${shopName} on Print Automated`,
+      text,
+    });
+  }
 }

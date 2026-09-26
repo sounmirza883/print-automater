@@ -40,6 +40,14 @@ export interface AuthUser {
   name: string;
   email: string;
   role: UserRole;
+  /** 23.15: what `role` may do at this business (server ROLE_PERMISSIONS, display only). */
+  permissions?: string[];
+}
+
+/** 23.15: GET /v1/shop/staff/me. */
+export interface MyShopsResponse {
+  user?: { id: string; name: string; email: string };
+  shops: MyShopMembership[];
 }
 
 /** Mirrors services/api's `AuthResult` (services/api/src/auth/auth.service.ts).

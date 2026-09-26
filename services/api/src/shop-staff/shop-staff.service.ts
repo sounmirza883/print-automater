@@ -1,26 +1,20 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import { ShopStaffStatus, UserRole, type Prisma, type ShopStaff } from "@prisma/client";
-import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
-import type { Page } from "@print-automated/types";
-import type { AddShopStaffInput, ListShopStaffQueryInput } from "@print-automated/validation";
+import {
+  AppException,
+  AuditService,
+  PrismaService,
+  ROLE_PERMISSIONS,
+} from "@print-automated/backend-shared";
+import type { Page, Permission } from "@print-automated/types";
+import type {
+  ListShopStaffQueryInput,
+  StaffDirectoryQueryInput,
+} from "@print-automated/validation";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { ilike } from "../common/search.js";
-
-/** 23.12: shop-role rank for the hierarchy rules -- owner above manager above every
- * other staff role. Non-staff roles rank 0 (never granted at a shop). */
-function roleRank(role: UserRole): number {
-  if (role === UserRole.SHOP_OWNER) return 3;
-  if (role === UserRole.SHOP_MANAGER) return 2;
-  if (
-    role === UserRole.SHOP_COUNTER ||
-    role === UserRole.OPERATOR ||
-    role === UserRole.PRINTER_MANAGER
-  ) {
-    return 1;
-  }
-  return 0;
-}
+import { roleRank } from "./role-rank.js";
 
 export interface MyShopMembership {
   id: string;
@@ -30,6 +24,22 @@ export interface MyShopMembership {
    * JWT. The Shop app needs this to know what the caller can actually
    * do at whichever shop it's currently operating for. */
   role: UserRole;
+  /** 23.15: what `role` may do at THIS business, straight from ROLE_PERMISSIONS (the same data
+   * PermissionsGuard enforces), so a client never mirrors the catalog. Display only: the
+   * server still authorizes every request. */
+  permissions: Permission[];
+}
+
+/** 23.15: `GET /shop/staff/me`. */
+export interface MyShopsResponse {
+  user: { id: string; name: string; email: string };
+  shops: MyShopMembership[];
+}
+
+/** 23.15: one row of the minimal staff directory. */
+export interface StaffDirectoryItem {
+  userId: string;
+  name: string;
 }
 
 export interface ShopStaffMemberResponse {
@@ -79,7 +89,53 @@ export class ShopStaffService {
       id: membership.shop.id,
       name: membership.shop.name,
       role: membership.role,
+      permissions: [...(ROLE_PERMISSIONS[membership.role] ?? [])],
     }));
+  }
+
+  /** 23.15: the signed-in person plus every business they staff, with the effective permission
+   * list per membership. */
+  async me(userId: string): Promise<MyShopsResponse> {
+    const [user, shops] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { id: true, name: true, email: true },
+      }),
+      this.myShops(userId),
+    ]);
+    return { user, shops };
+  }
+
+  /** 23.15: id + display name of the business's ACTIVE members, alphabetical, paged. Needs only
+   * VIEW_STAFF_DIRECTORY (every staff role): no email, no role, no status. Tenant scope is the
+   * caller's own active membership at `shopId`. */
+  async directory(
+    actorId: string,
+    query: StaffDirectoryQueryInput,
+  ): Promise<Page<StaffDirectoryItem>> {
+    await this.assertMember(query.shopId, actorId);
+    const where: Prisma.ShopStaffWhereInput = {
+      shopId: query.shopId,
+      status: ShopStaffStatus.ACTIVE,
+      ...(query.role ? { role: query.role } : {}),
+      ...(query.q ? { user: { name: ilike(query.q) } } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.shopStaff.findMany({
+        where,
+        orderBy: [{ user: { name: "asc" } }, { id: "asc" }],
+        take: query.limit,
+        skip: query.offset,
+        select: { userId: true, user: { select: { name: true } } },
+      }),
+      this.prisma.shopStaff.count({ where }),
+    ]);
+    return {
+      items: rows.map((row) => ({ userId: row.userId, name: row.user.name })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   /** 23.6: the business's people. REMOVED members are hidden unless asked for
@@ -134,7 +190,10 @@ export class ShopStaffService {
    * were REMOVED) rather than erroring, the same "claim, or find what's
    * already there" idempotency shape refund.service.ts's own upsert
    * already established for this codebase. */
-  async addStaff(actorId: string, input: AddShopStaffInput): Promise<ShopStaffMemberResponse> {
+  async addStaff(
+    actorId: string,
+    input: { shopId: string; userId: string; role: UserRole },
+  ): Promise<ShopStaffMemberResponse> {
     await this.assertMember(input.shopId, actorId);
 
     const targetUser = await this.prisma.user.findUnique({ where: { id: input.userId } });
@@ -253,6 +312,22 @@ export class ShopStaffService {
     });
 
     return this.toResponse(updated);
+  }
+
+  /** 23.15: the same authority decision an add would face, without adding anyone -- used
+   * before sending an invitation, so nobody can invite above their own rank. */
+  async assertMayGrant(actorId: string, shopId: string, role: UserRole): Promise<void> {
+    await this.assertMember(shopId, actorId);
+    await this.prisma.$transaction(async (tx) => {
+      await this.authorizeMutationLocked(tx, {
+        shopId,
+        actorId,
+        targetMembershipId: null,
+        targetUserId: "",
+        newRole: role,
+        removing: false,
+      });
+    });
   }
 
   private async assertMember(shopId: string, userId: string): Promise<void> {

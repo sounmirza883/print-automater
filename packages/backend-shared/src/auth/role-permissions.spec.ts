@@ -161,4 +161,18 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
       }
     }
   });
+
+  it("VIEW_STAFF_DIRECTORY (23.15): every shop staff role, no customer, and it does not imply MANAGE_USERS", () => {
+    for (const role of [
+      "SHOP_COUNTER",
+      "OPERATOR",
+      "PRINTER_MANAGER",
+      "SHOP_MANAGER",
+      "SHOP_OWNER",
+    ] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain("VIEW_STAFF_DIRECTORY");
+    }
+    expect(ROLE_PERMISSIONS.CUSTOMER).not.toContain("VIEW_STAFF_DIRECTORY");
+    expect(ROLE_PERMISSIONS.OPERATOR).not.toContain("MANAGE_USERS");
+  });
 });

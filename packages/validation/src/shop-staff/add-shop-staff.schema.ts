@@ -15,11 +15,21 @@ export const SHOP_STAFF_ASSIGNABLE_ROLES = [
   UserRole.PRINTER_MANAGER,
 ] as const;
 
-export const addShopStaffSchema = z.object({
-  shopId: z.string().uuid(),
-  userId: z.string().uuid(),
-  role: z.enum(SHOP_STAFF_ASSIGNABLE_ROLES),
-});
+/** §54/16.4 + 23.15: name the person EITHER by an existing account's `userId` (a direct add) OR
+ * by `email` (add that account if it exists, otherwise send an invitation; the response is
+ * the same either way, so the endpoint never says whether an address has an account).
+ * Exactly one of the two. */
+export const addShopStaffSchema = z
+  .object({
+    shopId: z.string().uuid(),
+    userId: z.string().uuid().optional(),
+    email: z.string().trim().toLowerCase().email().max(254).optional(),
+    role: z.enum(SHOP_STAFF_ASSIGNABLE_ROLES),
+  })
+  .refine((value) => (value.userId === undefined) !== (value.email === undefined), {
+    message: "Provide exactly one of userId or email.",
+    path: ["userId"],
+  });
 
 export type AddShopStaffInput = z.infer<typeof addShopStaffSchema>;
 
@@ -28,3 +38,10 @@ export const changeShopStaffRoleSchema = z.object({
 });
 
 export type ChangeShopStaffRoleInput = z.infer<typeof changeShopStaffRoleSchema>;
+
+/** 23.15: accepting an emailed invitation. The token is opaque (base64url, 43 chars today). */
+export const acceptStaffInviteSchema = z.object({
+  token: z.string().trim().min(20).max(200),
+});
+
+export type AcceptStaffInviteInput = z.infer<typeof acceptStaffInviteSchema>;

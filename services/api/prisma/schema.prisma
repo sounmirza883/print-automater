@@ -149,6 +149,7 @@ model Shop {
   updatedAt           DateTime   @updatedAt @map("updated_at")
 
   staff             ShopStaff[]
+  staffInvites      ShopStaffInvite[]
   pricingRules      PricingRule[]
   orders            Order[]
   printers          Printer[]
@@ -317,6 +318,32 @@ model ShopStaff {
 
   @@unique([shopId, userId])
   @@map("shop_staff")
+}
+
+// 23.15: a pending invitation for someone with no account yet (or, uniformly, an
+// addressee we only know by email). The raw token is emailed and never stored (only its
+// hash, like password_reset_tokens); accepting needs BOTH the token (proof of mailbox) and a
+// signed-in account whose email equals `email`, so registering an invited address does NOT
+// by itself grant anything. One row per (shop, email): re-inviting refreshes it in place.
+model ShopStaffInvite {
+  id         String    @id @default(uuid())
+  shopId     String    @map("shop_id")
+  // Lower-cased.
+  email      String
+  role       UserRole
+  tokenHash  String    @unique @map("token_hash")
+  invitedBy  String?   @map("invited_by")
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, email])
+  @@index([email])
+  @@map("shop_staff_invites")
 }
 
 // §83. Append-only -- rows are never updated or deleted by application

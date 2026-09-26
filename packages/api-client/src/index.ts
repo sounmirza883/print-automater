@@ -88,4 +88,5 @@ export type {
   PrinterResponse,
   PrinterDetail,
   MyShopMembership,
+  MyShopsResponse,
 } from "./types.js";

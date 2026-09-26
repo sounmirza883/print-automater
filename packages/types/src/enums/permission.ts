@@ -36,6 +36,10 @@ export const Permission = {
   MANAGE_PRICES: "MANAGE_PRICES",
   VIEW_REPORTS: "VIEW_REPORTS",
   MANAGE_USERS: "MANAGE_USERS",
+  /** 23.15: the minimal staff directory (id + display name of active members) that pickers such
+   * as the order search's operator filter need. Held by every shop staff role, so it is
+   * readable at OPERATOR level without MANAGE_USERS (which also exposes emails and roles). */
+  VIEW_STAFF_DIRECTORY: "VIEW_STAFF_DIRECTORY",
   MANAGE_SETTINGS: "MANAGE_SETTINGS",
   /** 22.1 (§75): read the business/automation settings and printer rules. */
   VIEW_SETTINGS: "VIEW_SETTINGS",

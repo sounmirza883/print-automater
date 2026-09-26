@@ -31,6 +31,8 @@ import { Permission } from "@print-automated/types";
  *   - Printers (23.14): VIEW_PRINTERS (list/detail; the assign-printer picker) is held by
  *     every shop staff role, including OPERATOR; MANAGE_PRINTERS (register/update/delete)
  *     stays owner/manager/printer-manager and does NOT imply the read.
+ *   - Staff directory (23.15): VIEW_STAFF_DIRECTORY (id + display name only) is held by
+ *     every shop staff role; the roster with emails and roles stays MANAGE_USERS.
  *   - PRINTER_MANAGER: owns the printer fleet -- MANAGE_PRINTERS and
  *     ASSIGN_JOBS, plus VIEW_ORDERS to see what's queued; no order
  *     editing, pricing, or staff management.
@@ -47,10 +49,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.EDIT_ORDERS,
     Permission.MANAGE_DELIVERY,
     Permission.VIEW_PRINTERS,
+    Permission.VIEW_STAFF_DIRECTORY,
   ],
   OPERATOR: [
     Permission.VIEW_ORDERS,
     Permission.VIEW_PRINTERS,
+    Permission.VIEW_STAFF_DIRECTORY,
     Permission.ASSIGN_JOBS,
     Permission.PAUSE_JOBS,
     Permission.RECORD_JOB_FAILURE,
@@ -62,6 +66,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   PRINTER_MANAGER: [
     Permission.VIEW_ORDERS,
     Permission.VIEW_PRINTERS,
+    Permission.VIEW_STAFF_DIRECTORY,
     Permission.MANAGE_PRINTERS,
     Permission.ASSIGN_JOBS,
     Permission.PAUSE_JOBS,
@@ -84,6 +89,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.REPRINT_JOBS,
     Permission.MANAGE_DELIVERY,
     Permission.VIEW_PRINTERS,
+    Permission.VIEW_STAFF_DIRECTORY,
     Permission.MANAGE_PRINTERS,
     Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,
@@ -109,6 +115,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.REPRINT_JOBS,
     Permission.MANAGE_DELIVERY,
     Permission.VIEW_PRINTERS,
+    Permission.VIEW_STAFF_DIRECTORY,
     Permission.MANAGE_PRINTERS,
     Permission.VIEW_INVENTORY,
     Permission.MANAGE_INVENTORY,

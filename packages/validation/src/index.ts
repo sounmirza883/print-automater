@@ -77,6 +77,12 @@ export {
   changeShopStaffRoleSchema,
   type ChangeShopStaffRoleInput,
   SHOP_STAFF_ASSIGNABLE_ROLES,
+  acceptStaffInviteSchema,
+  type AcceptStaffInviteInput,
+  staffDirectoryQuerySchema,
+  type StaffDirectoryQueryInput,
+  listStaffInvitesQuerySchema,
+  type ListStaffInvitesQueryInput,
   listShopStaffQuerySchema,
   type ListShopStaffQueryInput,
 } from "./shop-staff/index.js";
