@@ -24,6 +24,20 @@ describe("errorMessageFor", () => {
     ["DELIVERY_COURIER_REQUIRED", /courier/],
     ["RESUME_TARGET_STALE", /Choose a printer/],
     ["PRINTER_HAS_ACTIVE_JOB", /disable the printer instead/],
+    ["INSUFFICIENT_STOCK", /not enough stock/],
+    ["STOCK_OVERFLOW", /past the largest number/],
+    ["INVENTORY_SKU_TAKEN", /already uses that SKU/],
+    ["SUPPLIER_PRODUCT_EXISTS", /already supplies that item/],
+    ["SUPPLIER_INACTIVE", /supplier is inactive/],
+    ["INVENTORY_ITEM_INACTIVE", /stock item is inactive/],
+    ["PURCHASE_ORDER_TOTAL_TOO_LARGE", /total is too large/],
+    ["PURCHASE_ORDER_INVALID_STATE", /already received or cancelled/],
+    ["SETTINGS_VERSION_CONFLICT", /Someone else changed these settings/],
+    ["RULE_VERSION_CONFLICT", /changed this rule/],
+    ["RULE_LIMIT_REACHED", /at most 50/],
+    ["RULE_ORDER_MISMATCH", /reorder again/],
+    ["RULE_PRINTER_INVALID", /does not belong/],
+    ["CANNOT_REMOVE_LAST_OWNER", /must always have an owner/],
   ])("gives %s its own precise copy", (code, pattern) => {
     expect(errorMessageFor(apiError(409, code))).toMatch(pattern);
   });
@@ -42,6 +56,25 @@ describe("errorMessageFor", () => {
 
   it("describes a failure with no response at all as connectivity", () => {
     expect(errorMessageFor(new TypeError("fetch failed"))).toMatch(/connection/);
+  });
+});
+
+describe("403 wording", () => {
+  it("keeps a service's own precise 403 message but not the generic guard one", () => {
+    expect(
+      errorMessageFor({
+        status: 403,
+        error_code: "FORBIDDEN",
+        message: "Only an existing owner can grant the SHOP_OWNER role.",
+      }),
+    ).toBe("Only an existing owner can grant the SHOP_OWNER role.");
+    expect(
+      errorMessageFor({
+        status: 403,
+        error_code: "FORBIDDEN",
+        message: "Insufficient permission for this resource.",
+      }),
+    ).toMatch(/role at this business/);
   });
 });
 

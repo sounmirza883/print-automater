@@ -17,12 +17,43 @@ export {
   type RegisterPrinterInput,
   type UpdatePrinterInput,
 } from "./resources/printers.resource.js";
-export { ShopStaffResource, type ShopStaffListItem } from "./resources/shop-staff.resource.js";
+export {
+  ShopStaffResource,
+  type ShopStaffListItem,
+  type ShopStaffMember,
+} from "./resources/shop-staff.resource.js";
 export {
   PrintJobsResource,
   type PrintJobActionResult,
   type ReprintResult,
 } from "./resources/print-jobs.resource.js";
+export type {
+  InventoryItem,
+  InventoryItemInput,
+  InventoryAlert,
+  InventorySummary,
+  InventoryMovement,
+  Supplier,
+  SupplierInput,
+  SupplierProduct,
+  PurchaseOrder,
+  PurchaseOrderLine,
+} from "./resources/inventory.resource.js";
+export type {
+  Product,
+  ProductInput,
+  PricingRule,
+  PricingRuleInput,
+  Customer,
+  CustomerInput,
+} from "./resources/catalog.resource.js";
+export type {
+  ShopSettings,
+  ShopSettingsPatch,
+  OperatingHours,
+  PrinterRule,
+  PrinterRuleInput,
+} from "./resources/settings.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
 export { ReportsResource, type ReportParams } from "./resources/reports.resource.js";
 export {

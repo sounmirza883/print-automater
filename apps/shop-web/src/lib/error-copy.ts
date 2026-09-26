@@ -65,6 +65,34 @@ const COPY: Record<string, string> = {
   DELIVERY_ORDER_NOT_READY: "The order is not ready to be sent out for delivery yet.",
   PRINTER_HAS_ACTIVE_JOB:
     "This printer has an active print job, so it cannot be removed. Wait for it to finish, or disable the printer instead.",
+  INSUFFICIENT_STOCK:
+    "There is not enough stock for that. The movement would take the quantity below zero.",
+  STOCK_OVERFLOW: "That would push the quantity past the largest number the system can hold.",
+  INVENTORY_SKU_TAKEN: "Another stock item already uses that SKU. Choose a different one.",
+  INVENTORY_MAX_BELOW_MIN: "The maximum quantity cannot be below the minimum.",
+  INVENTORY_ITEM_NOT_FOUND: "That stock item no longer exists.",
+  INVENTORY_ITEM_INACTIVE: "That stock item is inactive. Reactivate it or choose another.",
+  SUPPLIER_NOT_FOUND: "That supplier no longer exists.",
+  SUPPLIER_INACTIVE: "That supplier is inactive. Reactivate it or choose another supplier.",
+  SUPPLIER_PRODUCT_EXISTS:
+    "This supplier already supplies that item. Edit the existing link instead.",
+  SUPPLIER_PRODUCT_NOT_FOUND: "That supplier link no longer exists.",
+  PURCHASE_ORDER_NOT_FOUND: "That purchase order no longer exists.",
+  PURCHASE_ORDER_LINE_NOT_FOUND: "One of the lines is not part of this purchase order.",
+  PURCHASE_ORDER_INVALID_STATE:
+    "This purchase order is not in a state that allows that (for example, it was already received or cancelled). Refresh to see where it is now.",
+  PURCHASE_ORDER_TOTAL_TOO_LARGE:
+    "The order total is too large. Reduce the quantities or unit costs.",
+  SETTINGS_VERSION_CONFLICT:
+    "Someone else changed these settings while you were editing. Reload to see their changes, then apply yours again.",
+  RULE_VERSION_CONFLICT:
+    "Someone else changed this rule while you were editing. Reload to see their changes, then try again.",
+  RULE_LIMIT_REACHED: "A business can have at most 50 printer rules. Delete one first.",
+  RULE_ORDER_MISMATCH:
+    "The list of rules changed while you were reordering. Reload and reorder again.",
+  RULE_PRINTER_INVALID: "A chosen printer does not belong to this business.",
+  CANNOT_REMOVE_LAST_OWNER:
+    "A business must always have an owner. Make someone else an owner before removing or changing this person.",
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
   UPSTREAM_UNREACHABLE: "The service is unreachable right now. Try again in a moment.",
   CROSS_ORIGIN_BLOCKED: "That request was blocked for safety. Reload the page and try again.",
@@ -81,6 +109,7 @@ const STALE_STATE_CODES = new Set([
   "REASSIGN_CONFLICT",
   "REPRINT_ALREADY_EXISTS",
   "JOB_NOT_FAILED",
+  "PURCHASE_ORDER_INVALID_STATE",
 ]);
 
 function coded(error: unknown): CodedError {
@@ -95,6 +124,16 @@ export function errorCodeOf(error: unknown): string | undefined {
  * for others, a connectivity message when there was no response at all. */
 export function errorMessageFor(error: unknown): string {
   const { status, error_code: code, message } = coded(error);
+  // A 403 from a permission guard is generic; a 403 the service throws itself
+  // (for example "Only an existing owner can grant the SHOP_OWNER role.") is precise.
+  if (
+    code === "FORBIDDEN" &&
+    typeof message === "string" &&
+    message.length > 0 &&
+    !message.startsWith("Insufficient permission")
+  ) {
+    return message;
+  }
   if (code !== undefined && COPY[code] !== undefined) {
     return COPY[code];
   }
