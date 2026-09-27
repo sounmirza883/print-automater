@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "print-automated-agent",
+  "version-string": "0.1.0",
+  "description": "Print Automated native Windows printer agent (Phase 24).",
+  "builtin-baseline": "07f4812200df3d3c931c0c8a6081d3b21fe2bf9f",
+  "dependencies": [
+    {
+      "name": "curl",
+      "$comment": "On Windows the ssl feature is Schannel, Windows' own TLS: no OpenSSL to ship or patch.",
+      "default-features": false,
+      "features": ["ssl"]
+    },
+    "libsodium",
+    "sqlite3",
+    "nlohmann-json",
+    "catch2"
+  ]
+}

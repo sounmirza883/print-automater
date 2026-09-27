@@ -1,0 +1,53 @@
+cmake_minimum_required(VERSION 3.20)
+
+# The static CRT (/MT) must be chosen before project() so it applies everywhere, matching
+# vcpkg's x64-windows-static triplet: the agent is one exe plus pdfium.dll, nothing else.
+cmake_policy(SET CMP0091 NEW)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+project(print_automated_agent VERSION 0.1.0 DESCRIPTION "Print Automated printer agent"
+        LANGUAGES C CXX)
+
+if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  message(FATAL_ERROR "The printer agent targets Windows x64 with MSVC.")
+endif()
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+include(cmake/Pdfium.cmake)
+
+find_package(CURL CONFIG REQUIRED)
+find_package(unofficial-sodium CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(Catch2 3 CONFIG REQUIRED)
+
+# Settings shared by every target built from this project's own sources.
+add_library(pa_options INTERFACE)
+target_compile_options(pa_options INTERFACE
+  /W4 /WX /permissive- /utf-8 /EHsc /Zc:__cplusplus /Zc:preprocessor /sdl)
+target_compile_definitions(pa_options INTERFACE
+  UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
+  PA_VERSION="${PROJECT_VERSION}")
+
+# Everything except the entry point, so the tests link the same code the agent runs.
+add_library(agent_core STATIC
+  src/app/version.cpp)
+target_include_directories(agent_core PUBLIC src)
+target_link_libraries(agent_core
+  PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
+         nlohmann_json::nlohmann_json)
+
+add_executable(print-automated-agent WIN32 src/main.cpp)
+target_link_libraries(print-automated-agent PRIVATE agent_core)
+pa_copy_pdfium_dll(print-automated-agent)
+
+enable_testing()
+add_executable(agent_tests
+  tests/dependencies_test.cpp)
+target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
+pa_copy_pdfium_dll(agent_tests)
+include(Catch)
+catch_discover_tests(agent_tests DISCOVERY_MODE PRE_TEST)
