@@ -34,12 +34,14 @@ export function ShopAuthProvider({ children }: { children: ReactNode }): ReactNo
   const [shopId, setShopId] = useState<string | null>(null);
   const [shopName, setShopName] = useState<string | null>(null);
 
-  async function resolveShop(): Promise<void> {
+  /** Resolves "the" shop and returns how many businesses the account staffs. */
+  async function resolveShop(): Promise<number> {
     const { shops } = await apiClient.shopStaff.myShops();
     // No shop-switcher UI exists anywhere in the PRD -- the first
     // active membership is "the" shop this session operates as.
     setShopId(shops[0]?.id ?? null);
     setShopName(shops[0]?.name ?? null);
+    return shops.length;
   }
 
   useEffect(() => {
@@ -71,9 +73,18 @@ export function ShopAuthProvider({ children }: { children: ReactNode }): ReactNo
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
     });
+    // 23.22: being staff means an ACTIVE business membership (whatever the account-level
+    // role -- an invited person may hold a plain customer account). `GET /shop/staff/me`
+    // now answers any signed-in account, so an account with no business is refused here
+    // instead of by that route's old 403: revoke the session and say where they belong.
+    const businesses = await resolveShop();
+    if (businesses === 0) {
+      await apiClient.auth.logout(result.refreshToken).catch(() => undefined);
+      await storage.clearTokens();
+      throw new Error("This account is not part of a business. Customers use the customer app.");
+    }
     setUser(result.user);
     setIsAuthenticated(true);
-    await resolveShop();
   }
 
   async function logout(): Promise<void> {

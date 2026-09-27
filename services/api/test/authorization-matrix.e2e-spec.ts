@@ -609,11 +609,12 @@ describe("Authorization matrix (12.1, e2e)", () => {
   // Role gates: shop/staff/me and shop/agents/pairing-code
   // ---------------------------------------------------------------
   describe("role gates on other shop-staff-only routes", () => {
-    it("customer x /shop/staff/me: 403", async () => {
+    it("customer x /shop/staff/me: 200 with no business (23.22: it reports only the caller's own memberships)", async () => {
       const res = await request(app.getHttpServer())
         .get("/v1/shop/staff/me")
         .set("Authorization", `Bearer ${customerOwnerToken}`);
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
+      expect(res.body.shops).toEqual([]);
     });
 
     it("shop A staff requesting a shop-B pairing code: 403 (not a shop staff member there)", async () => {

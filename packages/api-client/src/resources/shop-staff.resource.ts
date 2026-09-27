@@ -53,8 +53,9 @@ export class ShopStaffResource {
     return this.http.request("/v1/shop/staff", { method: "POST", body: { shopId, userId, role } });
   }
 
-  /** 23.15 (MANAGE_USERS): add by email. The answer is the same `{result:"PROCESSED"}` (HTTP 202)
-   * whether the address had an account (added now) or not (invited by email). */
+  /** 23.15/23.18 (MANAGE_USERS): invite by email. Always a pending invitation with an emailed
+   * code -- nobody is added until they accept -- and always the same `{result:"PROCESSED"}`
+   * (HTTP 202), whether or not the address has an account. */
   addByEmail(shopId: string, email: string, role: string): Promise<{ result: "PROCESSED" }> {
     return this.http.request("/v1/shop/staff", { method: "POST", body: { shopId, email, role } });
   }
@@ -83,7 +84,8 @@ export class ShopStaffResource {
     return this.http.request<void>(`/v1/shop/staff/invites/${inviteId}`, { method: "DELETE" });
   }
 
-  /** 23.15: the signed-in person redeems the emailed code (their account email must match). */
+  /** 23.15: the signed-in person redeems the emailed code (their account email must match).
+   * Every failure is the same 404, whatever the reason. */
   acceptInvite(token: string): Promise<{ shopId: string; role: string }> {
     return this.http.request("/v1/shop/staff-invites/accept", { method: "POST", body: { token } });
   }

@@ -360,9 +360,10 @@ describe("Shop staff identity, invitations and directory (23.15, e2e)", () => {
     it("needs the token AND the matching account: registering the address alone grants nothing", async () => {
       const { email, token } = await createInvite();
       await makeUser("acceptee", UserRole.CUSTOMER, email);
-      // Registered with the invited address but no token: still no access.
+      // Registered with the invited address but no token: still no business.
       const me = await request(app.getHttpServer()).get("/v1/shop/staff/me").set(auth("acceptee"));
-      expect(me.status).toBe(403);
+      expect(me.status).toBe(200);
+      expect(me.body.shops).toEqual([]);
       // A different account with the right token is refused (uniform 404).
       const wrongAccount = await accept("customer", token);
       expect(wrongAccount.status).toBe(404);
@@ -376,6 +377,23 @@ describe("Shop staff identity, invitations and directory (23.15, e2e)", () => {
         where: { shopId_userId: { shopId: shopA.id, userId: users.acceptee!.id } },
       });
       expect(membership).toMatchObject({ role: "OPERATOR", status: "ACTIVE" });
+      // 23.22, the full journey: the accepted person -- still a plain CUSTOMER account -- now
+      // sees the business with the invited role and its permissions, and can use its routes.
+      const after = await request(app.getHttpServer())
+        .get("/v1/shop/staff/me")
+        .set(auth("acceptee"));
+      expect(after.status).toBe(200);
+      expect(after.body.shops).toEqual([
+        expect.objectContaining({ id: shopA.id, role: "OPERATOR" }),
+      ]);
+      expect([...after.body.shops[0].permissions].sort()).toEqual(
+        [...ROLE_PERMISSIONS.OPERATOR].sort(),
+      );
+      const orders = await request(app.getHttpServer())
+        .get("/v1/shop/orders")
+        .query({ shopId: shopA.id, limit: 1 })
+        .set(auth("acceptee"));
+      expect(orders.status).toBe(200);
       // Single use.
       expect((await accept("acceptee", token)).status).toBe(404);
     });

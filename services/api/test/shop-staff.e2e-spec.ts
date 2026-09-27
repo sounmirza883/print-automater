@@ -165,12 +165,13 @@ describe("GET /shop/staff/me (e2e)", () => {
     expect(res.body.shops).toEqual([]);
   });
 
-  it("returns 403 for a customer role", async () => {
+  it("answers a customer account with no membership: 200 and no business (23.22)", async () => {
     const token = tokenService.issueAccessToken(customer);
     const res = await request(app.getHttpServer())
       .get("/v1/shop/staff/me")
       .set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(res.body.shops).toEqual([]);
   });
 
   it("returns 401 with no bearer token", async () => {

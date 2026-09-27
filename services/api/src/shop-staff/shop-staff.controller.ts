@@ -65,10 +65,27 @@ export class ShopStaffInvitesController {
   }
 }
 
+/** 23.22: `GET /shop/staff/me` -- the signed-in person plus the businesses they are an ACTIVE
+ * member of, each with the effective role and permission list there. Any signed-in account:
+ * it reports only the caller's own memberships (an empty list for someone with none), and
+ * membership, not the account-level role, is what makes someone staff. The old account-role
+ * gate refused an invited person whose account is a plain CUSTOMER account even after they
+ * accepted, so they could never reach the business they had joined. Every business route
+ * still authorises by the membership role. */
+@Controller("shop/staff")
+@UseGuards(JwtAuthGuard)
+export class ShopStaffMeController {
+  constructor(private readonly shopStaffService: ShopStaffService) {}
+
+  @Get("me")
+  me(@Req() req: RequestWithUser): Promise<MyShopsResponse> {
+    return this.shopStaffService.me(req.user!.id);
+  }
+}
+
 /** §47/16.4: add/remove/change-role need MANAGE_USERS, granted only to
- * SHOP_MANAGER/SHOP_OWNER (role-permissions.ts) -- COUNTER/OPERATOR/
- * PRINTER_MANAGER can all reach `GET /me` (it's just "which shops am I
- * staff at"), same as before 16.4, but not the management routes. */
+ * SHOP_MANAGER/SHOP_OWNER (role-permissions.ts); the other staff roles reach
+ * only the directory here. `GET /me` lives on ShopStaffMeController (23.22). */
 @Controller("shop/staff")
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(
@@ -83,12 +100,6 @@ export class ShopStaffController {
     private readonly shopStaffService: ShopStaffService,
     private readonly invitesService: ShopStaffInvitesService,
   ) {}
-
-  /** 23.15: the person plus, per business, the role AND the effective permission list. */
-  @Get("me")
-  myShops(@Req() req: RequestWithUser): Promise<MyShopsResponse> {
-    return this.shopStaffService.me(req.user!.id);
-  }
 
   /** 23.15: id + display name of active members, for pickers (the order search's operator
    * filter). VIEW_STAFF_DIRECTORY is held by every staff role: no email/role/status leak. */
