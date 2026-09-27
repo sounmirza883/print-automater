@@ -10,6 +10,7 @@ build/
 apps/printer-agent/installer/staging/
 apps/printer-agent/installer/output/
 .next/
+.next-dev/
 .turbo/
 *.log
 .env

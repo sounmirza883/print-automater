@@ -54,6 +54,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/build/**",
       "**/.next/**",
+      "**/.next-dev/**",
       "**/.turbo/**",
       "**/*.config.js",
       "**/*.config.cjs",
