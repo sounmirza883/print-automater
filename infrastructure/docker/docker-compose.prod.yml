@@ -320,11 +320,17 @@ services:
     image: ${SHOP_WEB_IMAGE:-print-automated-shop-web:latest}
     restart: unless-stopped
     ports:
-      - "${SHOP_WEB_HOST_PORT:-3002}:3002"
+      # 23.20: loopback only by default. This stack has no TLS proxy, and the back office
+      # carries staff session cookies, so it must not be reachable in the clear; put the
+      # host's TLS reverse proxy in front (it forwards to 127.0.0.1:3002). Set
+      # SHOP_WEB_BIND_ADDRESS=0.0.0.0 only if something else terminates TLS for it.
+      - "${SHOP_WEB_BIND_ADDRESS:-127.0.0.1}:${SHOP_WEB_HOST_PORT:-3002}:3002"
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
     depends_on:
-      - api
+      # The api image's own HEALTHCHECK (GET /v1/health): wait until it answers.
+      api:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD

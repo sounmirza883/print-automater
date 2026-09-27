@@ -148,7 +148,14 @@ from `shop-web.Dockerfile`, mirrors `customer-web`, has a container
 healthcheck (`GET /` on 3002) and the same 512m/1 CPU limits. There is no
 reverse proxy in this stack: put TLS and the `shop.<domain>` route on
 whatever fronts the host. It calls the API server-to-server, so it needs no
-`CORS_ALLOWED_ORIGINS` entry.
+`CORS_ALLOWED_ORIGINS` entry, and it starts only once the API's healthcheck
+passes.
+
+**Published on loopback only (23.20):** the port is bound to
+`SHOP_WEB_BIND_ADDRESS`, default `127.0.0.1`, because the back office carries
+staff session cookies and this stack terminates no TLS. The host's reverse
+proxy forwards `https://shop.<domain>` to `127.0.0.1:3002`. Set it to
+`0.0.0.0` only when something else terminates TLS in front of the port.
 
 **Scaling:** its refresh-and-retry single-flight is in-process (per browser
 tab) and the API rotates refresh tokens with reuse detection. Run one
