@@ -278,11 +278,14 @@ export class PrintJobsService {
     }
 
     if (operatorId) {
+      // 23.25: the role AT THIS SHOP (the membership), never the account-level role (16.1):
+      // an invited operator usually keeps a plain customer account, and someone whose
+      // account says OPERATOR may be counter staff here.
       const staff = await this.prisma.shopStaff.findFirst({
         where: { shopId: job.shopId, userId: operatorId, status: ShopStaffStatus.ACTIVE },
-        include: { user: { select: { role: true } } },
+        select: { role: true },
       });
-      if (!staff || staff.user.role !== UserRole.OPERATOR) {
+      if (!staff || staff.role !== UserRole.OPERATOR) {
         throw new AppException(
           HttpStatus.CONFLICT,
           "INVALID_OPERATOR",

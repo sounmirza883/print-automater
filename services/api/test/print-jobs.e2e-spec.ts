@@ -511,6 +511,52 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
     expect(res.body.error_code).toBe("INVALID_OPERATOR");
   });
 
+  // 23.25: who is an operator HERE is decided by the membership role at this shop, never the
+  // account-level role (16.1). An invited person usually keeps a plain CUSTOMER account.
+  async function makeMember(accountRole: UserRole, shopRole: UserRole): Promise<string> {
+    const user = await prisma.user.create({
+      data: {
+        role: accountRole,
+        name: `Print Jobs E2E ${accountRole} as ${shopRole}`,
+        email: `print-jobs-e2e-member-${randomUUID()}@print-automated.dev`,
+        passwordHash: "irrelevant",
+      },
+    });
+    userIds.push(user.id);
+    await prisma.shopStaff.create({
+      data: { shopId: shop.id, userId: user.id, role: shopRole, status: ShopStaffStatus.ACTIVE },
+    });
+    return user.id;
+  }
+
+  it("an invited OPERATOR whose account is a plain CUSTOMER account can be assigned", async () => {
+    const { jobId } = await seedQueuedOrderWithJob();
+    const invitedOperator = await makeMember(UserRole.CUSTOMER, UserRole.OPERATOR);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/print-jobs/${jobId}/assign-operator`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({ operatorId: invitedOperator });
+
+    expect(res.status).toBe(200);
+    expect(res.body.operatorId).toBe(invitedOperator);
+  });
+
+  it("someone whose account says OPERATOR but who is counter staff at this shop is refused", async () => {
+    const { jobId } = await seedQueuedOrderWithJob();
+    const counterHere = await makeMember(UserRole.OPERATOR, UserRole.SHOP_COUNTER);
+
+    const res = await request(app.getHttpServer())
+      .post(`/v1/print-jobs/${jobId}/assign-operator`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({ operatorId: counterHere });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error_code).toBe("INVALID_OPERATOR");
+    const job = await prisma.printJob.findUniqueOrThrow({ where: { id: jobId } });
+    expect(job.operatorId).toBeNull();
+  });
+
   it("passing operatorId: null un-assigns a job's operator", async () => {
     const { jobId } = await seedQueuedOrderWithJob();
     await prisma.printJob.update({ where: { id: jobId }, data: { operatorId: operator.id } });
