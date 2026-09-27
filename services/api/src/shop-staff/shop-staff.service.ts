@@ -6,7 +6,7 @@ import {
   PrismaService,
   ROLE_PERMISSIONS,
 } from "@print-automated/backend-shared";
-import type { Page, Permission } from "@print-automated/types";
+import { Permission, type Page } from "@print-automated/types";
 import type {
   ListShopStaffQueryInput,
   StaffDirectoryQueryInput,
@@ -113,7 +113,18 @@ export class ShopStaffService {
     actorId: string,
     query: StaffDirectoryQueryInput,
   ): Promise<Page<StaffDirectoryItem>> {
-    await this.assertMember(query.shopId, actorId);
+    const actorRole = await this.shopMembership.getEffectiveRole(query.shopId, actorId);
+    if (!actorRole) {
+      throw new ForbiddenException("You do not have access to this shop's staff.");
+    }
+    // 23.18: the role is never returned, but filtering by it would still let any staff role
+    // list exactly who the owners and managers are. That needs MANAGE_USERS.
+    if (
+      (query.role === UserRole.SHOP_OWNER || query.role === UserRole.SHOP_MANAGER) &&
+      !ROLE_PERMISSIONS[actorRole].includes(Permission.MANAGE_USERS)
+    ) {
+      throw new ForbiddenException("You cannot filter the staff directory by that role.");
+    }
     const where: Prisma.ShopStaffWhereInput = {
       shopId: query.shopId,
       status: ShopStaffStatus.ACTIVE,
@@ -201,28 +212,9 @@ export class ShopStaffService {
       throw new NotFoundException("No such user.");
     }
 
-    // 23.12: the upsert can also demote/reactivate an EXISTING membership, so it is held
-    // to the same rank rules as changeRole/removeStaff, decided under the same row locks.
-    const membership = await this.prisma.$transaction(async (tx) => {
-      await this.authorizeMutationLocked(tx, {
-        shopId: input.shopId,
-        actorId,
-        targetMembershipId: null,
-        targetUserId: input.userId,
-        newRole: input.role,
-        removing: false,
-      });
-      return tx.shopStaff.upsert({
-        where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
-        create: {
-          shopId: input.shopId,
-          userId: input.userId,
-          role: input.role,
-          status: ShopStaffStatus.ACTIVE,
-        },
-        update: { role: input.role, status: ShopStaffStatus.ACTIVE },
-      });
-    });
+    const membership = await this.prisma.$transaction((tx) =>
+      this.addStaffWithin(tx, actorId, input),
+    );
 
     // §45/16.6: shop-staff changes previously wrote no audit row at all.
     await this.audit.record({
@@ -234,6 +226,36 @@ export class ShopStaffService {
     });
 
     return this.toResponse(membership);
+  }
+
+  /** The locked authority decision + upsert of `addStaff`, inside the CALLER's transaction,
+   * so another write (23.18: claiming an invitation) commits or rolls back with it. The caller
+   * writes the audit row after commit. */
+  async addStaffWithin(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    input: { shopId: string; userId: string; role: UserRole },
+  ): Promise<ShopStaff> {
+    // 23.12: the upsert can also demote/reactivate an EXISTING membership, so it is held
+    // to the same rank rules as changeRole/removeStaff, decided under the same row locks.
+    await this.authorizeMutationLocked(tx, {
+      shopId: input.shopId,
+      actorId,
+      targetMembershipId: null,
+      targetUserId: input.userId,
+      newRole: input.role,
+      removing: false,
+    });
+    return tx.shopStaff.upsert({
+      where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
+      create: {
+        shopId: input.shopId,
+        userId: input.userId,
+        role: input.role,
+        status: ShopStaffStatus.ACTIVE,
+      },
+      update: { role: input.role, status: ShopStaffStatus.ACTIVE },
+    });
   }
 
   /** Soft delete (§54's own `ShopStaffStatus.REMOVED`), never a hard

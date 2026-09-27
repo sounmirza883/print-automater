@@ -25,28 +25,62 @@ export class NotificationService {
     });
   }
 
-  /** 23.15: sent for EVERY add-by-email, whether or not the address has an account, so the
-   * caller-visible behaviour (and the side effects) do not reveal which. `rawToken` is set only
-   * when an invitation was created; an existing account is simply told it now has access. */
+  /** 23.15/23.18: sent for EVERY add-by-email -- always an invitation with a single-use code,
+   * whether or not the address has an account (membership needs the code). The business name
+   * is owner-controlled text inside a platform-branded email, so it is sanitised here too. */
   async sendStaffInvite(
     email: string,
     shopName: string,
     role: string,
-    rawToken: string | null,
+    rawToken: string,
   ): Promise<void> {
-    const text = rawToken
-      ? `You have been invited to join ${shopName} as ${role}.
+    const name = sanitizeShopNameForEmail(shopName);
+    await this.notificationsQueue.add(
+      "send-email",
+      {
+        to: email,
+        subject: "Your invitation on Print Automated",
+        text: `You have been invited to join a business on Print Automated as ${role}.
+
+Business name (as entered by the business): "${name}"
 
 Sign in (or create an account with this email address) and enter this code under "Accept invitation": ${rawToken}
 
-The code expires in 7 days. If you were not expecting this, ignore this email.`
-      : `You have been added to ${shopName} as ${role}. Sign in to see it.
-
-If you were not expecting this, contact the business.`;
-    await this.notificationsQueue.add("send-email", {
-      to: email,
-      subject: `Your access to ${shopName} on Print Automated`,
-      text,
-    });
+The code expires in 7 days. If you were not expecting this, ignore this email.`,
+      },
+      // 23.18: the job carries a live invitation code; do not keep it in Redis once handled.
+      { removeOnComplete: true, removeOnFail: true },
+    );
   }
+}
+
+const SHOP_NAME_MAX = 60;
+
+/** C0/C1 controls, Unicode line/paragraph separators and bidi overrides/isolates: line breaks
+ * enable header/body injection, bidi controls let text display differently from what it is. */
+function isUnsafeChar(code: number): boolean {
+  return (
+    code < 0x20 ||
+    (code >= 0x7f && code <= 0x9f) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069)
+  );
+}
+
+/** 23.18: owner-controlled business name made safe for an email: no control characters or
+ * line breaks (header/body injection), no URLs (no attacker links in a platform email), no
+ * markup characters, capped length, and a neutral fallback if nothing is left. */
+export function sanitizeShopNameForEmail(name: string): string {
+  const cleaned = Array.from(name, (ch) => (isUnsafeChar(ch.codePointAt(0)!) ? " " : ch))
+    .join("")
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S*/gi, " ")
+    .replace(/\bwww\.\S*/gi, " ")
+    .replace(/[<>`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, SHOP_NAME_MAX)
+    .trim();
+  return cleaned.length > 0 ? cleaned : "a business";
 }
