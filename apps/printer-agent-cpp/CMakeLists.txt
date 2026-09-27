@@ -24,21 +24,26 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(Catch2 3 CONFIG REQUIRED)
 
-# Settings shared by every target built from this project's own sources.
+# Settings shared by every target built from this project's own sources. The compiler flags
+# are C/C++ only, so the resource compiler (agent.rc) is not handed /W4 and friends.
 add_library(pa_options INTERFACE)
 target_compile_options(pa_options INTERFACE
-  /W4 /WX /permissive- /utf-8 /EHsc /Zc:__cplusplus /Zc:preprocessor /sdl)
+  "$<$<COMPILE_LANGUAGE:C,CXX>:/W4;/WX;/permissive-;/utf-8;/EHsc;/Zc:__cplusplus;/Zc:preprocessor;/sdl>")
 target_compile_definitions(pa_options INTERFACE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
   PA_VERSION="${PROJECT_VERSION}")
 
 # Everything except the entry point, so the tests link the same code the agent runs.
 add_library(agent_core STATIC
-  src/app/version.cpp)
+  src/app/version.cpp
+  # 24.2 paths and configuration
+  src/app/win.cpp
+  src/config/paths.cpp
+  src/config/config.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
-         nlohmann_json::nlohmann_json)
+         nlohmann_json::nlohmann_json crypt32 ws2_32 winspool shell32)
 
 add_executable(print-automated-agent WIN32 src/main.cpp)
 target_link_libraries(print-automated-agent PRIVATE agent_core)
@@ -46,7 +51,8 @@ pa_copy_pdfium_dll(print-automated-agent)
 
 enable_testing()
 add_executable(agent_tests
-  tests/dependencies_test.cpp)
+  tests/dependencies_test.cpp
+  tests/config_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)

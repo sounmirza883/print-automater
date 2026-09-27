@@ -11,10 +11,12 @@
   ./build.ps1                 # release: configure + build + test
   ./build.ps1 -Debug          # debug build
   ./build.ps1 -SkipTests
+  ./build.ps1 -Target agent_tests   # build one target (then run the tests)
 #>
 param(
   [switch]$Debug,
-  [switch]$SkipTests
+  [switch]$SkipTests,
+  [string]$Target
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -56,7 +58,7 @@ if (-not (Test-Path (Join-Path $env:VCPKG_ROOT "vcpkg.exe"))) {
 $preset = if ($Debug) { "windows-x64-debug" } else { "windows-x64" }
 cmake --preset $preset
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-cmake --build --preset $preset
+if ($Target) { cmake --build --preset $preset --target $Target } else { cmake --build --preset $preset }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if (-not $SkipTests) {
   ctest --preset $preset
