@@ -131,10 +131,11 @@ export class ShopOrdersController {
   @UseGuards(ShopScopeGuard)
   @ShopScoped("id", OrderShopResolver)
   getHistory(
+    @Req() req: RequestWithUser,
     @Param("id") id: string,
     @Query() query: OrderHistoryQueryDto,
   ): Promise<Page<OrderHistoryEvent>> {
-    return this.shopOrdersService.getHistory(id, query);
+    return this.shopOrdersService.getHistory(id, query, req.user!.id);
   }
 
   /** §36/17.7: shop staff's own access to any order at their shop.

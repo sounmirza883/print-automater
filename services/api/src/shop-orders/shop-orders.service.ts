@@ -17,6 +17,7 @@ import {
 } from "@prisma/client";
 import {
   BlockedReason,
+  Permission,
   QualityCheckStatus,
   type Page,
   type PrintConfiguration,
@@ -45,6 +46,7 @@ import {
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
+  ROLE_PERMISSIONS,
   type AllocationResult,
   type SendEmailJob,
 } from "@print-automated/backend-shared";
@@ -683,13 +685,28 @@ export class ShopOrdersService {
    * audit rows of the order itself and of everything that hangs off it -- every print job
    * (including superseded ones: reassignments, late-print holds, inventory shortfalls and
    * failed consumption are recorded on jobs), its payments, refunds and delivery -- and
-   * strips secrets and personal data (order-history.ts). The scope is the order id, which
+   * shows only allowlisted metadata (order-history.ts). The scope is the order id, which
    * ShopScopeGuard has already tied to the caller's business; the id sets are read here
-   * from that order only. Uses the (resource_type, resource_id) index. */
+   * from that order only. Uses the (resource_type, resource_id) index.
+   *
+   * 23.19: staff-typed free text (reasons, notes) is shown only when the caller's role at
+   * this business holds MANAGE_DELIVERY -- the roles that may already see the customer's
+   * contact details -- because such text can hold a phone number or an address. */
   async getHistory(
     orderId: string,
     query: OrderHistoryQueryInput,
+    actorId: string,
   ): Promise<Page<OrderHistoryEvent>> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { shopId: true },
+    });
+    if (!order?.shopId) {
+      throw new NotFoundException("Order not found.");
+    }
+    const role = await this.shopMembership.getEffectiveRole(order.shopId, actorId);
+    const includeFreeText =
+      role !== null && (ROLE_PERMISSIONS[role] ?? []).includes(Permission.MANAGE_DELIVERY);
     const [jobs, payments, refunds, delivery] = await Promise.all([
       this.prisma.printJob.findMany({ where: { orderId }, select: { id: true } }),
       this.prisma.payment.findMany({ where: { orderId }, select: { id: true } }),
@@ -729,7 +746,7 @@ export class ShopOrdersService {
         resourceType: row.resourceType,
         resourceId: row.resourceId,
         actor: row.actor,
-        metadata: sanitizeHistoryMetadata(row.metadata),
+        metadata: sanitizeHistoryMetadata(row.metadata, { includeFreeText }),
       })),
       total,
       limit: query.limit,

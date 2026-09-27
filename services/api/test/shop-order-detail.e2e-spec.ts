@@ -298,6 +298,20 @@ describe("Shop order detail and history (23.13, e2e)", () => {
         metadata: { error: "boom" },
       },
       { action: "PAYMENT_STATUS_CHANGED", resourceType: "payment", resourceId: payment.id },
+      // 23.19: a row carrying free text and contact data under listed AND unlisted keys.
+      {
+        action: "JOB_FAILURE_REASON_RECORDED",
+        resourceType: "print_job",
+        resourceId: jobId,
+        metadata: {
+          reason: "PAPER_JAM",
+          note: "Customer asked to call 0300-1234567, 5 Garden Rd",
+          orderId: order.id,
+          mobile: "0300-7654321",
+          nested: { street: "9 Hidden St" },
+          printerId: "call me on 0300 1111111",
+        },
+      },
       // Another order's rows must never appear.
       { action: "ORDER_SHOP_ACCEPT", resourceType: "order", resourceId: other.id },
     ];
@@ -490,8 +504,9 @@ describe("Shop order detail and history (23.13, e2e)", () => {
         "INVENTORY_SHORTFALL",
         "INVENTORY_CONSUMPTION_FAILED",
         "PAYMENT_STATUS_CHANGED",
+        "JOB_FAILURE_REASON_RECORDED",
       ]);
-      expect(res.body.total).toBe(7);
+      expect(res.body.total).toBe(8);
       const first = res.body.items[0];
       expect(first).toMatchObject({
         resourceType: "order",
@@ -515,6 +530,51 @@ describe("Shop order detail and history (23.13, e2e)", () => {
       expect(reassigned.metadata.reason).toBe("manual");
     });
 
+    it("shows only allowlisted metadata: unknown keys and free text under structural keys are dropped", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/shop/orders/${selfServiceOrderId}/history`)
+        .set(auth("ownerA"));
+      const failure = res.body.items.find(
+        (row: { action: string }) => row.action === "JOB_FAILURE_REASON_RECORDED",
+      );
+      // The owner holds MANAGE_DELIVERY, so staff-typed free text is shown to them.
+      expect(failure.metadata).toEqual({
+        reason: "PAPER_JAM",
+        note: "Customer asked to call 0300-1234567, 5 Garden Rd",
+        orderId: selfServiceOrderId,
+      });
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain("0300-7654321");
+      expect(raw).not.toContain("9 Hidden St");
+      expect(raw).not.toContain("0300 1111111");
+      const consumption = res.body.items.find(
+        (row: { action: string }) => row.action === "INVENTORY_CONSUMPTION_FAILED",
+      );
+      expect(consumption.metadata).toEqual({});
+    });
+
+    it("hides staff-typed free text from roles without MANAGE_DELIVERY; enum codes stay", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/shop/orders/${selfServiceOrderId}/history`)
+        .set(auth("operatorA"));
+      expect(res.status).toBe(200);
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain("0300-1234567");
+      expect(raw).not.toContain("Garden Rd");
+      const failure = res.body.items.find(
+        (row: { action: string }) => row.action === "JOB_FAILURE_REASON_RECORDED",
+      );
+      expect(failure.metadata).toEqual({
+        reason: "PAPER_JAM",
+        note: "[HIDDEN]",
+        orderId: selfServiceOrderId,
+      });
+      const reassigned = res.body.items.find(
+        (row: { action: string }) => row.action === "JOB_REASSIGNED",
+      );
+      expect(reassigned.metadata).toEqual({ reason: "[HIDDEN]" });
+    });
+
     it("is paginated (limit/offset, always the envelope) and rejects deep offsets", async () => {
       const page = await request(app.getHttpServer())
         .get(`/v1/shop/orders/${selfServiceOrderId}/history`)
@@ -523,7 +583,7 @@ describe("Shop order detail and history (23.13, e2e)", () => {
       expect(page.status).toBe(200);
       expect(page.body.limit).toBe(3);
       expect(page.body.offset).toBe(2);
-      expect(page.body.total).toBe(7);
+      expect(page.body.total).toBe(8);
       expect(page.body.items.map((r: { action: string }) => r.action)).toEqual([
         "JOB_REASSIGNED",
         "PRINT_JOB_LATE_PRINT_SUCCESSOR",
