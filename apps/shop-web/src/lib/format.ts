@@ -150,3 +150,17 @@ export function minorToInput(minor: number, currency: string): string {
   const digits = minorUnitDigits(currency) ?? 2;
   return (minor / 10 ** digits).toFixed(digits);
 }
+
+const COMPACT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Axis-tick style: 950 -> "950", 12400 -> "12.4K", 2500000 -> "2.5M". */
+export function formatCompact(value: number): string {
+  return COMPACT.format(value);
+}
+
+/** A money amount as a compact major-unit number WITHOUT the currency ("8K" for PKR 8,000.00),
+ * for chart axes whose title already names the currency. */
+export function formatCompactMoney(minor: number, currency: string): string {
+  const digits = minorUnitDigits(currency);
+  return formatCompact(digits === null ? minor : minor / 10 ** digits);
+}

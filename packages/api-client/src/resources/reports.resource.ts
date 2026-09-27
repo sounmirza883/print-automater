@@ -14,7 +14,19 @@ export interface ReportParams {
   from?: string;
   to?: string;
   groupBy?: ReportGroupBy;
+  /** 23.10: the money reports' currency (3 letters); default = the one with the most money. */
+  currency?: string;
 }
+
+/** The report names as they appear in the URL (`/v1/shop/reports/<name>`). */
+export type ReportName =
+  | "orders"
+  | "revenue"
+  | "printing-volume"
+  | "printers"
+  | "operator-workload"
+  | "paper-consumption"
+  | "supplier-purchases";
 
 /** 23.5 (PRD 72-74). All need `Permission.VIEW_REPORTS` (owner, manager). The JSON
  * form is fetched here; for a CSV download navigate to the same URL with `format=csv`
@@ -24,7 +36,28 @@ export class ReportsResource {
 
   private get<T>(name: string, shopId: string, params: ReportParams): Promise<T> {
     return this.http.request<T>(`/v1/shop/reports/${name}`, {
-      query: { shopId, from: params.from, to: params.to, groupBy: params.groupBy },
+      query: {
+        shopId,
+        from: params.from,
+        to: params.to,
+        groupBy: params.groupBy,
+        currency: params.currency,
+      },
+    });
+  }
+
+  /** 23.29: the report's rows as a CSV file (fetched as a blob, so the caller names the
+   * download; a proxy in front of the API need not pass Content-Disposition through). */
+  csv(name: ReportName, shopId: string, params: ReportParams = {}): Promise<Blob> {
+    return this.http.requestBlob(`/v1/shop/reports/${name}`, {
+      query: {
+        shopId,
+        format: "csv",
+        from: params.from,
+        to: params.to,
+        groupBy: params.groupBy,
+        currency: params.currency,
+      },
     });
   }
 

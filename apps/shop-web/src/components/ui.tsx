@@ -83,7 +83,9 @@ export function Panel({
     <section
       id={id}
       aria-labelledby={title ? `${id ?? title}-h` : undefined}
-      className={`rounded-lg border ${border} bg-panel ${className}`}
+      // min-w-0: as a grid or flex item a panel may shrink below its content's width, so a
+      // wide table scrolls inside it instead of widening the page on a phone.
+      className={`min-w-0 rounded-lg border ${border} bg-panel ${className}`}
     >
       {title !== undefined && (
         <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5">

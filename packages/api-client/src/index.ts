@@ -59,7 +59,11 @@ export type {
   PrinterRuleInput,
 } from "./resources/settings.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
-export { ReportsResource, type ReportParams } from "./resources/reports.resource.js";
+export {
+  ReportsResource,
+  type ReportName,
+  type ReportParams,
+} from "./resources/reports.resource.js";
 export {
   NotificationsResource,
   type NotificationFilter,
