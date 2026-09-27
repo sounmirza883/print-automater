@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import type { ShopOrderResponse } from "@print-automated/api-client";
+import type { ShopOrderDetail, ShopOrderResponse } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
 import { BlockedNote } from "@/components/blocked-note";
 import { OrderDialogs, type DialogState } from "@/components/orders/action-dialogs";
@@ -14,12 +14,13 @@ import {
   type OrderActionKind,
 } from "@/components/orders/action-bars";
 import { DeliveryPanel } from "@/components/orders/delivery-panel";
+import { OrderHistoryPanel } from "@/components/orders/order-history";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
 import { EmptyState, LiveStatus, PageHeader, Panel, Pill } from "@/components/ui";
 import { getApi } from "@/lib/api";
-import { formatDateTime, formatMoney, humanizeEnum } from "@/lib/format";
+import { formatDateTime, formatMoney, humanizeEnum, priorityLabel } from "@/lib/format";
 import { shouldSteerToReprint } from "@/lib/order-actions";
 import {
   blockedReasonsOf,
@@ -165,6 +166,8 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
 
             <OrderSummary order={current} />
 
+            <OrderItems order={current} />
+
             <Panel title="Print jobs" aside={`${current.printJobs.length} live`} id="jobs">
               {current.printJobs.length === 0 ? (
                 <EmptyState title="No print job yet">
@@ -195,6 +198,8 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
               runner={runner}
             />
 
+            <OrderHistoryPanel orderId={current.id} currency={currencyOf(current)} />
+
             <OrderDialogs
               dialog={dialog}
               order={current}
@@ -210,13 +215,37 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
   );
 }
 
-function OrderSummary({ order }: { order: ShopOrderResponse }): ReactNode {
+/** The order's money is in its quote's currency; the payment's is the fallback. */
+function currencyOf(order: ShopOrderDetail): string {
+  return order.pricingSnapshot?.quote?.currency ?? order.payment?.currency ?? "PKR";
+}
+
+export function OrderSummary({ order }: { order: ShopOrderDetail }): ReactNode {
   const quote = order.pricingSnapshot?.quote;
   const reasons = blockedReasonsOf(order);
+  const contact = order.customerContact;
+  const payment = order.payment;
+  const refunds = order.refunds;
   return (
     <Panel title="Order" id="summary">
       <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-        <Item label="Customer">{order.customerName}</Item>
+        <Item label="Customer">
+          {contact.name}
+          <span className="ml-1 text-xs text-muted">
+            ({contact.kind === "WALK_IN" ? "walk-in" : "online account"})
+          </span>
+        </Item>
+        <Item label="Contact">
+          {contact.contactRedacted === true ? (
+            <span className="text-muted italic">Hidden for your role</span>
+          ) : contact.phone === null && contact.email === null ? (
+            <span className="text-muted">None on record</span>
+          ) : (
+            <span className="break-all">
+              {[contact.phone, contact.email].filter((part) => part !== null).join(" · ")}
+            </span>
+          )}
+        </Item>
         <Item label="Document">
           <span className="break-all">{order.documentFilename}</span>
         </Item>
@@ -229,9 +258,42 @@ function OrderSummary({ order }: { order: ShopOrderResponse }): ReactNode {
           ) : (
             "Not available"
           )}
+          {order.pricingRuleVersion !== undefined && (
+            <span className="block text-xs text-muted">
+              {order.pricingRuleVersion === null
+                ? "Priced before price lists were versioned"
+                : `Priced with price list version ${order.pricingRuleVersion}`}
+            </span>
+          )}
+        </Item>
+        <Item label="Payment">
+          {payment === null ? (
+            <span className="text-muted">No payment on record</span>
+          ) : (
+            <>
+              <span className="num">{formatMoney(payment.amountMinor, payment.currency)}</span>{" "}
+              {humanizeEnum(payment.status).toLowerCase()} via {payment.provider}
+              {payment.paidAt !== null && (
+                <span className="block text-xs text-muted">
+                  Paid {formatDateTime(payment.paidAt)}
+                </span>
+              )}
+            </>
+          )}
+          {refunds.count > 0 && (
+            <span className="block text-xs">
+              Refunds: {formatMoney(refunds.refundedMinor, refunds.currency ?? currencyOf(order))}{" "}
+              returned
+              {refunds.pendingMinor > 0 &&
+                `, ${formatMoney(refunds.pendingMinor, refunds.currency ?? currencyOf(order))} pending`}
+            </span>
+          )}
         </Item>
         <Item label="Placed">{formatDateTime(order.createdAt)}</Item>
         <Item label="Printer">{order.printerName ?? "None assigned yet"}</Item>
+        {order.priority !== undefined && order.priority > 0 && (
+          <Item label="Priority">{priorityLabel(order.priority)}</Item>
+        )}
       </dl>
       {reasons.length > 0 && (
         <div className="mt-4 grid gap-2 md:grid-cols-2">
@@ -242,6 +304,49 @@ function OrderSummary({ order }: { order: ShopOrderResponse }): ReactNode {
       )}
     </Panel>
   );
+}
+
+/** 23.13: the order's lines. A single line is shown too: it says what was ordered even
+ * before the order is accepted (its id is null until then). */
+export function OrderItems({ order }: { order: ShopOrderDetail }): ReactNode {
+  if (order.items.length === 0) {
+    return null;
+  }
+  const currency = currencyOf(order);
+  return (
+    <Panel
+      title="Items"
+      aside={`${order.items.length} ${order.items.length === 1 ? "line" : "lines"}`}
+      id="items"
+    >
+      <ul className="grid gap-2 text-sm">
+        {order.items.map((item) => (
+          <li
+            key={item.id ?? `line-${item.sequence}`}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+          >
+            <span className="font-medium break-all">{item.documentName}</span>
+            <span className="text-muted">
+              {itemConfigurationSummary(item.printConfiguration)}
+              {item.quantity > 1 && ` · ${item.quantity} sets`}
+            </span>
+            {item.status !== null && <Pill tone="neutral">{humanizeEnum(item.status)}</Pill>}
+            {!item.required && <span className="text-xs text-muted">optional</span>}
+            {item.priceMinor !== null && (
+              <span className="num ml-auto">{formatMoney(item.priceMinor, currency)}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+/** An item's configuration is stored loosely; summarise it only when it has the usual shape. */
+function itemConfigurationSummary(config: unknown): string {
+  return typeof config === "object" && config !== null
+    ? configurationSummary(config as ShopOrderResponse["printConfiguration"])
+    : "";
 }
 
 function Item({ label, children }: { label: string; children: ReactNode }): ReactNode {

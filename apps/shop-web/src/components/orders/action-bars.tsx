@@ -3,7 +3,7 @@ import type { Permission } from "@print-automated/types";
 import type { ShopOrderJobSummary, ShopOrderResponse } from "@print-automated/api-client";
 import { BlockedNote } from "@/components/blocked-note";
 import { Button, Pill } from "@/components/ui";
-import { formatMoney, humanizeEnum } from "@/lib/format";
+import { formatDateTime, formatMoney, humanizeEnum, priorityLabel } from "@/lib/format";
 import { jobStatusTone } from "@/lib/job-status";
 import { availableJobActions, availableOrderActions } from "@/lib/order-actions";
 
@@ -127,6 +127,7 @@ export function JobCard({
         {highlighted && <span className="text-xs text-accent-fg">Linked from your alert</span>}
         <span className="num ml-auto text-xs text-muted">{job.id.slice(0, 8)}</span>
       </div>
+      <JobTiming job={job} />
       <BlockedNote reason={job.blockedReason} />
       {job.failureReason !== null && (
         <p className="text-sm">
@@ -159,4 +160,17 @@ export function JobCard({
       )}
     </li>
   );
+}
+
+/** 23.13: when the job was made and paused, which attempt it is, and its priority, so staff
+ * can tell a fresh job from one that has been waiting or retried. */
+function JobTiming({ job }: { job: ShopOrderJobSummary }): ReactNode {
+  const parts: string[] = [];
+  if (job.attempt !== undefined && job.attempt > 1) parts.push(`Attempt ${job.attempt}`);
+  if (job.createdAt !== undefined) parts.push(`Created ${formatDateTime(job.createdAt)}`);
+  if (job.pausedAt) parts.push(`Paused ${formatDateTime(job.pausedAt)}`);
+  if (job.priority !== undefined && job.priority > 0) {
+    parts.push(`${priorityLabel(job.priority)} priority`);
+  }
+  return parts.length > 0 ? <p className="text-xs text-muted">{parts.join(" · ")}</p> : null;
 }
