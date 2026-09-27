@@ -1,23 +1,25 @@
 import { Permission, UserRole } from "@print-automated/types";
-// The real, server-side table. Imported by path (not by package name) so
-// shop-web never depends on backend-shared at runtime; only this test does.
-import { ROLE_PERMISSIONS as SERVER_ROLE_PERMISSIONS } from "../../../../packages/backend-shared/src/auth/role-permissions";
-import {
-  BACK_OFFICE_ROLES,
-  ROLE_PERMISSIONS,
-  isBackOfficeRole,
-  permissionsForRole,
-} from "./permissions";
+import { serverPermissionsFor } from "@/components/test-role-permissions";
+import { BACK_OFFICE_ROLES, isBackOfficeRole, membershipPermissions } from "./permissions";
 
-describe("ROLE_PERMISSIONS mirror", () => {
-  it("has exactly the same permissions as the server's table for every role", () => {
-    for (const role of Object.values(UserRole)) {
-      expect([...ROLE_PERMISSIONS[role]].sort()).toEqual([...SERVER_ROLE_PERMISSIONS[role]].sort());
-    }
+describe("membershipPermissions (23.15: the list comes from /staff/me)", () => {
+  it("is exactly the membership's own list, e.g. an operator's VIEW_PRINTERS", () => {
+    const operator = {
+      id: "shop-1",
+      name: "Mock Print Co",
+      role: UserRole.OPERATOR,
+      permissions: serverPermissionsFor(UserRole.OPERATOR),
+    };
+    const permissions = membershipPermissions(operator);
+    expect([...permissions].sort()).toEqual([...operator.permissions].sort());
+    expect(permissions.has(Permission.VIEW_PRINTERS)).toBe(true);
+    expect(permissions.has(Permission.MANAGE_PRINTERS)).toBe(false);
   });
 
-  it("covers every role (a new UserRole must be added to the mirror)", () => {
-    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual(Object.values(UserRole).sort());
+  it("fails closed: no membership, or a membership without a list, grants nothing", () => {
+    expect(membershipPermissions(null).size).toBe(0);
+    expect(membershipPermissions(undefined).size).toBe(0);
+    expect(membershipPermissions({}).size).toBe(0);
   });
 });
 
@@ -29,10 +31,5 @@ describe("back-office roles", () => {
     expect(isBackOfficeRole("SUPPLIER")).toBe(false);
     expect(isBackOfficeRole("nonsense")).toBe(false);
     expect(BACK_OFFICE_ROLES).not.toContain(UserRole.CUSTOMER);
-  });
-
-  it("gives no permissions to a missing role", () => {
-    expect(permissionsForRole(null).size).toBe(0);
-    expect(permissionsForRole(UserRole.SHOP_COUNTER).has(Permission.VIEW_REPORTS)).toBe(false);
   });
 });

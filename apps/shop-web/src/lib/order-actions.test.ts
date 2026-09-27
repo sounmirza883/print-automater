@@ -6,10 +6,10 @@ import {
   nextDeliveryStatuses,
   shouldSteerToReprint,
 } from "./order-actions";
-import { permissionsForRole } from "./permissions";
+import { serverPermissionsFor } from "@/components/test-role-permissions";
 
 const canAs = (role: UserRole) => {
-  const permissions = permissionsForRole(role);
+  const permissions = new Set(serverPermissionsFor(role));
   return (permission: Permission) => permissions.has(permission);
 };
 

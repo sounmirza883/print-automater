@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { UserRole, type Permission } from "@print-automated/types";
 import type { ShopOrderJobSummary } from "@print-automated/api-client";
 import { JobCard, OrderActionBar } from "@/components/orders/action-bars";
-import { permissionsForRole } from "@/lib/permissions";
+import { serverPermissionsFor } from "@/components/test-role-permissions";
 
 const canAs = (role: UserRole) => {
-  const permissions = permissionsForRole(role);
+  const permissions = new Set(serverPermissionsFor(role));
   return (permission: Permission) => permissions.has(permission);
 };
 

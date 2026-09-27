@@ -12,7 +12,7 @@ import {
 import { ApiClientError, type MyShopMembership } from "@print-automated/api-client";
 import { Permission, UserRole } from "@print-automated/types";
 import { getApi, isForbidden } from "@/lib/api";
-import { permissionsForRole } from "@/lib/permissions";
+import { membershipPermissions } from "@/lib/permissions";
 import { useResource } from "@/lib/use-resource";
 
 export interface SessionUser {
@@ -132,7 +132,7 @@ export function SessionProvider({
     const business =
       memberships.find((membership) => membership.id === wanted) ?? memberships[0] ?? null;
     const businessRole = business?.role ?? null;
-    const permissions = permissionsForRole(businessRole);
+    const permissions = membershipPermissions(business);
     return {
       user,
       memberships,

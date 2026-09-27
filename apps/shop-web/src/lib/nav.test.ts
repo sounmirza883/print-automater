@@ -1,12 +1,12 @@
 import { UserRole } from "@print-automated/types";
 import { activeNavItem, visibleNavItems, NAV_ITEMS } from "./nav";
-import { permissionsForRole } from "./permissions";
+import { serverPermissionsFor } from "@/components/test-role-permissions";
 
 function idsFor(userRole: UserRole, businessRole: UserRole | null): string[] {
   return visibleNavItems({
     userRole,
     businessRole,
-    permissions: permissionsForRole(businessRole),
+    permissions: new Set(businessRole ? serverPermissionsFor(businessRole) : []),
   }).map((item) => item.id);
 }
 

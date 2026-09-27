@@ -6,6 +6,7 @@ import type {
   ReprintReason,
   OrderStatus,
   PaymentStatus,
+  Permission,
   PrinterStatus,
   QualityCheckStatus,
   ShopRejectionReason,
@@ -259,4 +260,9 @@ export interface MyShopMembership {
   /** The caller's EFFECTIVE role at this business (`ShopStaff.role`), which
    * is what decides what they may do there -- not the account-level role. */
   role: UserRole;
+  /** 23.15: what `role` may do at this business -- the server's own ROLE_PERMISSIONS entry,
+   * so a client never keeps a copy of that table. Display only: the server authorises every
+   * request. Optional only so older fixtures compile; the API always sends it, and a client
+   * must treat a missing list as "no permissions". */
+  permissions?: Permission[];
 }
