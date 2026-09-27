@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent, type ReactNode } from "react";
 import { safeNextPath } from "@/lib/safe-next";
@@ -128,6 +129,12 @@ function LoginForm(): ReactNode {
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <p className="text-sm text-muted">
+          Invited to a business?{" "}
+          <Link href="/accept-invite" className="font-medium text-accent underline">
+            Accept your invitation
+          </Link>
+        </p>
       </section>
     </main>
   );

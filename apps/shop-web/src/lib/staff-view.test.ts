@@ -1,5 +1,11 @@
 import { UserRole } from "@print-automated/types";
-import { canActOnMember, grantableRoles, isUuid } from "./staff-view";
+import {
+  canActOnMember,
+  canCancelInvite,
+  grantableRoles,
+  looksLikeEmail,
+  withInviteCopy,
+} from "./staff-view";
 
 describe("grantableRoles", () => {
   it("offers SHOP_OWNER only to an owner", () => {
@@ -23,10 +29,32 @@ describe("canActOnMember", () => {
   });
 });
 
-describe("isUuid", () => {
-  it("accepts a UUID and rejects anything else", () => {
-    expect(isUuid(" 3f2b8c1e-9d4a-4c7e-8a55-0b6f1d2e3a4c ")).toBe(true);
-    expect(isUuid("owner@example.com")).toBe(false);
-    expect(isUuid("")).toBe(false);
+describe("canCancelInvite", () => {
+  it("never offers to cancel an invitation for a role above the caller's own", () => {
+    expect(canCancelInvite(UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER)).toBe(false);
+    expect(canCancelInvite(UserRole.SHOP_MANAGER, UserRole.SHOP_MANAGER)).toBe(true);
+    expect(canCancelInvite(UserRole.SHOP_MANAGER, UserRole.OPERATOR)).toBe(true);
+    expect(canCancelInvite(UserRole.SHOP_OWNER, UserRole.SHOP_OWNER)).toBe(true);
+    expect(canCancelInvite(null, UserRole.OPERATOR)).toBe(false);
+  });
+});
+
+describe("looksLikeEmail", () => {
+  it("accepts a plausible address and rejects anything else", () => {
+    expect(looksLikeEmail(" person@example.com ")).toBe(true);
+    expect(looksLikeEmail("person@example")).toBe(false);
+    expect(looksLikeEmail("per son@example.com")).toBe(false);
+    expect(looksLikeEmail("")).toBe(false);
+  });
+});
+
+describe("withInviteCopy", () => {
+  it("gives an invitation's rate limit its own wording and leaves other errors alone", () => {
+    expect(withInviteCopy({ status: 429, error_code: "RATE_LIMITED", message: "x" })).toEqual({
+      status: 429,
+      error_code: "INVITE_RATE_LIMITED",
+    });
+    const other = { status: 403, error_code: "FORBIDDEN", message: "No." };
+    expect(withInviteCopy(other)).toBe(other);
   });
 });

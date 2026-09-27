@@ -21,6 +21,8 @@ export {
   ShopStaffResource,
   type ShopStaffListItem,
   type ShopStaffMember,
+  type StaffDirectoryItem,
+  type StaffInvite,
 } from "./resources/shop-staff.resource.js";
 export {
   PrintJobsResource,

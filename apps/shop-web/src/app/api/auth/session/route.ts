@@ -1,12 +1,13 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { isBackOfficeRole } from "@/lib/permissions";
 import { REFRESH_TOKEN_COOKIE, SESSION_USER_COOKIE } from "@/lib/cookie-names";
 
 /** Who the shell should say is signed in. Reads only the display cookie
  * set at sign-in (no backend call, so it is cheap and never 401s from an
  * expired access token); the business list and every permission decision
- * come from the API through the proxy. */
+ * come from the API through the proxy. Admission is decided once, at sign-in
+ * (auth-backend.ts): since 23.23 an account whose own role is CUSTOMER is
+ * admitted when it works at a business, so the role is not re-checked here. */
 export async function GET(): Promise<NextResponse> {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_USER_COOKIE)?.value;
@@ -25,8 +26,7 @@ export async function GET(): Promise<NextResponse> {
       typeof user.id !== "string" ||
       typeof user.name !== "string" ||
       typeof user.email !== "string" ||
-      typeof user.role !== "string" ||
-      !isBackOfficeRole(user.role)
+      typeof user.role !== "string"
     ) {
       return unauthenticated();
     }

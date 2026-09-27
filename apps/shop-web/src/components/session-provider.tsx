@@ -66,6 +66,11 @@ function subscribeToStoredBusiness(listener: () => void): () => void {
   };
 }
 
+/** 23.23: open the console on this business next time (e.g. the one just joined). */
+export function rememberSelectedBusiness(id: string): void {
+  writeStoredBusiness(id);
+}
+
 function writeStoredBusiness(id: string): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, id);

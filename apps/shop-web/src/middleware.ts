@@ -8,7 +8,8 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/cookie-names";
  * refresh that fails sends them to /login). Validity is enforced where
  * it matters: the API's own guards on every real request.
  *
- * `/login`, `/api/*` and static assets are excluded by the matcher; the
+ * `/login`, `/accept-invite` (an invitee cannot sign in until they have
+ * accepted), `/api/*` and static assets are excluded by the matcher; the
  * API routes answer 401 themselves. */
 export function middleware(request: NextRequest): NextResponse {
   const hasSession =
@@ -25,5 +26,5 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/((?!api/|_next/|login|favicon.ico).*)"],
+  matcher: ["/((?!api/|_next/|login|accept-invite|favicon.ico).*)"],
 };

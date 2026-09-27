@@ -12,12 +12,12 @@ describe("staff and customer screens (permission gating, rendered)", () => {
     (role) => {
       const html = renderAs(role, createElement(StaffScreen));
       expect(html).toContain(NO_ACCESS);
-      expect(html).not.toContain("Add a person");
+      expect(html).not.toContain("Invite a person");
     },
   );
 
   it.each([UserRole.SHOP_OWNER, UserRole.SHOP_MANAGER])("opens the roster for %s", (role) => {
-    expect(renderAs(role, createElement(StaffScreen))).toContain("Add a person");
+    expect(renderAs(role, createElement(StaffScreen))).toContain("Invite a person");
   });
 
   it("gives counter staff create and edit on customers (CREATE_ORDERS / EDIT_ORDERS)", () => {

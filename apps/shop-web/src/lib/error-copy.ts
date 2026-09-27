@@ -91,6 +91,10 @@ const COPY: Record<string, string> = {
   RULE_ORDER_MISMATCH:
     "The list of rules changed while you were reordering. Reload and reorder again.",
   RULE_PRINTER_INVALID: "A chosen printer does not belong to this business.",
+  INVITE_RATE_LIMITED:
+    "Too many invitations just now (from you, or to this address). Wait a while, up to an hour, and try again.",
+  SHOP_STAFF_INVITE_NOT_PENDING:
+    "That invitation was already accepted or cancelled. The list has been refreshed.",
   CANNOT_REMOVE_LAST_OWNER:
     "A business must always have an owner. Make someone else an owner before removing or changing this person.",
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
@@ -113,6 +117,7 @@ const STALE_STATE_CODES = new Set([
   "SETTINGS_VERSION_CONFLICT",
   "RULE_VERSION_CONFLICT",
   "RULE_ORDER_MISMATCH",
+  "SHOP_STAFF_INVITE_NOT_PENDING",
 ]);
 
 function coded(error: unknown): CodedError {

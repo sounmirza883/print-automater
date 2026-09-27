@@ -30,18 +30,50 @@ export function grantableRoles(actorRole: UserRole | null): UserRole[] {
 }
 
 /** Whether to show change-role / remove on this member's row. An owner's
- * membership is only ever changed by another owner: the API would let a
- * manager demote or remove one, so the screen does not offer it. */
+ * membership is only ever changed by another owner (the API enforces it,
+ * 23.12), so the screen does not offer it to anyone else. */
 export function canActOnMember(actorRole: UserRole | null, memberRole: string): boolean {
   return memberRole !== UserRole.SHOP_OWNER || actorRole === UserRole.SHOP_OWNER;
 }
 
-export function roleOptions(roles: readonly UserRole[]): Array<{ value: string; label: string }> {
-  return roles.map((role) => ({ value: role, label: roleLabel(role) }));
+/** The API's staff rank (23.12): owner above manager above every other role. */
+function rank(role: string | null): number {
+  if (role === UserRole.SHOP_OWNER) return 3;
+  if (role === UserRole.SHOP_MANAGER) return 2;
+  if (
+    role === UserRole.SHOP_COUNTER ||
+    role === UserRole.OPERATOR ||
+    role === UserRole.PRINTER_MANAGER
+  ) {
+    return 1;
+  }
+  return 0;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Whether to offer "Cancel" on a pending invitation: nobody may cancel (or replace) an
+ * invitation for a role above their own (the API answers 403 if forced). */
+export function canCancelInvite(actorRole: UserRole | null, inviteRole: string): boolean {
+  return rank(inviteRole) <= rank(actorRole);
+}
 
-export function isUuid(value: string): boolean {
-  return UUID.test(value.trim());
+/** A rough shape check before sending; the API decides what is a valid address. */
+export function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/** The API uses one RATE_LIMITED code for searches and invitations; an invitation's own
+ * wording (limits per inviter and per address) reads better than the search one. */
+export function withInviteCopy(error: unknown): unknown {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { error_code?: unknown }).error_code === "RATE_LIMITED"
+  ) {
+    return { status: 429, error_code: "INVITE_RATE_LIMITED" };
+  }
+  return error;
+}
+
+export function roleOptions(roles: readonly UserRole[]): Array<{ value: string; label: string }> {
+  return roles.map((role) => ({ value: role, label: roleLabel(role) }));
 }
