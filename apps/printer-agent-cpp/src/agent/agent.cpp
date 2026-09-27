@@ -233,7 +233,7 @@ void Agent::heartbeat_loop(std::stop_token stop) {
       }
       const auto wait = backoff.record_failure();
       log_.warn("heartbeat failed", {{"error", error.what()}, {"retryInMs", wait.count()}});
-      set_error(std::string("Could not reach Print Automated: ") + error.what());
+      set_error(std::string("The heartbeat failed: ") + error.what());
       sleep_unless_stopped(stop, wait);
     }
   }

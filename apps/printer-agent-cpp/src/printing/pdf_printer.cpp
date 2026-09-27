@@ -121,6 +121,18 @@ std::wstring port_of(HANDLE printer) {
   return info->pPortName != nullptr ? info->pPortName : L"";
 }
 
+/// The standard Windows form name for a DMPAPER size.
+const wchar_t* form_name(short paper) {
+  switch (paper) {
+    case DMPAPER_A4: return L"A4";
+    case DMPAPER_A5: return L"A5";
+    case DMPAPER_A3: return L"A3";
+    case DMPAPER_LETTER: return L"Letter";
+    case DMPAPER_LEGAL: return L"Legal";
+    default: return L"";
+  }
+}
+
 const char* paper_name(short paper) {
   switch (paper) {
     case DMPAPER_A4: return "A4";
@@ -184,11 +196,18 @@ class JobDevMode {
       refuse("The printer driver insists on printing extra copies.");
     }
 
-    // A setting the driver dropped would print something other than what was ordered.
-    if (settings.paper && ((merged()->dmFields & DM_PAPERSIZE) == 0 ||
-                           merged()->dmPaperSize != *settings.paper)) {
-      refuse(std::string("This printer does not offer ") + paper_name(*settings.paper) +
-             " paper.");
+    // A setting the driver dropped would print something other than what was ordered. Some
+    // drivers answer with the form's name instead of the paper id; that is the same paper.
+    if (settings.paper) {
+      const DEVMODEW* result = merged();
+      const bool paper_kept =
+          (result->dmFields & DM_PAPERSIZE) != 0 && result->dmPaperSize == *settings.paper;
+      const bool form_kept = (result->dmFields & DM_FORMNAME) != 0 &&
+                             _wcsicmp(result->dmFormName, form_name(*settings.paper)) == 0;
+      if (!paper_kept && !form_kept) {
+        refuse(std::string("This printer does not offer ") + paper_name(*settings.paper) +
+               " paper.");
+      }
     }
     if (settings.duplex != DMDUP_SIMPLEX &&
         ((merged()->dmFields & DM_DUPLEX) == 0 || merged()->dmDuplex != settings.duplex)) {
