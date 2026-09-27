@@ -425,3 +425,22 @@ Independent review found two warnings (external-link gate bypass, PNG bomb) plus
 ```
 
 Also add `SHOP_WEB_HOST_PORT`/`SHOP_WEB_IMAGE` handling on the staging host's `.env.prod` (defaults exist), and a `shop.<STAGING_DOMAIN>` route at the host's TLS proxy.
+
+## Phase 23 security review fixes: 23.18-23.20 (2026-09-27)
+
+Done directly in the main session (the weekly usage limit stopped subagents), one committer.
+
+- **23.18 (`6b35659`), staff invitations (security).** Add-by-email ALWAYS records a pending invitation and emails a single-use code, even when an account already holds the address (registration does not verify email, so an account is not consent). Membership needs the code plus a signed-in account with that address. Same work, same 202, same stored state and audit shape for both cases (no account-existence side channel; an owner's address also gets 202, authority is enforced at accept). Accept claims and adds in ONE transaction (`ShopStaffService.addStaffWithin`). Revoke is decided by its conditional write: already accepted/cancelled -> 409 `SHOP_STAFF_INVITE_NOT_PENDING`, no audit row. Replacing a pending invitation needs authority over ITS role (403). Rate limits key on the canonical mailbox (`email-address.ts`: plus-tags stripped, Gmail dots/googlemail folded): 20/h per inviter, 3/h per (business, mailbox), 10/h per mailbox overall. The business name in the invite email is sanitised (controls, line/bidi separators, URLs, markup, 60 chars) and the email job is removed from Redis once handled. Staff directory: `role=SHOP_OWNER|SHOP_MANAGER` needs MANAGE_USERS (403 otherwise).
+- **23.19 (`2e48067`), order history.** `order-history.ts` is an allowlist (unknown keys dropped, no `[REDACTED]` markers any more). Structural keys accept only id/code-shaped strings. Labels (printer/courier names) shown to all. Free text (`reason`, `note`, `comment`, `trackingNumber`) is shown when it is an UPPER_SNAKE code; otherwise only to roles holding MANAGE_DELIVERY at the order's business, and `"[HIDDEN]"` for the others. Non-object metadata -> `null`. Internal error text is no longer in the shop timeline (admin audit still has it). Decision: the job summary's `failureNote` stays visible to operators (they write those notes); only the history applies the role rule.
+- **23.20 (`3182daf`), infra.** shop-web publishes on `SHOP_WEB_BIND_ADDRESS` (default `127.0.0.1`; the host TLS proxy forwards to it) and waits for the api's HEALTHCHECK. Checked: no quote path reads a product's `taxRateBasisPoints`; quote tax comes only from the pricing rule (null -> 0).
+- **Red-first:** with the pre-fix code restored, 7/21 invite e2e cases and 2/16 detail/history cases fail; with the fixes all pass.
+- **Verification:** lint guards 11/11; `turbo run lint typecheck --force` 33/33 (the pre-existing shop-mobile warning only); api unit 83/83; api e2e shop-staff*, authorization-matrix, notifications*, order-notifications, shop-order-detail, single-job-equivalence (241 tests) and orders/products/shop-orders/search (46 tests); worker print-timeout 9/9; `docker compose ... config` parses.
+
+**Frontend contract changes (shop-web):**
+
+- Add staff by email: always `202 {result:"PROCESSED"}`; copy must say an invitation was emailed and the person joins once they accept (never "they now have access"). Pending invites now include addresses that already have accounts. Build the signed-in "Accept invitation" screen (`POST /v1/shop/staff-invites/accept {token}`; any failure is a uniform 404).
+- Revoke invite: handle 409 `SHOP_STAFF_INVITE_NOT_PENDING` ("already accepted or cancelled", refresh the list). Re-inviting an address that has a higher-role pending invitation: 403. 429 `RATE_LIMITED` is per mailbox (plus-tags and Gmail dots count as one).
+- Staff directory: only request `role=OPERATOR` (or no role) for pickers; owner/manager filters are 403 without MANAGE_USERS.
+- Order history: metadata is allowlisted; render `"[HIDDEN]"` as "hidden for your role".
+
+**Carry-forwards:** pin the node base images of web.Dockerfile and shop-web.Dockerfile together; a dedicated shop-web `/api/health` route for its healthcheck; product-level tax is stored but never applied to quotes (confirm the intent of PRD s13/s14 before Phase 25).
