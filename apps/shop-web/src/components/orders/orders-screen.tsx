@@ -6,6 +6,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import type { ShopOrderResponse } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
 import { BlockedNote } from "@/components/blocked-note";
+import { OperatorPicker } from "@/components/orders/operator-picker";
 import { RequirePermission } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
 import {
@@ -85,7 +86,7 @@ function OrdersBody(): ReactNode {
     { intervalMs: searching ? undefined : POLL_MS, enabled: shopId !== "" },
   );
 
-  // For the printer filter. An operator cannot read the printer list (403): no picker then.
+  // For the printer filter (every staff role may read the printer list since 23.14).
   const printers = useResource(() => getApi().printers.listPage(shopId, { limit: 100 }), [shopId], {
     enabled: shopId !== "",
   });
@@ -255,10 +256,14 @@ function OrdersBody(): ReactNode {
                 </select>
               </label>
             )}
-            <UuidField
-              label="Operator ID"
+            <OperatorPicker
+              shopId={shopId}
+              label="Operator"
               value={draft.operatorId}
               onChange={(value) => setDraft({ ...draft, operatorId: value })}
+              emptyLabel="Any"
+              className={FIELD}
+              labelClassName="grid gap-1 text-xs font-medium text-muted"
             />
             <UuidField
               label="Customer ID"

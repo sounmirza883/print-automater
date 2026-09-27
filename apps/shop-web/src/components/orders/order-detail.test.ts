@@ -159,3 +159,31 @@ describe("JobCard timing (23.13)", () => {
     expect(html).toContain("High priority");
   });
 });
+
+describe("JobCard operator (23.26)", () => {
+  it("names the assigned operator and offers Assign operator to a role with ASSIGN_JOBS", () => {
+    const permissions = new Set(serverPermissionsFor(UserRole.SHOP_MANAGER));
+    const html = renderToStaticMarkup(
+      createElement(JobCard, {
+        job: {
+          id: "job-abcdef12",
+          status: "QUEUED",
+          printerName: "Front desk",
+          blockedReason: null,
+          failureReason: null,
+          failureNote: null,
+          reprint: null,
+          operatorId: "u-7",
+          operatorName: "Bilal",
+        },
+        order: { orderStatus: "QUEUED_FOR_PRINT", pricingSnapshot: undefined },
+        can: (permission) => permissions.has(permission),
+        busy: false,
+        highlighted: false,
+        onAction: () => undefined,
+      }),
+    );
+    expect(html).toContain("operator Bilal");
+    expect(html).toContain("Assign operator");
+  });
+});

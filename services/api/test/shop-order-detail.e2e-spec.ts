@@ -457,6 +457,36 @@ describe("Shop order detail and history (23.13, e2e)", () => {
       expect(res.body.priority).toBe(5);
     });
 
+    it("names each job's assigned operator (23.26), null when none", async () => {
+      const before = await request(app.getHttpServer())
+        .get(`/v1/shop/orders/${selfServiceOrderId}`)
+        .set(auth("ownerA"));
+      expect(before.body.printJobs[0]).toMatchObject({ operatorId: null, operatorName: null });
+
+      const operator = await prisma.user.findFirstOrThrow({
+        where: { id: { in: userIds }, role: UserRole.OPERATOR },
+      });
+      await prisma.printJob.update({ where: { id: jobId }, data: { operatorId: operator.id } });
+      try {
+        const after = await request(app.getHttpServer())
+          .get(`/v1/shop/orders/${selfServiceOrderId}`)
+          .set(auth("ownerA"));
+        expect(after.body.printJobs[0]).toMatchObject({
+          operatorId: operator.id,
+          operatorName: operator.name,
+        });
+        // The list shape carries it too.
+        const list = await request(app.getHttpServer())
+          .get("/v1/shop/orders")
+          .query({ shopId: shopA.id, limit: 50 })
+          .set(auth("ownerA"));
+        const row = list.body.items.find((o: { id: string }) => o.id === selfServiceOrderId);
+        expect(row.printJobs[0].operatorName).toBe(operator.name);
+      } finally {
+        await prisma.printJob.update({ where: { id: jobId }, data: { operatorId: null } });
+      }
+    });
+
     it("stays additive: every pre-existing field is still present", async () => {
       const res = await request(app.getHttpServer())
         .get(`/v1/shop/orders/${selfServiceOrderId}`)

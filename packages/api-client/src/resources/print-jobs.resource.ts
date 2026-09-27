@@ -30,6 +30,15 @@ export class PrintJobsResource {
     });
   }
 
+  /** 18.9/23.25 (ASSIGN_JOBS): who runs the job; `null` unassigns. The person must be an
+   * ACTIVE member whose role AT THIS BUSINESS is OPERATOR (409 INVALID_OPERATOR otherwise). */
+  assignOperator(jobId: string, operatorId: string | null): Promise<PrintJobActionResult> {
+    return this.http.request(`/v1/print-jobs/${jobId}/assign-operator`, {
+      method: "POST",
+      body: { operatorId },
+    });
+  }
+
   pause(jobId: string, reason?: string): Promise<PrintJobActionResult> {
     return this.http.request(`/v1/print-jobs/${jobId}/pause`, {
       method: "POST",

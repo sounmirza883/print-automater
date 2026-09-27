@@ -129,6 +129,9 @@ export interface ShopOrderJobSummary {
   failureReason: string | null;
   failureNote: string | null;
   reprint: { originalJobId: string; reason: string; additionalCostMinor: number } | null;
+  /** 23.26: the assigned operator, null when none (always sent; optional for old fixtures). */
+  operatorId?: string | null;
+  operatorName?: string | null;
   /** 23.13 (always sent; optional here so older fixtures still typecheck). */
   attempt?: number;
   priority?: number;

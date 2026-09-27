@@ -11,8 +11,8 @@ import { useResource } from "@/lib/use-resource";
  * for THIS job (a hint from its capabilities and status); picking one
  * anyway is allowed, because the API is the authority and answers
  * PRINTER_CAPABILITY_MISMATCH / PRINTER_NOT_AVAILABLE with an explanation.
- * An operator cannot list printers (the API restricts that read), which
- * is said plainly rather than shown as an empty list. */
+ * Every staff role may list printers (VIEW_PRINTERS, 23.14); if a role
+ * ever cannot, that is said plainly rather than shown as an empty list. */
 export function PrinterPicker({
   shopId,
   config,

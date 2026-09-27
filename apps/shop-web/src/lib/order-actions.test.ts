@@ -57,6 +57,23 @@ describe("order actions by role and state", () => {
 describe("job actions by role and state", () => {
   const ownerCan = canAs(UserRole.SHOP_OWNER);
 
+  it("offers Assign operator (ASSIGN_JOBS) while a job is being worked on, never once it is done", () => {
+    for (const status of ["CREATED", "WAITING", "QUEUED", "CLAIMED", "PRINTING", "PAUSED"]) {
+      expect(availableJobActions(job(status), order("PRINTING"), ownerCan).assignOperator).toBe(
+        true,
+      );
+    }
+    for (const status of ["PRINTED", "FAILED", "TIMEOUT", "CANCELLED", "UNKNOWN"]) {
+      expect(availableJobActions(job(status), order("PRINTING"), ownerCan).assignOperator).toBe(
+        false,
+      );
+    }
+    const counterCan = canAs(UserRole.SHOP_COUNTER);
+    expect(availableJobActions(job("QUEUED"), order("PRINTING"), counterCan).assignOperator).toBe(
+      false,
+    );
+  });
+
   it("pauses only queued/waiting jobs and resumes only paused ones", () => {
     expect(availableJobActions(job("QUEUED"), order("PREPARING"), ownerCan)).toMatchObject({
       pause: true,

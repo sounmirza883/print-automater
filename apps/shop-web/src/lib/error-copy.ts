@@ -56,7 +56,8 @@ const COPY: Record<string, string> = {
   IDEMPOTENCY_KEY_IN_PROGRESS:
     "That request is already being processed. Wait a moment and refresh; do not submit it again.",
   UNKNOWN_JOB_ID_REQUIRED: "Choose which unresolved job you are resolving.",
-  INVALID_OPERATOR: "That person cannot be assigned as an operator here.",
+  INVALID_OPERATOR:
+    "That person does not work here as an operator (any more). Refresh and pick someone else.",
   DELIVERY_NOT_FOUND: "This order has no delivery record yet.",
   DELIVERY_NOT_ALLOWED: "Delivery details cannot be changed for this order.",
   DELIVERY_CLOSED: "This delivery is already closed (delivered, failed or cancelled).",

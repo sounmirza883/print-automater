@@ -95,6 +95,8 @@ const SHOP_ORDER_INCLUDE = {
       // 21.4: set when this job IS a reprint of another job.
       reprintOf: { select: { originalJobId: true, reason: true, additionalCostMinor: true } },
       printer: { select: { name: true } },
+      // 23.26: who is running the job (manual operator allocation, 18.9), for staff screens.
+      operator: { select: { id: true, name: true } },
       // 23.13: per-job timeline and ordering facts (all plain columns, no extra join).
       orderItemId: true,
       attempt: true,
@@ -159,6 +161,9 @@ export interface ShopOrderJobSummary {
   failureNote: string | null;
   // 21.4 (§67): non-null when this job is a reprint of `originalJobId`.
   reprint: { originalJobId: string; reason: string; additionalCostMinor: number } | null;
+  // 23.26: the assigned operator (18.9), null when none (additive).
+  operatorId: string | null;
+  operatorName: string | null;
   // 23.13: per-job timeline/ordering facts (additive).
   attempt: number;
   priority: number;
@@ -1987,6 +1992,8 @@ export class ShopOrdersService {
         blockedReason: job.blockedReason,
         failureReason: job.failureReason,
         failureNote: job.failureNote,
+        operatorId: job.operator?.id ?? null,
+        operatorName: job.operator?.name ?? null,
         attempt: job.attempt,
         priority: job.priority,
         createdAt: job.createdAt,

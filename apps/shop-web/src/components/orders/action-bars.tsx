@@ -19,7 +19,13 @@ export type OrderActionKind =
   | "invoice";
 
 export type JobActionKind =
-  "reassign" | "pause" | "resume" | "recordFailure" | "reprint" | "resolveUnknown";
+  | "reassign"
+  | "assignOperator"
+  | "pause"
+  | "resume"
+  | "recordFailure"
+  | "reprint"
+  | "resolveUnknown";
 
 const ORDER_LABELS: Record<OrderActionKind, string> = {
   accept: "Accept order",
@@ -35,6 +41,7 @@ const ORDER_LABELS: Record<OrderActionKind, string> = {
 
 const JOB_LABELS: Record<JobActionKind, string> = {
   reassign: "Assign printer",
+  assignOperator: "Assign operator",
   pause: "Pause",
   resume: "Resume",
   recordFailure: "Record failure reason",
@@ -121,6 +128,9 @@ export function JobCard({
         <span className="text-sm">
           {job.printerName !== null ? `on ${job.printerName}` : "no printer assigned"}
         </span>
+        {job.operatorName ? (
+          <span className="text-sm text-muted">operator {job.operatorName}</span>
+        ) : null}
         {job.blockedReason === "MANUAL_APPROVAL_REQUIRED" && (
           <Pill tone="danger">Held by late print</Pill>
         )}

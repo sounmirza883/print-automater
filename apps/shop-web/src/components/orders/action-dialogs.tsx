@@ -5,6 +5,7 @@ import type { ShopOrderJobSummary, ShopOrderResponse } from "@print-automated/ap
 import { JobFailureReason, ReprintReason, ShopRejectionReason } from "@print-automated/types";
 import { FormDialog } from "@/components/modal";
 import type { ActionOutcome } from "@/components/orders/use-action-runner";
+import { OperatorPicker } from "@/components/orders/operator-picker";
 import { PrinterPicker } from "@/components/orders/printer-picker";
 import { getApi } from "@/lib/api";
 import { formatMoney, humanizeEnum, parseMoneyToMinor } from "@/lib/format";
@@ -21,7 +22,14 @@ export type DialogState =
         | "complete";
     }
   | {
-      kind: "reassign" | "pause" | "resume" | "recordFailure" | "reprint" | "resolveUnknown";
+      kind:
+        | "reassign"
+        | "assignOperator"
+        | "pause"
+        | "resume"
+        | "recordFailure"
+        | "reprint"
+        | "resolveUnknown";
       job: ShopOrderJobSummary;
     }
   | { kind: "latePrint"; job: ShopOrderJobSummary; printerId: string };
@@ -83,6 +91,8 @@ export function OrderDialogs({
       return <SimpleOrderDialog {...props} action="complete" />;
     case "reassign":
       return <ReassignDialog {...props} job={dialog.job} />;
+    case "assignOperator":
+      return <AssignOperatorDialog {...props} job={dialog.job} />;
     case "pause":
       return <PauseDialog {...props} job={dialog.job} />;
     case "resume":
@@ -424,6 +434,46 @@ function ReassignDialog({
           className={FIELD}
         />
       </Field>
+    </FormDialog>
+  );
+}
+
+/** 23.26 (PRD 21, manual operator allocation): who runs this job. Only people who work
+ * here as operators are offered; choosing nobody clears it. */
+function AssignOperatorDialog({
+  shopId,
+  runner,
+  close,
+  job,
+}: DialogProps & { job: ShopOrderJobSummary }): ReactNode {
+  const current = job.operatorId ?? "";
+  const [operatorId, setOperatorId] = useState(current);
+  return (
+    <FormDialog
+      title="Assign an operator"
+      submitLabel={operatorId === "" ? "Clear operator" : "Assign"}
+      busy={runner.busy}
+      error={runner.error}
+      disabled={operatorId === current}
+      onCancel={close}
+      onSubmit={() =>
+        void runner
+          .run(() =>
+            getApi().printJobs.assignOperator(job.id, operatorId === "" ? null : operatorId),
+          )
+          .then((outcome) => outcome === "ok" && close())
+      }
+    >
+      <p>
+        {job.operatorName ? `Now: ${job.operatorName}.` : "Nobody is assigned to this job yet."} The
+        operator is who runs this job on the floor; it does not change the printer.
+      </p>
+      <OperatorPicker
+        shopId={shopId}
+        value={operatorId}
+        onChange={setOperatorId}
+        emptyLabel="Nobody"
+      />
     </FormDialog>
   );
 }

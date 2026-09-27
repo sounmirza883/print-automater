@@ -63,8 +63,19 @@ export function availableOrderActions(
   };
 }
 
+/** 23.26: a job still being worked on can have its operator changed; a finished one can't. */
+const OPERATOR_ASSIGNABLE_JOB_STATUSES = new Set([
+  "CREATED",
+  "WAITING",
+  "QUEUED",
+  "CLAIMED",
+  "PRINTING",
+  "PAUSED",
+]);
+
 export interface JobActions {
   reassign: boolean;
+  assignOperator: boolean;
   pause: boolean;
   resume: boolean;
   recordFailure: boolean;
@@ -80,6 +91,7 @@ export function availableJobActions(
   const status = job.status;
   return {
     reassign: can(Permission.ASSIGN_JOBS) && REASSIGNABLE_JOB_STATUSES.has(status),
+    assignOperator: can(Permission.ASSIGN_JOBS) && OPERATOR_ASSIGNABLE_JOB_STATUSES.has(status),
     pause: can(Permission.PAUSE_JOBS) && (status === "WAITING" || status === "QUEUED"),
     resume: can(Permission.PAUSE_JOBS) && status === "PAUSED",
     recordFailure:
