@@ -39,7 +39,10 @@ add_library(agent_core STATIC
   # 24.2 paths and configuration
   src/app/win.cpp
   src/config/paths.cpp
-  src/config/config.cpp)
+  src/config/config.cpp
+  # 24.3 identity
+  src/identity/base64url.cpp
+  src/identity/identity.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
@@ -52,7 +55,8 @@ pa_copy_pdfium_dll(print-automated-agent)
 enable_testing()
 add_executable(agent_tests
   tests/dependencies_test.cpp
-  tests/config_test.cpp)
+  tests/config_test.cpp
+  tests/identity_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)
