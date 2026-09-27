@@ -62,7 +62,10 @@ add_library(agent_core STATIC
   # 24.9 PDFium printing, 24.10 spooler monitoring
   src/printing/print_settings.cpp
   src/printing/pdf_printer.cpp
-  src/printing/print_monitor.cpp)
+  src/printing/print_monitor.cpp
+  # 24.7 the job processor
+  src/app/log.cpp
+  src/agent/job_processor.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
@@ -86,7 +89,9 @@ add_executable(agent_tests
   tests/discovery_test.cpp
   tests/job_document_test.cpp
   tests/print_settings_test.cpp
-  tests/pdf_printer_test.cpp)
+  tests/pdf_printer_test.cpp
+  tests/log_test.cpp
+  tests/job_processor_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)
