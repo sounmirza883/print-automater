@@ -44,7 +44,11 @@ add_library(agent_core STATIC
   src/identity/base64url.cpp
   src/identity/identity.cpp
   # 24.6 ledger
-  src/ledger/ledger.cpp)
+  src/ledger/ledger.cpp
+  # 24.4 API client
+  src/backend/http.cpp
+  src/backend/backend_client.cpp
+  src/backend/access_tokens.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
@@ -59,7 +63,8 @@ add_executable(agent_tests
   tests/dependencies_test.cpp
   tests/config_test.cpp
   tests/identity_test.cpp
-  tests/ledger_test.cpp)
+  tests/ledger_test.cpp
+  tests/backoff_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)
