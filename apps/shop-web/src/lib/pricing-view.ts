@@ -3,6 +3,7 @@ import type {
   PricingRuleInput,
   Product,
   ProductInput,
+  ProductUpdateInput,
 } from "@print-automated/api-client";
 import { Finishing, PaperSize, PaperType } from "@print-automated/types";
 import { minorToInput, parseMoneyToMinor } from "@/lib/format";
@@ -226,5 +227,21 @@ export function buildProductInput(form: ProductForm): ProductCheck {
       paperRequirements: Object.keys(paper).length > 0 ? paper : undefined,
       available: form.available,
     },
+  };
+}
+
+/** 23.28: the same form as an edit. A blank optional field (and an unticked requirement)
+ * CLEARS the stored value (`null`, accepted since 23.16) instead of leaving the old one in
+ * place, so what the form shows is what gets saved. A blank tax rate means "use the
+ * business default". */
+export function toProductUpdate(input: ProductInput & { name: string }): ProductUpdateInput {
+  return {
+    ...input,
+    description: input.description ?? null,
+    category: input.category ?? null,
+    unit: input.unit ?? null,
+    taxRateBasisPoints: input.taxRateBasisPoints ?? null,
+    printerRequirements: input.printerRequirements ?? null,
+    paperRequirements: input.paperRequirements ?? null,
   };
 }

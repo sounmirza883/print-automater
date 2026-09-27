@@ -19,7 +19,7 @@ import {
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { isEmail, optionalText } from "@/lib/form-values";
+import { isEmail, nullableText, optionalText } from "@/lib/form-values";
 import { useResource } from "@/lib/use-resource";
 
 const PAGE = 25;
@@ -219,18 +219,25 @@ function CustomerDialog({
       onSubmit={() => {
         setTouched(true);
         if (nameError || emailError) return;
-        const body = {
-          name: form.name.trim(),
-          company: optionalText(form.company),
-          phone: optionalText(form.phone),
-          email: optionalText(form.email),
-          address: optionalText(form.address),
-        };
+        const name = form.name.trim();
         void runner
           .run(() =>
             customer
-              ? getApi().customers.update(customer.id, body)
-              : getApi().customers.create(shopId, body),
+              ? // 23.28: in an edit a blank field CLEARS the stored value (null, since 23.16).
+                getApi().customers.update(customer.id, {
+                  name,
+                  company: nullableText(form.company),
+                  phone: nullableText(form.phone),
+                  email: nullableText(form.email),
+                  address: nullableText(form.address),
+                })
+              : getApi().customers.create(shopId, {
+                  name,
+                  company: optionalText(form.company),
+                  phone: optionalText(form.phone),
+                  email: optionalText(form.email),
+                  address: optionalText(form.address),
+                }),
           )
           .then((outcome) => outcome === "ok" && onClose());
       }}
@@ -262,10 +269,7 @@ function CustomerDialog({
         <TextField label="Address" value={form.address} onChange={set("address")} maxLength={500} />
       </div>
       {customer && (
-        <p className="text-xs text-muted">
-          Blank fields are left as they are: the system cannot clear a phone, email, company or
-          address once set.
-        </p>
+        <p className="text-xs text-muted">Clearing a field removes it from the customer record.</p>
       )}
     </FormDialog>
   );

@@ -6,6 +6,7 @@ import {
   emptyProductForm,
   newCharge,
   ruleToForm,
+  toProductUpdate,
 } from "./pricing-view";
 
 const rule: PricingRule = {
@@ -105,5 +106,40 @@ describe("buildProductInput", () => {
       a3: true,
     });
     expect(some.ok && some.input.paperRequirements).toEqual({ paperSize: "A3" });
+  });
+});
+
+describe("toProductUpdate (23.28)", () => {
+  it("clears blank optional fields and unticked requirements in an edit", () => {
+    const check = buildProductInput({ ...emptyProductForm(), name: "Binding" });
+    expect(check.ok).toBe(true);
+    if (!check.ok) return;
+    expect(toProductUpdate(check.input)).toEqual({
+      name: "Binding",
+      description: null,
+      category: null,
+      unit: null,
+      taxRateBasisPoints: null,
+      printerRequirements: null,
+      paperRequirements: null,
+      available: true,
+    });
+  });
+
+  it("keeps filled-in values as they are", () => {
+    const check = buildProductInput({
+      ...emptyProductForm(),
+      name: "Poster",
+      category: "Large format",
+      taxPercent: "17",
+      needsA3: true,
+      paperSize: "A3",
+    });
+    if (!check.ok) throw new Error("expected a valid form");
+    const update = toProductUpdate(check.input);
+    expect(update.category).toBe("Large format");
+    expect(update.taxRateBasisPoints).toBe(1700);
+    expect(update.printerRequirements).toEqual({ color: false, duplex: false, a4: true, a3: true });
+    expect(update.paperRequirements).toEqual({ paperSize: "A3" });
   });
 });

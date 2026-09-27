@@ -26,6 +26,7 @@ import {
   emptyProductForm,
   productToForm,
   type ProductForm,
+  toProductUpdate,
 } from "@/lib/pricing-view";
 import { basisPointsToPercent } from "@/lib/form-values";
 import { useResource } from "@/lib/use-resource";
@@ -272,7 +273,7 @@ function ProductDialog({
         void runner
           .run(() =>
             product
-              ? getApi().products.update(product.id, check.input)
+              ? getApi().products.update(product.id, toProductUpdate(check.input))
               : getApi().products.create(shopId, check.input),
           )
           .then((outcome) => outcome === "ok" && onClose());
@@ -357,8 +358,7 @@ function ProductDialog({
       />
       {product && (
         <p className="text-xs text-muted">
-          Blank fields are left as they are: the system cannot clear a description, category or
-          requirement once set.
+          Clearing a field removes it from the product; unticking a requirement drops it.
         </p>
       )}
     </FormDialog>
