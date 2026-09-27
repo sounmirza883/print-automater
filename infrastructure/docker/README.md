@@ -145,7 +145,7 @@ production numbers.
 
 `shop-web` (apps/shop-web, port `SHOP_WEB_HOST_PORT`, default 3002) is built
 from `shop-web.Dockerfile`, mirrors `customer-web`, has a container
-healthcheck (`GET /` on 3002) and the same 512m/1 CPU limits. There is no
+healthcheck (`GET /api/health` on 3002) and the same 512m/1 CPU limits. There is no
 reverse proxy in this stack: put TLS and the `shop.<domain>` route on
 whatever fronts the host. It calls the API server-to-server, so it needs no
 `CORS_ALLOWED_ORIGINS` entry, and it starts only once the API's healthcheck
