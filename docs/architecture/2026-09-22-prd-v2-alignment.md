@@ -444,3 +444,19 @@ Done directly in the main session (the weekly usage limit stopped subagents), on
 - Order history: metadata is allowlisted; render `"[HIDDEN]"` as "hidden for your role".
 
 **Carry-forwards:** pin the node base images of web.Dockerfile and shop-web.Dockerfile together; a dedicated shop-web `/api/health` route for its healthcheck; product-level tax is stored but never applied to quotes (confirm the intent of PRD s13/s14 before Phase 25).
+
+## Phase 23 follow-ups: 23.21-23.27 (2026-09-27)
+
+Done directly in the main session (Opus), one committer, each red-first where it fixes behaviour.
+
+- **23.21 (`92f298e`)** shop-web takes each business's permissions from `GET /staff/me` (`membershipPermissions`, fail-closed) and drops its copy of ROLE_PERMISSIONS (the copy had drifted: VIEW_PRINTERS, VIEW_STAFF_DIRECTORY). Test fixtures read the real server table via `components/test-role-permissions.ts` (test-only).
+- **23.22 (`5a34bae`)** `GET /shop/staff/me` moved to its own controller that needs only sign-in: it reports the caller's own ACTIVE memberships (empty list for none). Before, it fell back to the ACCOUNT role and 403'd an accepted invitee (who usually keeps a CUSTOMER account), so the invite flow never reached the business. shop-mobile now refuses an account with no business at login itself (revoking the session).
+- **23.23 (`7f67d65`)** shop-web admission = staff/admin account role OR at least one business membership (checked via /staff/me at sign-in; refusal revokes the session; unknown -> 502, no session). New public `/accept-invite` page + `POST /api/auth/accept-invite`: sign in and redeem the code in one step (an invitee cannot sign in before accepting); every refusal is the same 404; the code is typed, never in the URL. Staff screen: "Invite a person" (email + role), honest confirmation copy, pending-invitations panel with cancel (only for roles <= yours), 409 `SHOP_STAFF_INVITE_NOT_PENDING` and `INVITE_RATE_LIMITED` wording.
+- **23.24 (`292f56d`)** order screen shows contact (or "Hidden for your role"), payment + refunds, price-list version, priority, an Items panel, per-job attempt/created/paused, and a paged History panel (plain-word titles, ids dropped, `[HIDDEN]` -> "hidden for your role").
+- **23.25 (`f2a15b2`)** BUG FIX: `assignOperator` checked the ACCOUNT role; it now uses the membership role at the job's shop (an invited operator can be assigned; an OPERATOR-account person who is counter staff here cannot). No other account-role checks exist in shop-scoped code.
+- **23.26 (`d93c7d1`)** job summaries carry `operatorId`/`operatorName` (additive); api-client `printJobs.assignOperator`; shop-web OperatorPicker (staff directory, role OPERATOR) replaces the paste-an-ID operator filter and powers a new "Assign operator" job action (ASSIGN_JOBS, non-terminal jobs).
+- **23.27 (`065e8e5`)** shop-web `GET /api/health`; the image/compose healthchecks use it.
+
+**Principle confirmed across 23.22/23.23/23.25:** whether someone is staff, and what they may do, is decided by their ACTIVE membership role at the business, never the account-level `User.role` (which stays CUSTOMER for most invitees). Any new code must follow it.
+
+**Still open for Phase 23:** reports UI (23.5), search UI beyond orders (23.6), customer picker for the order search's customer filter (still an id field), clearing optional product/customer fields in the forms (API accepts null since 23.16), shop-mobile operator flow (23.8). CI wiring for shop-web remains the user's (see "CI change needed").
