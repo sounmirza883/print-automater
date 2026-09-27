@@ -460,3 +460,7 @@ Done directly in the main session (Opus), one committer, each red-first where it
 **Principle confirmed across 23.22/23.23/23.25:** whether someone is staff, and what they may do, is decided by their ACTIVE membership role at the business, never the account-level `User.role` (which stays CUSTOMER for most invitees). Any new code must follow it.
 
 **Still open for Phase 23:** reports UI (23.5), search UI beyond orders (23.6), customer picker for the order search's customer filter (still an id field), clearing optional product/customer fields in the forms (API accepts null since 23.16), shop-mobile operator flow (23.8). CI wiring for shop-web remains the user's (see "CI change needed").
+
+- **23.28 (`9e2f0f9`)** product/customer edit forms clear a blank optional field (send `null`); creating is unchanged.
+- **23.29 (`2da6022`)** shop-web reports screen (PRD 72-74): picker + one filter row (UTC presets or custom range <= 366 days, grouping for periodic reports, currency switch, CSV via `reports.csv()` blob), stat tiles, single-series column charts per the dataviz spec (accent validated on both surfaces), full tables; operator workload table-only, alphabetical, with the notice (PRD 74). Rendered in headless Chromium (light, dark, 390px). Shared `Panel` now `min-w-0` (a wide table scrolls inside it instead of widening the page on a phone).
+- **23.6 status:** every list screen has search on the shared budget (orders, customers, inventory, products, staff, suppliers); the order search's customer filter still takes an id (minor follow-up).
