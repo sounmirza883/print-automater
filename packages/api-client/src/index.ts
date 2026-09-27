@@ -98,3 +98,11 @@ export type {
   MyShopMembership,
   MyShopsResponse,
 } from "./types.js";
+export {
+  availableJobActions,
+  availableOrderActions,
+  shouldSteerToReprint,
+  type Can,
+  type JobActions,
+  type OrderActions,
+} from "./order-actions.js";
