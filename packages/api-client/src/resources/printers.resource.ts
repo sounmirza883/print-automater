@@ -13,6 +13,13 @@ export interface RegisterPrinterInput {
   capabilities?: PrinterCapabilities;
 }
 
+/** A one-time code for pairing a shop computer's print agent: 8 characters, valid for ten
+ * minutes, good for one pairing. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+}
+
 export interface UpdatePrinterInput {
   name?: string;
   enabled?: boolean;
@@ -56,6 +63,14 @@ export class PrintersResource {
     return this.http.request<PrinterResponse>(`/v1/shop/printers/${printerId}`, {
       method: "PATCH",
       body: input,
+    });
+  }
+
+  /** The agent's printers appear on their own once it is paired: its heartbeat reports them. */
+  issuePairingCode(shopId: string): Promise<PairingCode> {
+    return this.http.request<PairingCode>("/v1/shop/agents/pairing-code", {
+      method: "POST",
+      body: { shopId },
     });
   }
 

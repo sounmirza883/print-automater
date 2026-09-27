@@ -207,6 +207,7 @@ describe("ApiClient resource routing", () => {
     await client.printers.register({ shopId: "shop-1", name: "Printer 1" });
     await client.printers.update("printer-1", { enabled: false });
     await client.printers.remove("printer-1");
+    await client.printers.issuePairingCode("shop-1");
     await client.shopStaff.myShops();
 
     expect(requests).toEqual([
@@ -232,6 +233,11 @@ describe("ApiClient resource routing", () => {
         body: { enabled: false },
       }),
       expect.objectContaining({ method: "DELETE", url: "/v1/shop/printers/printer-1" }),
+      expect.objectContaining({
+        method: "POST",
+        url: "/v1/shop/agents/pairing-code",
+        body: { shopId: "shop-1" },
+      }),
       expect.objectContaining({ method: "GET", url: "/v1/shop/staff/me" }),
     ]);
     expect(requests.every((r) => r.authorization === "Bearer access-token")).toBe(true);

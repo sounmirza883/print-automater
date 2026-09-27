@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import type { PairingCode } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
 import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
@@ -10,7 +11,7 @@ import { RequirePermission, ResourceBoundary } from "@/components/resource-bound
 import { useSession } from "@/components/session-provider";
 import { Button, EmptyState, LiveStatus, Meter, PageHeader, Pill } from "@/components/ui";
 import { getApi } from "@/lib/api";
-import { formatCount, humanizeEnum } from "@/lib/format";
+import { formatCount, formatDateTime, humanizeEnum } from "@/lib/format";
 import { printerStatusTone } from "@/lib/job-status";
 import {
   effectiveStatus,
@@ -40,6 +41,7 @@ function PrintersBody(): ReactNode {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [adding, setAdding] = useState(false);
+  const [pairing, setPairing] = useState(false);
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -62,8 +64,9 @@ function PrintersBody(): ReactNode {
               refreshing={state.refreshing}
               onRefresh={state.reload}
             />
-            <Button variant="primary" onClick={() => setAdding(true)}>
-              Add printer
+            <Button onClick={() => setAdding(true)}>Add printer</Button>
+            <Button variant="primary" onClick={() => setPairing(true)}>
+              Pair a computer
             </Button>
           </>
         }
@@ -116,13 +119,12 @@ function PrintersBody(): ReactNode {
               <EmptyState
                 title="No printers yet"
                 action={
-                  <Button variant="primary" onClick={() => setAdding(true)}>
-                    Add your first printer
+                  <Button variant="primary" onClick={() => setPairing(true)}>
+                    Pair a computer
                   </Button>
                 }
               >
-                Register a printer here, then pair a print agent on the shop computer so it can
-                receive jobs.
+                Pair the print agent on the shop computer and the printers it finds appear here.
               </EmptyState>
             ) : rows.length === 0 ? (
               <EmptyState title="No printer matches">Try a different name or status.</EmptyState>
@@ -143,7 +145,71 @@ function PrintersBody(): ReactNode {
           onAdded={state.reload}
         />
       )}
+      {pairing && business !== null && (
+        <PairComputerDialog
+          shopId={business.id}
+          onClose={() => {
+            setPairing(false);
+            state.reload();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/** Issues a one-time pairing code for the print agent on a shop computer. The code is only
+ * issued on request (each one is audited), and shown until the dialog closes. */
+function PairComputerDialog({
+  shopId,
+  onClose,
+}: {
+  shopId: string;
+  onClose: () => void;
+}): ReactNode {
+  const nothingToReload = useCallback(() => {}, []);
+  const runner = useActionRunner(nothingToReload);
+  const [issued, setIssued] = useState<PairingCode | null>(null);
+  return (
+    <FormDialog
+      title="Pair a computer"
+      submitLabel={issued === null ? "Show a pairing code" : "Done"}
+      busy={runner.busy}
+      error={runner.error}
+      onCancel={onClose}
+      onSubmit={() => {
+        if (issued !== null) {
+          onClose();
+          return;
+        }
+        void runner.run(async () => {
+          setIssued(await getApi().printers.issuePairingCode(shopId));
+        });
+      }}
+    >
+      <ol className="grid list-decimal gap-1 pl-5">
+        <li>Install the Print Automated agent on the computer the printers are connected to.</li>
+        <li>
+          Open its page: it opens after installing, or click its printer icon near the clock (the
+          address is <span className="num">http://127.0.0.1:7171</span>).
+        </li>
+        <li>Enter the pairing code. The computer&rsquo;s printers then appear on this page.</li>
+      </ol>
+      {issued !== null && (
+        <div className="grid gap-1 rounded-md border border-line bg-panel-2 px-4 py-3 text-center">
+          <p className="text-xs font-medium text-muted">Pairing code</p>
+          <p
+            className="num select-all text-3xl font-semibold tracking-[0.3em]"
+            aria-label={`Pairing code ${issued.code.split("").join(" ")}`}
+          >
+            {issued.code}
+          </p>
+          <p className="text-xs text-muted">
+            Works once, until {formatDateTime(issued.expiresAt)}.
+          </p>
+        </div>
+      )}
+    </FormDialog>
   );
 }
 

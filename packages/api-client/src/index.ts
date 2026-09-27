@@ -14,6 +14,7 @@ export { DocumentsResource } from "./resources/documents.resource.js";
 export { ShopOrdersResource } from "./resources/shop-orders.resource.js";
 export {
   PrintersResource,
+  type PairingCode,
   type RegisterPrinterInput,
   type UpdatePrinterInput,
 } from "./resources/printers.resource.js";
