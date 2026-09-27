@@ -1,0 +1,35 @@
+// The agent's icon (tray, taskbar, Explorer) and version information.
+#include <winres.h>
+
+#include "../src/app/resource.h"
+#include "pa_version.h"
+
+IDI_AGENT ICON "agent.ico"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION PA_VERSION_MAJOR, PA_VERSION_MINOR, PA_VERSION_PATCH, 0
+  PRODUCTVERSION PA_VERSION_MAJOR, PA_VERSION_MINOR, PA_VERSION_PATCH, 0
+  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+  FILEFLAGS 0
+  FILEOS VOS_NT_WINDOWS32
+  FILETYPE VFT_APP
+  FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Print Automated"
+      VALUE "FileDescription", "Print Automated printer agent"
+      VALUE "FileVersion", PA_VERSION_STRING
+      VALUE "InternalName", "print-automated-agent"
+      VALUE "OriginalFilename", "print-automated-agent.exe"
+      VALUE "ProductName", "Print Automated"
+      VALUE "ProductVersion", PA_VERSION_STRING
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END
