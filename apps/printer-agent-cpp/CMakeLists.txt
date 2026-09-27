@@ -56,7 +56,9 @@ add_library(agent_core STATIC
   src/printing/job_tracker.cpp
   # 24.5 heartbeat and printer discovery
   src/printing/heartbeat.cpp
-  src/printing/discovery.cpp)
+  src/printing/discovery.cpp
+  # 24.8 job documents (and 24.13's temp sweep)
+  src/documents/job_document.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
@@ -77,7 +79,8 @@ add_executable(agent_tests
   tests/print_failure_test.cpp
   tests/job_tracker_test.cpp
   tests/heartbeat_test.cpp
-  tests/discovery_test.cpp)
+  tests/discovery_test.cpp
+  tests/job_document_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)
