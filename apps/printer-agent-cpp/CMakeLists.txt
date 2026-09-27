@@ -48,7 +48,9 @@ add_library(agent_core STATIC
   # 24.4 API client
   src/backend/http.cpp
   src/backend/backend_client.cpp
-  src/backend/access_tokens.cpp)
+  src/backend/access_tokens.cpp
+  # 24.11 status reporting
+  src/backend/status_reporter.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
@@ -64,7 +66,8 @@ add_executable(agent_tests
   tests/config_test.cpp
   tests/identity_test.cpp
   tests/ledger_test.cpp
-  tests/backoff_test.cpp)
+  tests/backoff_test.cpp
+  tests/status_reporter_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)
