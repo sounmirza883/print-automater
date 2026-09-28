@@ -91,6 +91,28 @@ $env:PRINT_AUTOMATED_AGENT_HOME = "C:\agent-trial"   # a whole separate state fo
 Microsoft Print to PDF as printers, and writes a job sent to one into that folder as
 `<jobId>.pdf` instead of opening a Save dialog.
 
+## Installer
+
+```powershell
+winget install JRSoftware.InnoSetup --scope user     # once: Inno Setup 6, no admin needed
+./installer/build-installer.ps1 -ApiBaseUrl https://api.example.com
+```
+
+It runs the release build and tests, stages the exe, `pdfium.dll` and the licences of
+everything linked into them, and writes
+`installer/output/print-automated-agent-setup-<version>.exe`. The installer:
+
+- installs for the current Windows user, with no UAC prompt, into
+  `%LOCALAPPDATA%\Programs\PrintAutomatedAgent`, with a Start-menu shortcut;
+- writes `config.json` with the release's API address (only if there is none yet);
+- starts the agent with Windows (the Node agent's `PrintAutomatedAgent` Run value, which it
+  replaces) and, when finished, starts it with its pairing page open;
+- asks a running agent to quit before upgrading or uninstalling (through its tray window, the
+  same as Quit);
+- on uninstall, removes the program, the autostart and the whole state folder.
+
+It is not code-signed yet, so Windows SmartScreen warns on first run.
+
 ## How it differs from the Node agent
 
 Same API contract, same ledger file, same folder. Deliberate differences:
