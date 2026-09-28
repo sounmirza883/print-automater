@@ -3,10 +3,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { useRouter } from "expo-router";
 import { tokens } from "@print-automated/design-tokens";
 import { useShopAuth } from "@/providers/shop-auth-provider";
+import { roleLabel } from "@/lib/permissions";
 
 export default function MoreScreen(): ReactNode {
   const router = useRouter();
-  const { user, logout } = useShopAuth();
+  const { user, logout, role, shopName } = useShopAuth();
   const [loggingOut, setLoggingOut] = useState(false);
 
   async function handleLogout(): Promise<void> {
@@ -25,6 +26,13 @@ export default function MoreScreen(): ReactNode {
         <View style={styles.profile}>
           <Text style={styles.name}>{user.name}</Text>
           <Text style={styles.email}>{user.email}</Text>
+        </View>
+      )}
+      {shopName !== null && (
+        <View style={styles.profile}>
+          <Text style={styles.email}>Business</Text>
+          <Text style={styles.name}>{shopName}</Text>
+          <Text style={styles.email}>Your role: {roleLabel(role)}</Text>
         </View>
       )}
       <Pressable

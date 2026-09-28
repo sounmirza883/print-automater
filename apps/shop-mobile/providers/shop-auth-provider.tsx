@@ -1,8 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ApiClient, type AuthUser } from "@print-automated/api-client";
+import {
+  ApiClient,
+  type AuthUser,
+  type Can,
+  type MyShopMembership,
+} from "@print-automated/api-client";
 import { createMobileApiClient } from "@/lib/api-client";
 import { SecureStoreTokenStorage } from "@/lib/secure-store-token-storage";
 import { API_BASE_URL } from "@/lib/env";
+import { membershipCan } from "@/lib/permissions";
 
 export interface ShopAuthContextValue {
   isLoading: boolean;
@@ -14,6 +20,11 @@ export interface ShopAuthContextValue {
    * signed-in staff member has no active membership at all. */
   shopId: string | null;
   shopName: string | null;
+  /** 23.32: the person's role at that business, and what it may do there (from the
+   * membership; display only, the API authorises every request). Allows nothing while
+   * resolving or without a membership. */
+  role: string | null;
+  can: Can;
   apiClient: ApiClient;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -33,6 +44,7 @@ export function ShopAuthProvider({ children }: { children: ReactNode }): ReactNo
   const [user, setUser] = useState<AuthUser | null>(null);
   const [shopId, setShopId] = useState<string | null>(null);
   const [shopName, setShopName] = useState<string | null>(null);
+  const [membership, setMembership] = useState<MyShopMembership | null>(null);
 
   /** Resolves "the" shop and returns how many businesses the account staffs. */
   async function resolveShop(): Promise<number> {
@@ -41,6 +53,7 @@ export function ShopAuthProvider({ children }: { children: ReactNode }): ReactNo
     // active membership is "the" shop this session operates as.
     setShopId(shops[0]?.id ?? null);
     setShopName(shops[0]?.name ?? null);
+    setMembership(shops[0] ?? null);
     return shops.length;
   }
 
@@ -99,13 +112,27 @@ export function ShopAuthProvider({ children }: { children: ReactNode }): ReactNo
     setUser(null);
     setShopId(null);
     setShopName(null);
+    setMembership(null);
     setIsAuthenticated(false);
   }
 
+  const can = useMemo(() => membershipCan(membership), [membership]);
+
   const value = useMemo<ShopAuthContextValue>(
-    () => ({ isLoading, isAuthenticated, user, shopId, shopName, apiClient, login, logout }),
+    () => ({
+      isLoading,
+      isAuthenticated,
+      user,
+      shopId,
+      shopName,
+      role: membership?.role ?? null,
+      can,
+      apiClient,
+      login,
+      logout,
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- login/logout close over apiClient/storage, not state; including them would just re-create the context value every render for no behavioral change.
-    [isLoading, isAuthenticated, user, shopId, shopName, apiClient],
+    [isLoading, isAuthenticated, user, shopId, shopName, membership, can, apiClient],
   );
 
   return <ShopAuthContext.Provider value={value}>{children}</ShopAuthContext.Provider>;
