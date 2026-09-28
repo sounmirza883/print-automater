@@ -5,6 +5,7 @@ import { HealthService } from "../health/health.service.js";
 import { AuditAction } from "../audit/audit-action.js";
 import { utcDayStart } from "../dashboard/dashboard.service.js";
 import { RequestCounterService } from "../observability/request-counter.service.js";
+import { REAL_USERS } from "./real-users.js";
 
 const DAY_MS = 86_400_000;
 const FIFTEEN_MIN_MS = 15 * 60_000;
@@ -79,8 +80,10 @@ export class AdminDashboardService {
     ] = await Promise.all([
       this.health.checkReadiness(),
       this.prisma.shop.groupBy({ by: ["status"], _count: { _all: true } }),
-      this.prisma.user.groupBy({ by: ["role"], _count: { _all: true } }),
-      this.prisma.user.groupBy({ by: ["status"], _count: { _all: true } }),
+      // 24.1: people only -- a shop's synthetic QR-order account (role
+      // SYSTEM) is neither a role bucket nor a status count here.
+      this.prisma.user.groupBy({ by: ["role"], where: REAL_USERS, _count: { _all: true } }),
+      this.prisma.user.groupBy({ by: ["status"], where: REAL_USERS, _count: { _all: true } }),
       this.prisma.order.groupBy({ by: ["orderStatus"], _count: { _all: true } }),
       this.prisma.order.count({ where: { createdAt: { gte: utcDayStart(now) } } }),
       this.prisma.printer.groupBy({ by: ["status"], _count: { _all: true } }),

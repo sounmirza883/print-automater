@@ -1,7 +1,8 @@
 /** §9 — server-side only; the client is never trusted to enforce this.
  * Mirrors services/api/prisma/schema.prisma's UserRole enum exactly --
  * the two MUST stay in sync. §46/16.1 added OPERATOR, PRINTER_MANAGER,
- * SUPPLIER additively. */
+ * SUPPLIER additively; 24.1 added SYSTEM (a shop's synthetic QR-order
+ * account -- never a person, never assignable through the admin API). */
 export const UserRole = {
   CUSTOMER: "CUSTOMER",
   SHOP_OWNER: "SHOP_OWNER",
@@ -11,6 +12,7 @@ export const UserRole = {
   OPERATOR: "OPERATOR",
   PRINTER_MANAGER: "PRINTER_MANAGER",
   SUPPLIER: "SUPPLIER",
+  SYSTEM: "SYSTEM",
 } as const;
 
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];

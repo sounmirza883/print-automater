@@ -16,6 +16,15 @@ import type {
 import { AuditAction } from "../audit/audit-action.js";
 import { HealthService, type ReadinessResult } from "../health/health.service.js";
 import { TokenService } from "../auth/token.service.js";
+import { REAL_USERS } from "./real-users.js";
+
+/** 24.1: a SYSTEM account's role and status belong to the QR-ordering
+ * machinery that created it, not to an admin -- refused, not silently kept. */
+function assertNotSystemAccount(role: UserRole): void {
+  if (role === "SYSTEM") {
+    throw new ForbiddenException("A system account's role and status cannot be changed.");
+  }
+}
 
 export interface AdminBusinessResponse {
   id: string;
@@ -223,12 +232,13 @@ export class AdminService {
     } satisfies Prisma.UserSelect;
     const [items, total] = await Promise.all([
       this.prisma.user.findMany({
+        where: REAL_USERS,
         take: query.take,
         skip: query.skip,
         orderBy: { createdAt: "desc" },
         select,
       }),
-      this.prisma.user.count(),
+      this.prisma.user.count({ where: REAL_USERS }),
     ]);
     return { items, total, limit: query.take, offset: query.skip };
   }
@@ -267,6 +277,7 @@ export class AdminService {
     if (!existing) {
       throw new NotFoundException("User not found.");
     }
+    assertNotSystemAccount(existing.role);
     if (targetUserId === actorId && role !== existing.role && existing.role === "ADMIN") {
       throw new ForbiddenException("You cannot change your own role away from admin.");
     }
@@ -298,11 +309,12 @@ export class AdminService {
   ): Promise<AdminUserResponse> {
     const existing = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, role: true },
     });
     if (!existing) {
       throw new NotFoundException("User not found.");
     }
+    assertNotSystemAccount(existing.role);
     const deactivating = status === "SUSPENDED" || status === "DELETED";
     if (targetUserId === actorId && deactivating) {
       throw new ForbiddenException("You cannot suspend or delete your own account.");
@@ -362,7 +374,7 @@ export class AdminService {
     const [readiness, shops, users, activeStaff, printers] = await Promise.all([
       this.healthService.checkReadiness(),
       this.prisma.shop.count(),
-      this.prisma.user.count(),
+      this.prisma.user.count({ where: REAL_USERS }),
       this.prisma.shopStaff.count({ where: { status: "ACTIVE" } }),
       this.prisma.printer.count(),
     ]);

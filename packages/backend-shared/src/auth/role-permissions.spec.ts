@@ -14,6 +14,10 @@ describe("ROLE_PERMISSIONS (§47/16.2)", () => {
     expect(ROLE_PERMISSIONS.SUPPLIER).toEqual([]);
   });
 
+  it("gives SYSTEM (24.1's synthetic QR-order account) no permissions at all", () => {
+    expect(ROLE_PERMISSIONS.SYSTEM).toEqual([]);
+  });
+
   it("gives SHOP_OWNER strictly more than SHOP_MANAGER (MANAGE_SETTINGS)", () => {
     const owner = new Set(ROLE_PERMISSIONS.SHOP_OWNER);
     const manager = new Set(ROLE_PERMISSIONS.SHOP_MANAGER);

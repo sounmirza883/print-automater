@@ -519,4 +519,69 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       expect(after.body.activeUsersNow).toBe(before.body.activeUsersNow + 1);
     });
   });
+
+  describe("24.1 QR guest ordering: SYSTEM-role accounts are hidden from the admin user views", () => {
+    let systemUser: { id: string };
+
+    beforeAll(async () => {
+      // The shape PublicOrdersService lazily provisions per shop: a synthetic
+      // account that exists only so a QR order's non-nullable customerId has
+      // a real User row behind it. Created last, so newest-first listing
+      // would put it on page one if it were not excluded.
+      systemUser = await prisma.user.create({
+        data: {
+          role: UserRole.SYSTEM,
+          name: "Admin E2E QR System User",
+          email: `admin-e2e-qr-system-${randomUUID()}@system.print-automated.invalid`,
+          passwordHash: "irrelevant",
+        },
+      });
+      userIds.push(systemUser.id);
+    });
+
+    it("never appears in GET /admin/users", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/v1/admin/users")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const items = res.body.items as Array<{ id: string; role: string }>;
+      expect(items.map((u) => u.id)).not.toContain(systemUser.id);
+      expect(items.every((u) => u.role !== UserRole.SYSTEM)).toBe(true);
+    });
+
+    it("is never counted in the dashboard's users aggregate", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/v1/admin/dashboard")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.users.byRole).not.toHaveProperty(UserRole.SYSTEM);
+    });
+
+    it("cannot be granted through PATCH /admin/users/:id/role (400)", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${owner.id}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.SYSTEM });
+      expect(res.status).toBe(400);
+      const reread = await prisma.user.findUnique({ where: { id: owner.id } });
+      expect(reread?.role).toBe(UserRole.SHOP_OWNER);
+    });
+
+    it("a SYSTEM account's own role and status cannot be changed (403)", async () => {
+      const roleRes = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${systemUser.id}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.ADMIN });
+      expect(roleRes.status).toBe(403);
+
+      const statusRes = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${systemUser.id}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "SUSPENDED" });
+      expect(statusRes.status).toBe(403);
+
+      const reread = await prisma.user.findUnique({ where: { id: systemUser.id } });
+      expect(reread).toMatchObject({ role: UserRole.SYSTEM, status: "ACTIVE" });
+    });
+  });
 });
