@@ -196,4 +196,14 @@ export interface AdminDashboardResponse {
   securityEvents24h: { total: number; byAction: Record<string, number> };
   /** The platform has no subscription/billing model yet; always `null`. */
   subscriptions: null;
+  /** 27.6: today's revenue per business, same gross/net definitions as the shop-scoped
+   * revenue report (ReportsService.revenue -- gross by payments' stable paidAt, net = gross
+   * minus COMPLETED refunds), highest gross first, capped at 50 businesses. */
+  revenueByShop: Array<{
+    shopId: string;
+    shopName: string;
+    currency: string;
+    grossTodayMinor: number;
+    netTodayMinor: number;
+  }>;
 }

@@ -7,6 +7,7 @@ import { PlanManagementPanel } from "@/components/dashboard/plan-management-pane
 import { useSession } from "@/components/session-provider";
 import {
   BarList,
+  DataTable,
   ForbiddenState,
   LiveStatus,
   PageHeader,
@@ -16,7 +17,7 @@ import {
   StatGrid,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
-import { formatBytes, formatCount, humanizeEnum } from "@/lib/format";
+import { formatBytes, formatCount, formatMoney, humanizeEnum } from "@/lib/format";
 import { useResource } from "@/lib/use-resource";
 
 const POLL_MS = 60_000;
@@ -165,6 +166,8 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
         </Panel>
       </div>
 
+      <RevenueByShopPanel data={data} />
+
       <Panel
         title="Business plans"
         id="plans"
@@ -177,5 +180,61 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
         <PlanManagementPanel />
       </Panel>
     </div>
+  );
+}
+
+/** 27.6: same gross/net revenue definitions as the shop-scoped revenue report, grouped by
+ * business instead of by date. One series (revenue), so the bar list takes a single accent
+ * hue throughout, not a distinct color per business -- per the dataviz skill's own rule, an
+ * identity color is spent on the SERIES, never re-derived from which bar is longest. The bar
+ * comparison only renders when every business shares one currency: bar LENGTH implies a
+ * shared unit, and mixing currencies in one visual comparison would misstate magnitude even
+ * though the table alongside it stays exact regardless. */
+function RevenueByShopPanel({ data }: { data: AdminDashboardResponse }): ReactNode {
+  const rows = data.revenueByShop;
+  const currencies = new Set(rows.map((row) => row.currency));
+  const oneCurrency = currencies.size === 1 ? [...currencies][0] : null;
+
+  return (
+    <Panel title="Revenue by business, today" id="revenue-by-shop">
+      {rows.length === 0 ? (
+        <p className="text-muted">No revenue recorded yet today.</p>
+      ) : (
+        <div className="grid gap-4">
+          {oneCurrency !== null && (
+            <BarList
+              ariaLabel={`Revenue by business today, in ${oneCurrency}`}
+              rows={rows.map((row) => ({
+                label: row.shopName,
+                value: row.netTodayMinor,
+                tone: "accent" as const,
+              }))}
+            />
+          )}
+          <DataTable
+            caption="Revenue by business today"
+            head={[
+              "Business",
+              { label: "Gross", align: "right" },
+              { label: "Net", align: "right" },
+            ]}
+          >
+            {rows.map((row) => (
+              <tr key={row.shopId}>
+                <th scope="row" className="px-4 py-2 font-medium whitespace-nowrap">
+                  {row.shopName}
+                </th>
+                <td className="num px-4 py-2 text-right whitespace-nowrap">
+                  {formatMoney(row.grossTodayMinor, row.currency)}
+                </td>
+                <td className="num px-4 py-2 text-right font-semibold whitespace-nowrap">
+                  {formatMoney(row.netTodayMinor, row.currency)}
+                </td>
+              </tr>
+            ))}
+          </DataTable>
+        </div>
+      )}
+    </Panel>
   );
 }

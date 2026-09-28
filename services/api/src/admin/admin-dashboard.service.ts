@@ -18,6 +18,14 @@ const SECURITY_ACTIONS: string[] = [
   AuditAction.SHOP_SETTINGS_CHANGED,
 ];
 
+interface ShopRevenueRow {
+  shop_id: string;
+  shop_name: string;
+  currency: string;
+  gross_today: bigint;
+  refunded_today: bigint;
+}
+
 function toRecord<K extends string>(
   rows: Array<{ key: K; count: number }>,
 ): Record<string, number> {
@@ -54,6 +62,7 @@ export class AdminDashboardService {
       failedJobs,
       failedPayments,
       security,
+      revenueByShopRows,
     ] = await Promise.all([
       this.health.checkReadiness(),
       this.prisma.shop.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -77,6 +86,41 @@ export class AdminDashboardService {
         where: { action: { in: SECURITY_ACTIONS }, createdAt: { gte: since24h } },
         _count: { _all: true },
       }),
+      // 27.6: the SAME gross/refunded/net definitions as reports.service.ts's own
+      // revenue() (gross = payments ever paid, dated by their stable paid_at; refunded =
+      // COMPLETED refunds, dated by completion) but grouped by shop instead of by date --
+      // reusing the definitions, not the shop-scoped method itself, since that method
+      // takes one userId/shop, never every business at once. A correlated subquery for
+      // refunds (rather than a second join) avoids a payments x refunds cross-product
+      // inflating either sum. Capped at 50 rows, highest gross first: a platform-wide
+      // dashboard panel, not a paginated report.
+      this.prisma.$queryRaw<ShopRevenueRow[]>`
+        SELECT
+          s.id AS shop_id,
+          s.name AS shop_name,
+          ss.currency AS currency,
+          COALESCE(SUM(p.amount_minor) FILTER (
+            WHERE p.status IN ('PAID', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
+              AND p.paid_at >= ${utcDayStart(now)}
+              AND p.currency = ss.currency
+          ), 0)::bigint AS gross_today,
+          COALESCE((
+            SELECT SUM(r.amount_minor)
+            FROM refunds r
+            JOIN orders ro ON ro.id = r.order_id
+            WHERE ro.shop_id = s.id
+              AND r.status = 'REFUNDED'
+              AND r.updated_at >= ${utcDayStart(now)}
+              AND r.currency = ss.currency
+          ), 0)::bigint AS refunded_today
+        FROM shops s
+        JOIN shop_settings ss ON ss.shop_id = s.id
+        LEFT JOIN orders o ON o.shop_id = s.id
+        LEFT JOIN payments p ON p.order_id = o.id
+        GROUP BY s.id, s.name, ss.currency
+        ORDER BY gross_today DESC
+        LIMIT 50
+      `,
     ]);
 
     const businessesByStatus = toRecord(
@@ -95,6 +139,13 @@ export class AdminDashboardService {
     const byAction = toRecord(security.map((r) => ({ key: r.action, count: r._count._all })));
     const sum = (record: Record<string, number>): number =>
       Object.values(record).reduce((a, b) => a + b, 0);
+    const revenueByShop = revenueByShopRows.map((row) => ({
+      shopId: row.shop_id,
+      shopName: row.shop_name,
+      currency: row.currency,
+      grossTodayMinor: Number(row.gross_today),
+      netTodayMinor: Number(row.gross_today) - Number(row.refunded_today),
+    }));
 
     return {
       generatedAt: now.toISOString(),
@@ -107,6 +158,7 @@ export class AdminDashboardService {
       errors: { failedJobs24h: failedJobs, failedPayments24h: failedPayments },
       securityEvents24h: { total: sum(byAction), byAction },
       subscriptions: null,
+      revenueByShop,
     };
   }
 }

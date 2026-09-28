@@ -415,6 +415,29 @@ describe("Dashboards (23.2, e2e)", () => {
       expect(typeof res.body.securityEvents24h.total).toBe("number");
     });
 
+    it("27.6: revenueByShop reflects shop B's own today's payment, isolated from shop A's", async () => {
+      const res = await http().get("/v1/admin/dashboard").set(as(adminToken));
+      expect(res.status).toBe(200);
+      const rows = res.body.revenueByShop as Array<{
+        shopId: string;
+        shopName: string;
+        currency: string;
+        grossTodayMinor: number;
+        netTodayMinor: number;
+      }>;
+      const shopBRow = rows.find((row) => row.shopId === fx.shopB.id);
+      expect(shopBRow).toBeDefined();
+      expect(shopBRow).toMatchObject({
+        currency: "PKR",
+        grossTodayMinor: 99999,
+        netTodayMinor: 99999,
+      });
+      // Sorted highest gross first.
+      for (let i = 1; i < rows.length; i += 1) {
+        expect(rows[i]!.grossTodayMinor).toBeLessThanOrEqual(rows[i - 1]!.grossTodayMinor);
+      }
+    });
+
     it("everyone else is denied: shop owner 403, customer 403, anonymous 401", async () => {
       expect((await http().get("/v1/admin/dashboard").set(as(fx.token))).status).toBe(403);
       expect(
