@@ -544,3 +544,17 @@ printer-agent-cpp:
 ```
 
 (`windows-latest` has Visual Studio 2022 with the C++ and CMake components, and Microsoft Print to PDF for the `[spooler]` tests. Caching `%LOCALAPPDATA%\vcpkg\archives` and `%LOCALAPPDATA%\PrintAutomatedBuild` keeps it to a few minutes.)
+
+## Phase 23 complete: 23.8 shop-mobile production floor, 23.31-23.35 (2026-09-28)
+
+- **23.31 (`3602e6e`)** the job wording (blocked-reason copy, late-print hold, status tones, priority labels, humanizeEnum, the one-line "load and print" instructions) moves into `@print-automated/api-client` (`job-wording.ts`) so both apps say the same thing. Where a fix lives is a neutral key (`inventory` / `printers` / `printer-status`); shop-web keeps its links in `lib/job-status.ts`.
+- **23.32 (`9a2e2dc`)** shop-mobile's auth provider keeps the membership from `/staff/me` and exposes `role` and `can()` (fail-closed, as shop-web's 23.21). Until then every role saw every action.
+- **23.33 (`bf5d0bd`, fix `dc481ff`)** Production tab (VIEW_OPERATOR_DASHBOARD only) over the operator dashboard: on a printer now, assigned to me, waiting, blocked with the reason, done today; priority, pause age, late-print hold and what to load on every job; 15 s poll, offline-aware, pull to refresh.
+- **23.34 (`1a0c559`)** the order screen, rebuilt for multi-job orders: order actions from `availableOrderActions` (adds record payment and quality check), every live job with its facts and `availableJobActions` (pause, resume with the late-print confirmation, record failure, reprint with an idempotency key per attempt, send to another printer, assign operator, resolve unknown per job). Order cards show priority and the first blocked reason. The job-less `shopOrders.resolveUnknown()` (always refused since 18.x) is removed from the api-client.
+- **23.35 (`8b2137e`)** Printers tab: "Pair a computer" (MANAGE_PRINTERS) issues the agent pairing code; register/rename/capabilities/enable/remove only for that permission; every printer status has a colour.
+
+Verified in the Expo web preview at phone width (headless Chromium) against a scratch mock API, including: resuming a late-print hold sends `acknowledgeLatePrint` only after "I checked"; a failure reason and note round-trip; an operator gets Production but no Accept/Reject, pairing or printer controls; counter staff get no Production tab.
+
+**Found, not fixed (the user's uncommitted file):** `apps/shop-mobile/lib/secure-store-token-storage.ts` now imports `react-native` for its web localStorage fallback, so `secure-store-token-storage.test.ts` fails to load under Jest's Node preset ("Cannot use import statement outside a module"). The test needs `jest.mock("react-native", () => ({ Platform: { OS: "ios" } }))` or the check moved out of the module.
+
+**Follow-ups:** tab bar icons (needs `@expo/vector-icons`); reprint extra cost and a specific printer on reprint/resume are back-office only on mobile.
