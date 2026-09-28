@@ -3,6 +3,7 @@ import {
   JobFailureReason,
   OrderStatus,
   Prisma,
+  PrinterStatus,
   PrintJobStatus,
   ShopStaffStatus,
   UserRole,
@@ -128,7 +129,26 @@ export class PrintJobsService {
         jobId,
         PrintJobEvent.SUPERSEDE,
         { id: actorId },
-        { metadata: { reason, newPrinterId }, successor: { printerId: newPrinterId } },
+        {
+          metadata: { reason, newPrinterId },
+          successor: { printerId: newPrinterId },
+          // 25.2: the target was validated before the transaction; re-check it under a
+          // FOR SHARE lock (as resume and failover do), so a printer disabled at the same
+          // moment never receives a job that its own re-evaluation has already missed.
+          guard: async (tx) => {
+            const rows = await tx.$queryRaw<Array<{ status: PrinterStatus }>>`
+              SELECT status FROM printers WHERE id = ${newPrinterId} FOR SHARE
+            `;
+            if (rows[0] === undefined || rows[0].status === PrinterStatus.DISABLED) {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "REASSIGN_TARGET_STALE",
+                "That printer was just taken out of service; choose another.",
+                true,
+              );
+            }
+          },
+        },
       );
       replacementId = result.successorJobId!;
     } catch (error) {

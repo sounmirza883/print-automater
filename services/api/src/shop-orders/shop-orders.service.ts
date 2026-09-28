@@ -13,6 +13,7 @@ import {
   OrderStatus,
   PaymentStatus,
   Prisma,
+  PrinterStatus,
   PrintJobStatus,
 } from "@prisma/client";
 import {
@@ -47,7 +48,9 @@ import {
   PrintJobStateMachine,
   PrismaService,
   ROLE_PERMISSIONS,
+  type AllocationRequest,
   type AllocationResult,
+  type PrinterCandidate,
   type SendEmailJob,
 } from "@print-automated/backend-shared";
 import { ShopScopedRepository } from "../prisma/shop-scoped-repository.js";
@@ -976,19 +979,17 @@ export class ShopOrdersService {
               paperNeedFor(draft.printConfiguration, jp),
             )
           : candidates;
+      const request: AllocationRequest = {
+        printConfiguration: draft.printConfiguration,
+        pageCount: pages,
+        pagesPerCopy: jp.pagesPerCopy,
+        allowUnknownCapabilities: requestedPrinterId !== undefined,
+        requestedPrinterId,
+        rules,
+      };
       const allocation: AllocationResult = assignmentOff
         ? { outcome: "BLOCKED", blockedReason: BlockedReason.AUTOMATION_DISABLED }
-        : allocatePrinter(
-            {
-              printConfiguration: draft.printConfiguration,
-              pageCount: pages,
-              pagesPerCopy: jp.pagesPerCopy,
-              allowUnknownCapabilities: requestedPrinterId !== undefined,
-              requestedPrinterId,
-              rules,
-            },
-            allocationCandidates,
-          );
+        : await this.allocateLocked(tx, request, allocationCandidates);
 
       if (allocation.outcome === "ALLOCATED") {
         const printer = candidates.find((c) => c.id === allocation.printerId);
@@ -1040,6 +1041,48 @@ export class ShopOrdersService {
     }
 
     return { notifyDeviceIds: [...notifyDeviceIds] };
+  }
+
+  /** 25.2 (PRD 100: "allocation must avoid assigning one job to multiple printers"):
+   * allocate, then lock the chosen printer row (FOR SHARE) and re-read its status, the same
+   * re-validation resume and the recovery sweep do. Candidates are read without locks, so
+   * without this a printer being taken out of service at the same moment could still be
+   * chosen: its disable commits and its queued jobs are moved, then this job commits QUEUED
+   * on it, stranded (found by concurrency-100.e2e, 12 accepts racing a disable). With the
+   * lock, a disable that committed first is seen here and the item is allocated again
+   * without that printer; one that comes second waits for this commit, and its re-evaluation
+   * then finds and moves this job. The printer update commits on its own and moves jobs
+   * afterwards, so it never holds the printer while waiting for an order lock: no deadlock. */
+  private async allocateLocked(
+    tx: Prisma.TransactionClient,
+    request: AllocationRequest,
+    candidates: PrinterCandidate[],
+  ): Promise<AllocationResult> {
+    // Each pass either returns or rules a printer out (or updates its status), so this ends;
+    // the bound only guards against a status that flips on every read.
+    for (let pass = 0; ; pass += 1) {
+      const allocation = allocatePrinter(request, candidates);
+      if (allocation.outcome !== "ALLOCATED" || pass > candidates.length + 1) {
+        return allocation;
+      }
+      const rows = await tx.$queryRaw<Array<{ status: PrinterStatus }>>`
+        SELECT status FROM printers WHERE id = ${allocation.printerId} FOR SHARE
+      `;
+      const current = rows[0]?.status;
+      const chosen = candidates.find((candidate) => candidate.id === allocation.printerId);
+      if (current === undefined || chosen === undefined) {
+        // Deleted meanwhile: never a candidate again in this dispatch.
+        const index = candidates.findIndex((candidate) => candidate.id === allocation.printerId);
+        if (index >= 0) candidates.splice(index, 1);
+        continue;
+      }
+      if (current === chosen.status) {
+        return allocation;
+      }
+      // Changed since it was read: allocate again with the status as it is now (the same
+      // candidate list later items in this dispatch use, so they see it too).
+      chosen.status = current;
+    }
   }
 
   /** 21.3 (§68): new production work on an order needs a (fresh) quality check
