@@ -204,6 +204,7 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       "/v1/admin/audit",
       "/v1/admin/system",
       `/v1/admin/businesses/${shopA.id}`,
+      `/v1/admin/users/${owner.id}`,
     ]) {
       const res = await request(app.getHttpServer())
         .get(path)
@@ -221,6 +222,18 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ status: ShopStatus.SUSPENDED });
     expect(statusRes.status).toBe(403);
+
+    const roleChangeRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/users/${owner.id}/role`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: UserRole.ADMIN });
+    expect(roleChangeRes.status).toBe(403);
+
+    const statusChangeRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/users/${owner.id}/status`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ status: "SUSPENDED" });
+    expect(statusChangeRes.status).toBe(403);
   });
 
   it("no token: 401 on every admin route", async () => {
@@ -230,6 +243,7 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       "/v1/admin/audit",
       "/v1/admin/system",
       `/v1/admin/businesses/${shopA.id}`,
+      `/v1/admin/users/${owner.id}`,
     ]) {
       const res = await request(app.getHttpServer()).get(path);
       expect(res.status).toBe(401);
@@ -243,5 +257,162 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       .patch(`/v1/admin/businesses/${shopA.id}/status`)
       .send({ status: ShopStatus.SUSPENDED });
     expect(statusRes.status).toBe(401);
+
+    const roleChangeRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/users/${owner.id}/role`)
+      .send({ role: UserRole.ADMIN });
+    expect(roleChangeRes.status).toBe(401);
+
+    const statusChangeRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/users/${owner.id}/status`)
+      .send({ status: "SUSPENDED" });
+    expect(statusChangeRes.status).toBe(401);
+  });
+
+  describe("Workstream B: user management (GET /admin/users/:id, PATCH role/status)", () => {
+    let target: { id: string; role: UserRole };
+
+    beforeEach(async () => {
+      target = await prisma.user.create({
+        data: {
+          role: UserRole.SHOP_MANAGER,
+          name: "Admin E2E Target User",
+          email: `admin-e2e-target-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      userIds.push(target.id);
+    });
+
+    it("ADMIN can read a user's detail", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/admin/users/${target.id}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: target.id, role: UserRole.SHOP_MANAGER });
+      expect(res.body).not.toHaveProperty("passwordHash");
+    });
+
+    it("GET /admin/users/:id 404s for an id that does not exist", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/admin/users/${randomUUID()}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it("ADMIN can change another user's role, audited", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${target.id}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.SHOP_OWNER });
+      expect(res.status).toBe(200);
+      expect(res.body.role).toBe(UserRole.SHOP_OWNER);
+
+      const reread = await prisma.user.findUnique({ where: { id: target.id } });
+      expect(reread?.role).toBe(UserRole.SHOP_OWNER);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { action: "USER_ROLE_CHANGED", resourceId: target.id },
+      });
+      expect(audit?.actorId).toBe(admin.id);
+      expect(audit?.metadata).toMatchObject({ from: "SHOP_MANAGER", to: UserRole.SHOP_OWNER });
+    });
+
+    it("ADMIN can grant another user ADMIN (no cross-role check, unlike ShopStaff)", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${target.id}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.ADMIN });
+      expect(res.status).toBe(200);
+      expect(res.body.role).toBe(UserRole.ADMIN);
+    });
+
+    it("ADMIN can suspend another user's status, audited, and their refresh tokens are revoked", async () => {
+      const pair = await tokenService.issueTokenPair(target);
+      const before = await prisma.refreshToken.findMany({ where: { userId: target.id } });
+      expect(before.length).toBeGreaterThanOrEqual(1);
+      expect(before.every((t) => t.revokedAt === null)).toBe(true);
+      expect(pair.refreshToken).toBeTruthy();
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${target.id}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "SUSPENDED" });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("SUSPENDED");
+
+      const after = await prisma.refreshToken.findMany({ where: { userId: target.id } });
+      expect(after.length).toBeGreaterThanOrEqual(1);
+      expect(after.every((t) => t.revokedAt !== null)).toBe(true);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { action: "USER_STATUS_CHANGED", resourceId: target.id },
+      });
+      expect(audit?.actorId).toBe(admin.id);
+      expect(audit?.metadata).toMatchObject({ from: "ACTIVE", to: "SUSPENDED" });
+    });
+
+    it("setting a user back to ACTIVE does not touch refresh tokens (only suspend/delete revoke)", async () => {
+      await tokenService.issueTokenPair(target);
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${target.id}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "ACTIVE" });
+      expect(res.status).toBe(200);
+      const after = await prisma.refreshToken.findMany({ where: { userId: target.id } });
+      expect(after.every((t) => t.revokedAt === null)).toBe(true);
+    });
+
+    it("PATCH role/status 404 for an id that does not exist", async () => {
+      const roleRes = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${randomUUID()}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.SHOP_OWNER });
+      expect(roleRes.status).toBe(404);
+
+      const statusRes = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${randomUUID()}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "SUSPENDED" });
+      expect(statusRes.status).toBe(404);
+    });
+
+    it("self-lockout: an ADMIN cannot demote themselves out of ADMIN", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${admin.id}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.SHOP_OWNER });
+      expect(res.status).toBe(403);
+
+      const reread = await prisma.user.findUnique({ where: { id: admin.id } });
+      expect(reread?.role).toBe(UserRole.ADMIN);
+    });
+
+    it("self-lockout: an ADMIN re-affirming their own ADMIN role is allowed (no-op, not a demotion)", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${admin.id}/role`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ role: UserRole.ADMIN });
+      expect(res.status).toBe(200);
+    });
+
+    it("self-lockout: an ADMIN cannot suspend their own account", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${admin.id}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "SUSPENDED" });
+      expect(res.status).toBe(403);
+
+      const reread = await prisma.user.findUnique({ where: { id: admin.id } });
+      expect(reread?.status).toBe("ACTIVE");
+    });
+
+    it("self-lockout: an ADMIN cannot delete their own account", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/admin/users/${admin.id}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: "DELETED" });
+      expect(res.status).toBe(403);
+    });
   });
 });

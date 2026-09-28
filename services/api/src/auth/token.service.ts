@@ -113,6 +113,17 @@ export class TokenService {
     });
   }
 
+  /** Workstream B (admin panel user management): revokes every currently-
+   * unrevoked refresh token for a user, across every rotation family --
+   * broader than `revokeFamily` (one family). Used when an admin suspends
+   * or deletes a user, so an already-issued token can't keep working. */
+  async revokeAllForUser(userId: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   private async createRefreshToken(userId: string, familyId: string): Promise<string> {
     const jti = randomUUID();
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);

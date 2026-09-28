@@ -1,5 +1,12 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { type AuditLog, type Prisma, type Shop, type User } from "@prisma/client";
+import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  type AuditLog,
+  type Prisma,
+  type Shop,
+  type User,
+  type UserRole,
+  type UserStatus,
+} from "@prisma/client";
 import { AuditService, PrismaService } from "@print-automated/backend-shared";
 import type {
   AdminListQueryInput,
@@ -8,6 +15,7 @@ import type {
 } from "@print-automated/validation";
 import { AuditAction } from "../audit/audit-action.js";
 import { HealthService, type ReadinessResult } from "../health/health.service.js";
+import { TokenService } from "../auth/token.service.js";
 
 export interface AdminBusinessResponse {
   id: string;
@@ -76,6 +84,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly healthService: HealthService,
     private readonly audit: AuditService,
+    private readonly tokenService: TokenService,
   ) {}
 
   async listBusinesses(
@@ -222,6 +231,98 @@ export class AdminService {
       this.prisma.user.count(),
     ]);
     return { items, total, limit: query.take, offset: query.skip };
+  }
+
+  /** Workstream B: one user's detail -- the same shape `listUsers` already
+   * returns per row (no password hash), just addressable by id. */
+  async getUser(id: string): Promise<AdminUserResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+    });
+    if (!user) {
+      throw new NotFoundException("User not found.");
+    }
+    return user;
+  }
+
+  /** Workstream B: an admin changing a user's platform-wide role.
+   * Self-lockout guard: an admin may not demote themselves out of ADMIN --
+   * doing so through this very route would leave them unable to undo it,
+   * since every route here is gated `@Roles(ADMIN)`. Changing someone
+   * else's role, in either direction (including granting ADMIN), is
+   * always allowed -- every caller is already ADMIN, the platform's top
+   * role, so there is no cross-role "may I grant this" check to make
+   * (unlike ShopStaffService.assertMayGrant, which exists because a
+   * shop's own roles are ranked against each other). */
+  async updateUserRole(
+    actorId: string,
+    targetUserId: string,
+    role: UserRole,
+  ): Promise<AdminUserResponse> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, role: true },
+    });
+    if (!existing) {
+      throw new NotFoundException("User not found.");
+    }
+    if (targetUserId === actorId && role !== existing.role && existing.role === "ADMIN") {
+      throw new ForbiddenException("You cannot change your own role away from admin.");
+    }
+    const user = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { role },
+      select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+    });
+    await this.audit.record({
+      actorId,
+      action: AuditAction.USER_ROLE_CHANGED,
+      resourceType: "user",
+      resourceId: user.id,
+      metadata: { from: existing.role, to: role },
+    });
+    return user;
+  }
+
+  /** Workstream B: an admin forcing a user's account status (suspend/
+   * delete/reactivate). Self-lockout guard mirrors `updateUserRole`: an
+   * admin may not deactivate their own account. Suspending or deleting
+   * also revokes every currently-unrevoked refresh token the user holds
+   * (TokenService.revokeAllForUser), so an already-issued token can't
+   * keep working after the account is meant to be locked out. */
+  async updateUserStatus(
+    actorId: string,
+    targetUserId: string,
+    status: UserStatus,
+  ): Promise<AdminUserResponse> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
+      throw new NotFoundException("User not found.");
+    }
+    const deactivating = status === "SUSPENDED" || status === "DELETED";
+    if (targetUserId === actorId && deactivating) {
+      throw new ForbiddenException("You cannot suspend or delete your own account.");
+    }
+    const user = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { status },
+      select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+    });
+    if (deactivating) {
+      await this.tokenService.revokeAllForUser(targetUserId);
+    }
+    await this.audit.record({
+      actorId,
+      action: AuditAction.USER_STATUS_CHANGED,
+      resourceType: "user",
+      resourceId: user.id,
+      metadata: { from: existing.status, to: status },
+    });
+    return user;
   }
 
   /** §45/16.6: the first read access this codebase has ever had onto

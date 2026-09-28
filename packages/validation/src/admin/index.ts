@@ -9,3 +9,5 @@ export {
   updateBusinessStatusSchema,
   type UpdateBusinessStatusInput,
 } from "./update-business-status.schema.js";
+export { updateUserRoleSchema, type UpdateUserRoleInput } from "./update-user-role.schema.js";
+export { updateUserStatusSchema, type UpdateUserStatusInput } from "./update-user-status.schema.js";

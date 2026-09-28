@@ -9,6 +9,8 @@ import { AdminListQueryDto } from "./dto/admin-list-query.dto.js";
 import { AdminAuditQueryDto } from "./dto/admin-audit-query.dto.js";
 import { CreateBusinessDto } from "./dto/create-business.dto.js";
 import { UpdateBusinessStatusDto } from "./dto/update-business-status.dto.js";
+import { UpdateUserRoleDto } from "./dto/update-user-role.dto.js";
+import { UpdateUserStatusDto } from "./dto/update-user-status.dto.js";
 import {
   AdminService,
   type AdminBusinessResponse,
@@ -72,6 +74,32 @@ export class AdminController {
   @Get("users")
   listUsers(@Query() query: AdminListQueryDto): Promise<AdminListResult<AdminUserResponse>> {
     return this.adminService.listUsers(query);
+  }
+
+  /** Workstream B/23.7-cont'd: one user's detail, addressable by id. */
+  @Get("users/:id")
+  getUser(@Param("id") id: string): Promise<AdminUserResponse> {
+    return this.adminService.getUser(id);
+  }
+
+  /** Workstream B: an admin changing a user's platform-wide role. */
+  @Patch("users/:id/role")
+  updateUserRole(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateUserRoleDto,
+  ): Promise<AdminUserResponse> {
+    return this.adminService.updateUserRole(req.user!.id, id, dto.role);
+  }
+
+  /** Workstream B: an admin forcing a user's account status. */
+  @Patch("users/:id/status")
+  updateUserStatus(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateUserStatusDto,
+  ): Promise<AdminUserResponse> {
+    return this.adminService.updateUserStatus(req.user!.id, id, dto.status);
   }
 
   @Get("audit")

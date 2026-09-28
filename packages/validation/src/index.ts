@@ -95,6 +95,10 @@ export {
   type CreateBusinessInput,
   updateBusinessStatusSchema,
   type UpdateBusinessStatusInput,
+  updateUserRoleSchema,
+  type UpdateUserRoleInput,
+  updateUserStatusSchema,
+  type UpdateUserStatusInput,
 } from "./admin/index.js";
 export {
   createCustomerSchema,

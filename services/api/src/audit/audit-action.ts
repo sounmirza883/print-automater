@@ -80,6 +80,11 @@ export const AuditAction = {
   // business, or changing its status, outside that business's own staff.
   SHOP_CREATED: "SHOP_CREATED",
   SHOP_STATUS_CHANGED: "SHOP_STATUS_CHANGED",
+  // Workstream B (admin panel user management): an admin changing a
+  // user's platform-wide role or status (distinct from SHOP_STAFF_ROLE_CHANGED,
+  // which is per-shop and self-service).
+  USER_ROLE_CHANGED: "USER_ROLE_CHANGED",
+  USER_STATUS_CHANGED: "USER_STATUS_CHANGED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

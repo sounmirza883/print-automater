@@ -16,6 +16,10 @@ const SECURITY_ACTIONS: string[] = [
   AuditAction.PAIRING_CODE_ISSUED,
   AuditAction.PAIRING_CODE_REDEEMED,
   AuditAction.SHOP_SETTINGS_CHANGED,
+  // Workstream B: an admin changing a user's platform-wide role/status is
+  // exactly the kind of event this panel watches for.
+  AuditAction.USER_ROLE_CHANGED,
+  AuditAction.USER_STATUS_CHANGED,
 ];
 
 function toRecord<K extends string>(
