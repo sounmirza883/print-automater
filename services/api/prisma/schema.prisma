@@ -165,6 +165,7 @@ model Shop {
   purchaseOrders     PurchaseOrder[]
   settings           ShopSettings?
   printerRules       PrinterAutomationRule[]
+  plan               ShopPlan?
 
   @@map("shops")
 }
@@ -1502,6 +1503,29 @@ model ShopSettings {
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("shop_settings")
+}
+
+// 26.1: one row per shop, mirroring ShopSettings's pattern -- a trigger on `shops`
+// creates it for every shop, so readers never see "no row" and a row lock (FOR
+// SHARE) on it is a real barrier against a concurrent activate/renew write. A shop
+// is active when `expiresAt` is non-null and in the future; `expiresAt = null`
+// (every shop's starting state -- this platform has no self-service business
+// signup, so a shop only exists because an admin created it, and its plan is a
+// deliberate second step, never an automatic trial) means never activated, which
+// reads the same as expired. `activatedByUserId` is a bare id like
+// `ShopStaffInvite.invitedBy` / `AuditLog.actorId` -- no FK, so an admin account
+// being removed later never blocks reading plan history.
+model ShopPlan {
+  shopId           String    @id @map("shop_id")
+  expiresAt        DateTime? @map("expires_at")
+  activatedAt      DateTime? @map("activated_at")
+  activatedByUserId String?  @map("activated_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("shop_plans")
 }
 
 enum PrinterRuleAction {
