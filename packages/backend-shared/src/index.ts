@@ -8,6 +8,13 @@ export {
   type RedisWithRateLimit,
 } from "./redis/sliding-window-rate-limit.command.js";
 
+export {
+  DashboardEventsService,
+  type DashboardEvent,
+  type DashboardEventKind,
+} from "./dashboard-events/dashboard-events.service.js";
+export { DashboardEventsModule } from "./dashboard-events/dashboard-events.module.js";
+
 export { agentJobSignalKey, signalAgentDevice } from "./redis/agent-job-signal.js";
 
 export { S3_CLIENT, STORAGE_BUCKET } from "./storage/storage.tokens.js";

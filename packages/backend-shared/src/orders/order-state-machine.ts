@@ -11,6 +11,7 @@ import { QualityCheckStatus } from "@print-automated/types";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
+import { DashboardEventsService } from "../dashboard-events/dashboard-events.service.js";
 import { buildNotificationContent } from "../notifications/notification-content.js";
 import { QUEUE_NAMES } from "../queues/queue-names.js";
 import type { SendEmailJob } from "../queues/send-email.job.js";
@@ -241,6 +242,7 @@ export class OrderStateMachine {
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS)
     private readonly notificationsQueue: Queue<SendEmailJob>,
+    private readonly dashboardEvents: DashboardEventsService,
   ) {}
 
   async transition(
@@ -280,6 +282,15 @@ export class OrderStateMachine {
     if (pendingEmail) {
       await this.notificationsQueue.add("send-email", pendingEmail);
     }
+
+    // 27.1: same "only after it committed" reasoning as the email enqueue above. A cheap
+    // extra point read (primary key, already indexed) rather than threading shopId back out
+    // of applyLocked -- this is a fire-and-forget ping, not on any hot path that matters.
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { shopId: true },
+    });
+    if (order) this.dashboardEvents.publish({ shopId: order.shopId, kind: "order" });
 
     return next;
   }

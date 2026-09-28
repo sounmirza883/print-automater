@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, type MessageEvent } from "@nestjs/common";
+import { Observable } from "rxjs";
 import { OrderStatus, Prisma, PrintJobStatus } from "@prisma/client";
 import type {
   DashboardJob,
@@ -8,7 +9,12 @@ import type {
   OwnerDashboardResponse,
   PrinterDashboardResponse,
 } from "@print-automated/types";
-import { jobPages, periodStart, PrismaService } from "@print-automated/backend-shared";
+import {
+  DashboardEventsService,
+  jobPages,
+  periodStart,
+  PrismaService,
+} from "@print-automated/backend-shared";
 import type {
   OperatorDashboardQueryInput,
   OwnerDashboardQueryInput,
@@ -89,12 +95,31 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shopMembership: ShopMembershipService,
+    private readonly dashboardEvents: DashboardEventsService,
   ) {}
 
   private async assertMember(shopId: string, userId: string): Promise<void> {
     if (!(await this.shopMembership.isActiveStaff(shopId, userId))) {
       throw new ForbiddenException("You do not have access to this shop's dashboard.");
     }
+  }
+
+  /** 27.2: a ping-only SSE stream -- `{ kind }`, never a payload, so no aggregation logic is
+   * duplicated over the wire. The browser's own EventSource calls this once and keeps the
+   * connection open; on each event the frontend re-fetches whichever REST aggregate endpoint
+   * it would have polled anyway (owner/printers/operator), via useResource's reload(). Real
+   * membership check here (not just `@ShopScopedField`'s effective-role fallback) since nothing
+   * downstream re-checks shopId the way a REST handler's own service call does. */
+  async live(userId: string, shopId: string): Promise<Observable<MessageEvent>> {
+    await this.assertMember(shopId, userId);
+    return new Observable<MessageEvent>((subscriber) => {
+      const unsubscribe = this.dashboardEvents.subscribe((event) => {
+        if (event.shopId === shopId) {
+          subscriber.next({ data: { kind: event.kind } });
+        }
+      });
+      return unsubscribe;
+    });
   }
 
   /** Orders by raw status, restricted to the statuses a shop can see. */

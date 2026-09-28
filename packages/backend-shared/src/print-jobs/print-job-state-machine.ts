@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { redactMetadata } from "../audit/redact-metadata.js";
 import { AppException } from "../errors/app-exception.js";
 import { OrderEvent, OrderStateMachine } from "../orders/order-state-machine.js";
+import { DashboardEventsService } from "../dashboard-events/dashboard-events.service.js";
 import { periodStart } from "../printers/page-limit-period.js";
 import { jobPages, type JobConfig } from "./job-pages.js";
 import { logJobPagesFallback } from "./job-pages-log.js";
@@ -295,6 +296,7 @@ export class PrintJobStateMachine {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orderStateMachine: OrderStateMachine,
+    private readonly dashboardEvents: DashboardEventsService,
   ) {}
 
   async transition(
@@ -740,6 +742,18 @@ export class PrintJobStateMachine {
     // of it): enqueue the customer notification the order transition
     // produced, if any.
     await this.orderStateMachine.enqueuePendingEmail(pendingEmail);
+
+    // 27.1: one ping covers the whole batch -- transitionMany()'s jobs all belong to the same
+    // order (enforced above), hence the same shop. A cheap extra point read rather than
+    // threading shopId out of the locked rows above.
+    if (results.length > 0) {
+      const job = await this.prisma.printJob.findUnique({
+        where: { id: results[0]!.jobId },
+        select: { shopId: true },
+      });
+      if (job) this.dashboardEvents.publish({ shopId: job.shopId, kind: "job" });
+    }
+
     return results;
   }
 }

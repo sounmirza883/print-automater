@@ -9,6 +9,7 @@ import {
   OrderStateMachineModule,
   PrintJobStateMachineModule,
   DocumentDeletionModule,
+  DashboardEventsModule,
 } from "@print-automated/backend-shared";
 import { AppConfigModule, apiEnv } from "./config/config.module.js";
 import { QueuesModule } from "./queues/queues.module.js";
@@ -73,6 +74,7 @@ import { ShopPlanModule } from "./shop-plan/shop-plan.module.js";
     OrderStateMachineModule,
     PrintJobStateMachineModule,
     DocumentDeletionModule,
+    DashboardEventsModule,
     HealthModule,
     AuthModule,
     DocumentsModule,

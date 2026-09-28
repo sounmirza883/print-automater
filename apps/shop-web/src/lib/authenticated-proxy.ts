@@ -78,6 +78,18 @@ export async function proxyToBackend(
   if (backendResponse.status === 204) {
     return new NextResponse(null, { status: 204, headers: relayed });
   }
+  // 27.2: an SSE stream (services/api's `Sse("live")`) never "completes" the way an ordinary
+  // response does, so buffering it with .arrayBuffer() below would make the browser's
+  // EventSource wait for the connection to CLOSE before seeing anything -- the opposite of what
+  // it's for. Passed through as a ReadableStream instead, chunk by chunk, exactly like every
+  // other response is passed through byte for byte; ordinary JSON responses are unaffected
+  // (still buffered), since streaming them would only add complexity for no benefit.
+  if (backendResponse.headers.get("content-type")?.startsWith("text/event-stream")) {
+    return new NextResponse(backendResponse.body, {
+      status: backendResponse.status,
+      headers: relayed,
+    });
+  }
   return new NextResponse(await backendResponse.arrayBuffer(), {
     status: backendResponse.status,
     headers: relayed,

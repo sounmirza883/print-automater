@@ -157,6 +157,40 @@ describe("proxyToBackend", () => {
     expect(response.status).toBe(204);
   });
 
+  it("streams an SSE response through instead of buffering it (27.2)", async () => {
+    cookieJar.set("shop_access_token", "tok");
+    const encoder = new TextEncoder();
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"kind":"order"}\n\n'));
+        controller.enqueue(encoder.encode('data: {"kind":"job"}\n\n'));
+        controller.close();
+      },
+    });
+    fetchMock.mockResolvedValue(
+      new Response(upstream, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+
+    const response = await proxyToBackend(request("GET", "/api/v1/shop/dashboard/live?shopId=s1"), [
+      "shop",
+      "dashboard",
+      "live",
+    ]);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value);
+    }
+    expect(received).toContain('"kind":"order"');
+    expect(received).toContain('"kind":"job"');
+  });
+
   it("turns an unreachable API into a 502 the UI can describe", async () => {
     cookieJar.set("shop_access_token", "tok");
     fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));

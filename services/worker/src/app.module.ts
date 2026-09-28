@@ -14,6 +14,7 @@ import {
   EmailModule,
   type EmailModuleOptions,
   REDIS_CLIENT,
+  DashboardEventsModule,
 } from "@print-automated/backend-shared";
 import { WorkerConfigModule, workerEnv } from "./config/config.module.js";
 import { DocumentProcessingModule } from "./document-processing/document-processing.module.js";
@@ -92,6 +93,7 @@ function buildEmailOptions(): EmailModuleOptions {
     OrderStateMachineModule,
     PrintJobStateMachineModule,
     DocumentDeletionModule,
+    DashboardEventsModule,
     EmailModule.forRoot(buildEmailOptions()),
     BullModule.forRootAsync({
       inject: [REDIS_CLIENT],

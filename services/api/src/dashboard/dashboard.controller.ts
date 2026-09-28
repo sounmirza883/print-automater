@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query, Req, Sse, UseGuards, type MessageEvent } from "@nestjs/common";
+import type { Observable } from "rxjs";
 import { UserRole } from "@prisma/client";
 import {
   Permission,
@@ -63,5 +64,17 @@ export class DashboardController {
     @Query() query: ShopDashboardQueryDto,
   ): Promise<PrinterDashboardResponse> {
     return this.dashboard.printers(req.user!.id, query);
+  }
+
+  /** 27.2: no `@RequirePermission()` -- every role on this controller may subscribe, since a
+   * ping carries no data of its own (see DashboardService.live's own comment); it only tells an
+   * already-permitted REST fetch to happen sooner than its next poll would. */
+  @Sse("live")
+  @ShopScopedField("query", "shopId")
+  live(
+    @Req() req: RequestWithUser,
+    @Query() query: ShopDashboardQueryDto,
+  ): Promise<Observable<MessageEvent>> {
+    return this.dashboard.live(req.user!.id, query.shopId);
   }
 }
