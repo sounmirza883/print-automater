@@ -69,6 +69,12 @@ export {
   NotificationsResource,
   type NotificationFilter,
 } from "./resources/notifications.resource.js";
+export {
+  AdminResource,
+  type AdminBusiness,
+  type AdminBusinessDetail,
+  type CreateBusinessInput,
+} from "./resources/admin.resource.js";
 export type {
   Page,
   AuthTokens,
