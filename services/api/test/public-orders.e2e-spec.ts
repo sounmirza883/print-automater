@@ -8,6 +8,7 @@ import { PrismaService, REDIS_CLIENT } from "@print-automated/backend-shared";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
+import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { AuditAction } from "../src/audit/audit-action.js";
@@ -35,11 +36,14 @@ describe("Public QR ordering (24.1, e2e)", () => {
   let app: NestExpressApplication;
   let prisma: PrismaService;
   let redis: Redis;
+  let tokenService: TokenService;
 
   let openShop: { id: string };
   let otherOpenShop: { id: string };
   let closedShop: { id: string };
   const shopIds: string[] = [];
+  /** Staff/customer accounts some tests add (SYSTEM users are found via the shops). */
+  const extraUserIds: string[] = [];
 
   async function clearPublicRateLimits(): Promise<void> {
     const keys = await redis.keys("ratelimit:PublicOrdersController:*");
@@ -111,6 +115,7 @@ describe("Public QR ordering (24.1, e2e)", () => {
 
     prisma = app.get(PrismaService);
     redis = app.get<Redis>(REDIS_CLIENT);
+    tokenService = app.get(TokenService);
     // Every request in this suite comes from the same test-runner IP, and
     // the hour-long windows do not self-clear between runs.
     await clearPublicRateLimits();
@@ -132,14 +137,24 @@ describe("Public QR ordering (24.1, e2e)", () => {
       select: { id: true },
     });
     const orderIds = orders.map((o) => o.id);
+    const payments = await prisma.payment.findMany({
+      where: { orderId: { in: orderIds } },
+      select: { id: true },
+    });
+    const paymentIds = payments.map((p) => p.id);
+    await prisma.paymentEvent.deleteMany({ where: { paymentId: { in: paymentIds } } });
+    await prisma.auditLog.deleteMany({ where: { resourceId: { in: paymentIds } } });
+    await prisma.payment.deleteMany({ where: { id: { in: paymentIds } } });
     await prisma.notification.deleteMany({ where: { orderId: { in: orderIds } } });
     await prisma.auditLog.deleteMany({ where: { resourceId: { in: orderIds } } });
     await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
-    await prisma.document.deleteMany({ where: { ownerUserId: { in: systemUserIds } } });
+    const ownerIds = [...systemUserIds, ...extraUserIds];
+    await prisma.document.deleteMany({ where: { ownerUserId: { in: ownerIds } } });
     await prisma.customer.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.pricingRule.deleteMany({ where: { shopId: { in: shopIds } } });
+    await prisma.shopStaff.deleteMany({ where: { userId: { in: extraUserIds } } });
     await prisma.shop.deleteMany({ where: { id: { in: shopIds } } });
-    await prisma.user.deleteMany({ where: { id: { in: systemUserIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: ownerIds } } });
     await app.close();
   });
 
@@ -327,6 +342,146 @@ describe("Public QR ordering (24.1, e2e)", () => {
     expect(orderRes.status).toBe(409);
     expect(orderRes.body.error_code).toBe("DOCUMENT_NOT_READY");
     expect(await prisma.customer.count({ where: { shopId: openShop.id } })).toBe(customersBefore);
+  });
+
+  describe("shop staff can see a QR order straight away (no payment step exists before they act)", () => {
+    let shop: { id: string };
+    let managerToken: string;
+    let qrOrderId: string;
+    let webOrderId: string;
+
+    beforeAll(async () => {
+      shop = await createShop(ShopStatus.OPEN, "Visibility");
+
+      const manager = await prisma.user.create({
+        data: {
+          role: UserRole.SHOP_MANAGER,
+          name: "Public Orders E2E Manager",
+          email: `public-orders-e2e-manager-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      extraUserIds.push(manager.id);
+      await prisma.shopStaff.create({
+        data: { shopId: shop.id, userId: manager.id, role: UserRole.SHOP_MANAGER },
+      });
+      managerToken = tokenService.issueAccessToken(manager);
+
+      // A QR order, exactly as a guest places one: no payment call follows.
+      const qrDocumentId = await uploadReadyDocument(shop.id);
+      const qrRes = await request(app.getHttpServer())
+        .post(`/v1/public/shops/${shop.id}/orders`)
+        .send({
+          name: "Visible QR Guest",
+          phone: "03001234567",
+          documentId: qrDocumentId,
+          printConfiguration: CONFIG,
+        });
+      expect(qrRes.status).toBe(201);
+      expect(qrRes.body.orderStatus).toBe("UPLOADED");
+      qrOrderId = qrRes.body.id;
+
+      // The control: a self-service customer-web order to the SAME shop, also
+      // resting in UPLOADED (mid-checkout). It must stay hidden, as before.
+      const customer = await prisma.user.create({
+        data: {
+          role: UserRole.CUSTOMER,
+          name: "Public Orders E2E Web Customer",
+          email: `public-orders-e2e-web-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      extraUserIds.push(customer.id);
+      const webDocumentId = randomUUID();
+      await prisma.document.create({
+        data: {
+          id: webDocumentId,
+          ownerUserId: customer.id,
+          storageKey: `documents/${webDocumentId}`,
+          filename: "web-order.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          status: DocumentStatus.READY,
+          pageCount: 3,
+        },
+      });
+      const webRes = await request(app.getHttpServer())
+        .post("/v1/orders")
+        .set("Authorization", `Bearer ${tokenService.issueAccessToken(customer)}`)
+        .send({ shopId: shop.id, documentId: webDocumentId, printConfiguration: CONFIG });
+      expect(webRes.status).toBe(201);
+      expect(webRes.body).toMatchObject({
+        orderStatus: "UPLOADED",
+        creationSource: "CUSTOMER_WEB",
+      });
+      webOrderId = webRes.body.id;
+    });
+
+    function ids(items: Array<{ id: string }>): string[] {
+      return items.map((order) => order.id);
+    }
+
+    it("the grouped list shows the QR order under needsAttention, marked QR; the UPLOADED web order nowhere", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/shop/orders?shopId=${shop.id}`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(res.status).toBe(200);
+      const needsAttention = res.body.needsAttention as Array<{
+        id: string;
+        creationSource: string;
+        customerName: string;
+      }>;
+      const qr = needsAttention.find((order) => order.id === qrOrderId);
+      expect(qr).toMatchObject({ creationSource: "QR", customerName: "Visible QR Guest" });
+      for (const group of ["needsAttention", "printing", "ready", "completed", "failed"]) {
+        expect(ids(res.body[group])).not.toContain(webOrderId);
+      }
+    });
+
+    it("the paged forms agree: group=needsAttention, the flat page and search all include it (and never the web order)", async () => {
+      for (const path of [
+        `/v1/shop/orders?shopId=${shop.id}&group=needsAttention&limit=50`,
+        `/v1/shop/orders?shopId=${shop.id}&limit=50`,
+        `/v1/shop/orders/search?shopId=${shop.id}`,
+        `/v1/shop/orders/search?shopId=${shop.id}&q=Visible%20QR`,
+        `/v1/shop/orders/search?shopId=${shop.id}&status=UPLOADED`,
+      ]) {
+        const res = await request(app.getHttpServer())
+          .get(path)
+          .set("Authorization", `Bearer ${managerToken}`);
+        expect(res.status).toBe(200);
+        expect(ids(res.body.items)).toContain(qrOrderId);
+        expect(ids(res.body.items)).not.toContain(webOrderId);
+      }
+
+      const printing = await request(app.getHttpServer())
+        .get(`/v1/shop/orders?shopId=${shop.id}&group=printing&limit=50`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(ids(printing.body.items)).not.toContain(qrOrderId);
+    });
+
+    it("the owner dashboard counts it in needsAttention, as the list does", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/v1/shop/dashboard/owner?shopId=${shop.id}`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.orders.current.needsAttention).toBe(1);
+      expect(res.body.orders.byGroup.needsAttention).toBe(1);
+      expect(res.body.orders.byStatus).toEqual({ UPLOADED: 1 });
+    });
+
+    it("staff take payment through the existing record-payment action, and it stays in needsAttention (now WAITING_FOR_SHOP)", async () => {
+      const pay = await request(app.getHttpServer())
+        .post(`/v1/shop/orders/${qrOrderId}/record-payment`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(pay.status).toBe(200);
+      expect(pay.body.orderStatus).toBe("WAITING_FOR_SHOP");
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/shop/orders?shopId=${shop.id}&group=needsAttention&limit=50`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(ids(res.body.items)).toContain(qrOrderId);
+    });
   });
 
   describe("rate limiting (keyed by IP+shop AND by IP)", () => {

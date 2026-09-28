@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
-import { OrderStatus, Prisma, PrintJobStatus } from "@prisma/client";
+import { OrderCreationSource, OrderStatus, Prisma, PrintJobStatus } from "@prisma/client";
 import type {
   DashboardJob,
   DashboardOrderGroups,
@@ -17,7 +17,12 @@ import type {
 import { JOB_PAGES_JOINS, JOB_TOTAL_PAGES } from "../analytics/job-pages-sql.js";
 import { pickCurrency } from "../common/money.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
-import { GROUP_BY_STATUS, SHOP_VISIBLE_STATUSES } from "../shop-orders/shop-orders.service.js";
+import {
+  GROUP_BY_STATUS,
+  SHOP_VISIBLE_STATUSES,
+  groupForOrder,
+  shopVisibleWhere,
+} from "../shop-orders/shop-orders.service.js";
 
 const DAY_MS = 86_400_000;
 /** The offline sweep's own threshold (services/worker printer-offline-sweep). */
@@ -97,7 +102,8 @@ export class DashboardService {
     }
   }
 
-  /** Orders by raw status, restricted to the statuses a shop can see. */
+  /** Orders by raw status, restricted to the orders a shop can see -- which (24.1)
+   * includes QR orders awaiting payment, so an UPLOADED count here is QR orders only. */
   private async statusCounts(
     shopId: string,
     range?: { from: Date; to: Date },
@@ -106,7 +112,7 @@ export class DashboardService {
       by: ["orderStatus"],
       where: {
         shopId,
-        orderStatus: { in: SHOP_VISIBLE_STATUSES },
+        ...shopVisibleWhere(),
         ...(range ? { createdAt: { gte: range.from, lte: range.to } } : {}),
       },
       _count: { _all: true },
@@ -141,7 +147,13 @@ export class DashboardService {
   private toGroups(byStatus: Record<string, number>, stranded: number): DashboardOrderGroups {
     const groups = emptyGroups();
     for (const [status, count] of Object.entries(byStatus)) {
-      const group = GROUP_BY_STATUS[status as OrderStatus];
+      // statusCounts admits UPLOADED only for QR orders awaiting payment, which the
+      // orders list shows in needsAttention (shop-orders groupForOrder, 24.1).
+      const group = groupForOrder(
+        status as OrderStatus,
+        [],
+        status === OrderStatus.UPLOADED ? OrderCreationSource.QR : OrderCreationSource.CUSTOMER_WEB,
+      );
       if (group && group !== "hidden") {
         groups[group] += count;
       }
@@ -185,7 +197,7 @@ export class DashboardService {
       this.prisma.order.count({
         where: {
           shopId,
-          orderStatus: { in: SHOP_VISIBLE_STATUSES },
+          ...shopVisibleWhere(),
           createdAt: { gte: todayStart },
         },
       }),

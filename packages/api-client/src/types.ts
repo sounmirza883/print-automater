@@ -105,6 +105,10 @@ export interface ShopOrderResponse {
   pricingSnapshot?: { quote?: { totalMinor: number; currency: string } };
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
+  /** 24.1: how the order was placed (always sent; optional so older fixtures still
+   * typecheck). A "QR" order in UPLOADED is in needsAttention awaiting payment at the
+   * counter (record-payment). */
+  creationSource?: "CUSTOMER_WEB" | "COUNTER" | "QR";
   createdAt: string;
   printerName: string | null;
   /** The live (non-superseded) print jobs, newest first. */
