@@ -9,7 +9,12 @@ export {
   type RecoveryInput,
 } from "./auth/index.js";
 export { createDocumentSchema, type CreateDocumentInput } from "./documents/index.js";
-export { listShopsQuerySchema, type ListShopsQueryInput } from "./shops/index.js";
+export {
+  listShopsQuerySchema,
+  type ListShopsQueryInput,
+  registerShopSchema,
+  type RegisterShopInput,
+} from "./shops/index.js";
 export {
   printConfigurationSchema,
   type PrintConfigurationInput,
