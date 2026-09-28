@@ -179,6 +179,15 @@ export interface PrinterDashboardResponse {
   };
 }
 
+/** One row of the admin dashboard's "recent orders" panel. */
+export interface AdminDashboardRecentOrder {
+  id: string;
+  publicOrderNumber: string;
+  shopName: string;
+  status: string;
+  createdAt: string;
+}
+
 /** `GET /v1/admin/dashboard` (ADMIN role only). Platform-wide. */
 export interface AdminDashboardResponse {
   generatedAt: string;
@@ -196,4 +205,23 @@ export interface AdminDashboardResponse {
   securityEvents24h: { total: number; byAction: Record<string, number> };
   /** The platform has no subscription/billing model yet; always `null`. */
   subscriptions: null;
+  /** 23.7 (Workstream C): the last ~20 orders across the whole platform,
+   * newest first. */
+  recentOrders: AdminDashboardRecentOrder[];
+  /** 23.7: count of distinct users with an `AuditAction.LOGIN` row in the
+   * last 15 minutes. Reuses the existing audit log -- no session store. */
+  activeUsersNow: number;
+  /** 23.7: this API instance's own in-memory request counter (see
+   * `RequestCounterService`). Per-process, not aggregated across
+   * instances, and reset on restart. */
+  traffic: { totalSinceStart: number; requestsPerMinute: number };
+  /** 23.7: connected-device signal. Deliberately just printer agents --
+   * see `note` for why this does not attempt Docker container/replica
+   * counts. */
+  instances: {
+    /** Same figure as `printers.agentsActive` above, re-surfaced under an
+     * explicit label for this tile. */
+    printerAgentsConnected: number;
+    note: string;
+  };
 }

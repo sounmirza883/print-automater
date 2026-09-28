@@ -10,6 +10,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { AuditAction } from "../src/audit/audit-action.js";
 
 /** §4.7/§42/16.5: an ADMIN can see across every business/user/audit
  * entry on the platform; nobody else -- not even a SHOP_OWNER -- can
@@ -88,7 +89,9 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { resourceType: "admin-e2e-test" } });
+    await prisma.auditLog.deleteMany({
+      where: { resourceType: { in: ["admin-e2e-test", "admin-e2e-login-test"] } },
+    });
     await prisma.shopStaff.deleteMany({ where: { userId: owner.id } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.shop.deleteMany({ where: { id: { in: shopIds } } });
@@ -413,6 +416,107 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
         .set("Authorization", `Bearer ${adminToken}`)
         .send({ status: "DELETED" });
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe("23.7 admin panel: live system summary (dashboard: recentOrders, activeUsersNow, traffic, instances)", () => {
+    it("GET /v1/admin/dashboard exposes recentOrders, activeUsersNow, traffic and instances shapes", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/v1/admin/dashboard")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+
+      expect(Array.isArray(res.body.recentOrders)).toBe(true);
+      expect(res.body.recentOrders.length).toBeLessThanOrEqual(20);
+      for (const row of res.body.recentOrders as Array<Record<string, unknown>>) {
+        expect(row).toEqual(
+          expect.objectContaining({
+            id: expect.any(String),
+            publicOrderNumber: expect.any(String),
+            shopName: expect.any(String),
+            status: expect.any(String),
+            createdAt: expect.any(String),
+          }),
+        );
+      }
+
+      expect(typeof res.body.activeUsersNow).toBe("number");
+
+      expect(res.body.traffic).toEqual(
+        expect.objectContaining({
+          totalSinceStart: expect.any(Number),
+          requestsPerMinute: expect.any(Number),
+        }),
+      );
+      // The GET this test just made is itself a request the global counter
+      // middleware (bootstrap.ts) recorded before the handler ever ran.
+      expect(res.body.traffic.requestsPerMinute).toBeGreaterThanOrEqual(1);
+      expect(res.body.traffic.totalSinceStart).toBeGreaterThanOrEqual(
+        res.body.traffic.requestsPerMinute,
+      );
+
+      expect(res.body.instances).toEqual(
+        expect.objectContaining({
+          printerAgentsConnected: expect.any(Number),
+          note: expect.any(String),
+        }),
+      );
+      // Re-surfaces the exact same figure the rest of the dashboard already
+      // computes, under the "instances" label -- not a separate count.
+      expect(res.body.instances.printerAgentsConnected).toBe(res.body.printers.agentsActive);
+      expect(res.body.instances.note.length).toBeGreaterThan(0);
+    });
+
+    it("activeUsersNow counts a distinct LOGIN actor inside the 15-minute window, and excludes one outside it", async () => {
+      const before = await request(app.getHttpServer())
+        .get("/v1/admin/dashboard")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(before.status).toBe(200);
+
+      const recentUser = await prisma.user.create({
+        data: {
+          role: UserRole.SHOP_OWNER,
+          name: "Admin E2E Recent Login User",
+          email: `admin-e2e-recent-login-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      userIds.push(recentUser.id);
+      const staleUser = await prisma.user.create({
+        data: {
+          role: UserRole.SHOP_OWNER,
+          name: "Admin E2E Stale Login User",
+          email: `admin-e2e-stale-login-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      userIds.push(staleUser.id);
+
+      await prisma.auditLog.create({
+        data: {
+          actorId: recentUser.id,
+          action: AuditAction.LOGIN,
+          resourceType: "admin-e2e-login-test",
+          createdAt: new Date(),
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          actorId: staleUser.id,
+          action: AuditAction.LOGIN,
+          resourceType: "admin-e2e-login-test",
+          // 20 minutes ago: outside the dashboard's 15-minute "active now" window.
+          createdAt: new Date(Date.now() - 20 * 60_000),
+        },
+      });
+
+      const after = await request(app.getHttpServer())
+        .get("/v1/admin/dashboard")
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(after.status).toBe(200);
+      // Exactly one more distinct actor counted than the baseline: the
+      // recent login, never the stale one.
+      expect(after.body.activeUsersNow).toBe(before.body.activeUsersNow + 1);
     });
   });
 });

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { VersioningType } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
+import type { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { ZodValidationPipe } from "nestjs-zod";
 import type { ApiEnv } from "@print-automated/config";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter.js";
+import { RequestCounterService } from "./observability/request-counter.service.js";
 
 export interface ConfigureAppOptions {
   /** Test-only: pino writes straight to the raw fd by default (bypassing
@@ -53,4 +55,16 @@ export function configureApp(
 
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(new ZodValidationPipe());
+
+  // 23.7 (admin panel: live system summary) -- the traffic counter behind
+  // the admin dashboard's "requests/min" tile. Matches the rest of this
+  // function's own pattern (global raw middleware via app.use()) rather
+  // than a NestInterceptor: every interceptor elsewhere in this codebase is
+  // opt-in per-route/controller (@UseInterceptors(...)), never global, so a
+  // genuinely-every-request concern belongs here alongside helmet/pino-http.
+  const requestCounter = app.get(RequestCounterService);
+  app.use((_req: Request, _res: Response, next: NextFunction) => {
+    requestCounter.record();
+    next();
+  });
 }

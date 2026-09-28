@@ -38,10 +38,12 @@ import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { ReportsModule } from "./reports/reports.module.js";
 import { NotificationCenterModule } from "./notification-center/notification-center.module.js";
+import { ObservabilityModule } from "./observability/observability.module.js";
 
 @Module({
   imports: [
     AppConfigModule,
+    ObservabilityModule,
     PrismaModule,
     RedisModule.forRoot({ url: apiEnv.REDIS_URL }),
     StorageModule.forRoot({
