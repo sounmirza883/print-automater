@@ -1,6 +1,23 @@
 # CONTEXT.md — Orientation for anyone (human or agent) picking this repo up
 
-_Last updated: 2026-09-24, during Phase 18's review fixes. For exact state use `git log --oneline`; the plan is docs/architecture/2026-09-22-prd-v2-alignment.md._
+_Last updated: 2026-09-28, Phase 25 (acceptance and hardening) complete. For exact state use `git log --oneline`; the plan is docs/architecture/2026-09-22-prd-v2-alignment.md._
+
+## Current state: Phases 14-25 all complete
+
+Every phase in `docs/architecture/2026-09-22-prd-v2-alignment.md` is done, including the C++ printer
+agent (Phase 24, Node agent deleted) and acceptance/hardening (Phase 25): all 8 §106 scenarios pass
+(`services/api/test/acceptance-106.e2e-spec.ts`), the §100 concurrency suite passes including a real
+production race it found and fixed (`concurrency-100.e2e-spec.ts`), the new-role × new-resource
+authorization matrix passes 43/43 (`authorization-matrix-v2.e2e-spec.ts`), and
+`docs/definition-of-done.md` has been rewritten against the new PRD's 28-item §123.
+
+**One honest open gap**: there is no self-service "a business creates an account" API — every shop
+in this system is provisioned via seed/ops, never through an endpoint a prospective business could
+call itself. See `docs/definition-of-done.md`'s first line item for the full detail. Everything
+downstream of a shop existing is built and proven.
+
+Next work on this system starts from a clean slate — there is no more plan doc queued after Phase 25.
+Read `docs/definition-of-done.md`'s PRD conformance matrix for the fullest current-state picture.
 
 ## What this product is
 

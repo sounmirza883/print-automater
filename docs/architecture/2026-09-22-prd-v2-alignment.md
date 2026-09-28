@@ -593,3 +593,28 @@ Every area names real, existing tests; none needed new code beyond the pre-exist
 | Concurrent allocation | `concurrency-100.e2e-spec.ts` (25.2), `allocation-load.e2e-spec.ts`, `recovery-toggle-race.e2e-spec.ts`, `sweep-vs-retry-race.e2e-spec.ts`, `concurrent-job-reports.e2e-spec.ts`                                                               |
 
 **Next:** 25.5, rewriting `docs/definition-of-done.md` against §123's 28 criteria with a PRD conformance matrix, and refreshing `CONTEXT.md`.
+
+### 25.5: definition-of-done rewrite and Phase 25 close (2026-09-28)
+
+`docs/definition-of-done.md` rewritten against the new PRD's §123 (28 criteria, PRD lines
+2386-2444), each item citing its commit(s) and proving test, plus a PRD conformance matrix
+superseding this document's own "Conformance summary" table above. The old 35-item walkthrough is
+kept in full as an appendix rather than deleted — several of its lines (envelope encryption,
+duplicate-print protection, the physical-printer caveat) are facts the new walkthrough cites
+directly rather than re-proving.
+
+**27 of 28 checked.** One genuine, newly-surfaced gap: **there is no self-service "a business
+creates an account" API** anywhere in the codebase (`shops.controller.ts` has no creating `POST`;
+`admin.controller.ts`'s `/admin/businesses` (16.5) manages shops that already exist; every shop in
+this system, in seed data and every e2e fixture alike, is provisioned directly via Prisma, never
+through an endpoint a prospective business could call). The new PRD does not defer this. Everything
+downstream of a shop existing — staff, roles, printers, products, pricing, orders, allocation,
+inventory, notifications — is built and proven.
+
+`CONTEXT.md` refreshed to point at the new document instead of the (now superseded) conformance
+table above.
+
+**Phase 25, and the whole `docs/architecture/2026-09-22-prd-v2-alignment.md` plan (Phases 14-25),
+is complete.** The system satisfies the new PRD's acceptance scenarios, concurrency requirements,
+and 27 of 28 Definition-of-Done criteria; the one gap is the business-signup endpoint named above,
+not a defect in anything that was built.
