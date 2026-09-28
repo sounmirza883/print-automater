@@ -89,6 +89,10 @@ export const AuditAction = {
   // code. Actor = the shop's SYSTEM user; the guest's name/phone appear
   // only masked (common/mask.ts).
   QR_ORDER_CREATED: "QR_ORDER_CREATED",
+  // 24.1: a shop's SYSTEM user was lazily created (and set as
+  // shops.qr_system_user_id) by its first anonymous QR request. Actor null:
+  // no human did this. Resource = the new user; metadata = { shopId }.
+  QR_SYSTEM_USER_PROVISIONED: "QR_SYSTEM_USER_PROVISIONED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

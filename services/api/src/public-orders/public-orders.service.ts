@@ -1,8 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderCreationSource, ShopStatus, UserRole } from "@prisma/client";
+import { OrderCreationSource, Prisma, ShopStatus, UserRole } from "@prisma/client";
 import type { CreateDocumentInput, CreatePublicOrderInput } from "@print-automated/validation";
-import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
+import {
+  AppException,
+  AuditService,
+  PrismaService,
+  redactMetadata,
+} from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { PasswordService } from "../auth/password.service.js";
 import { maskName, maskPhone } from "../common/mask.js";
@@ -201,6 +206,19 @@ export class PublicOrdersService {
         select: { id: true },
       });
       await tx.shop.update({ where: { id: shop.id }, data: { qrSystemUserId: user.id } });
+      // Audited in the SAME transaction as the two writes above (the
+      // tx.auditLog.create + redactMetadata pattern every in-transaction
+      // audit in this codebase uses; AuditService.record has no tx form), so
+      // the account can never exist without its audit row, or vice versa.
+      await tx.auditLog.create({
+        data: {
+          actorId: null,
+          action: AuditAction.QR_SYSTEM_USER_PROVISIONED,
+          resourceType: "user",
+          resourceId: user.id,
+          metadata: redactMetadata({ shopId: shop.id }) as Prisma.InputJsonValue,
+        },
+      });
       return user.id;
     });
   }

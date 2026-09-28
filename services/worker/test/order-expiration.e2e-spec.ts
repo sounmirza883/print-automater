@@ -4,7 +4,13 @@ import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import type { INestApplicationContext } from "@nestjs/common";
 import type { Job } from "bullmq";
-import { DocumentStatus, OrderStatus, ShopStatus, UserRole } from "@prisma/client";
+import {
+  DocumentStatus,
+  OrderCreationSource,
+  OrderStatus,
+  ShopStatus,
+  UserRole,
+} from "@prisma/client";
 import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { OrderExpirationProcessor } from "../src/order-expiration/order-expiration.processor.js";
@@ -73,7 +79,11 @@ describe("Order expiration sweep (5.6, e2e)", () => {
     await app.close();
   });
 
-  async function createOrder(status: OrderStatus, ageMinutes: number): Promise<string> {
+  async function createOrder(
+    status: OrderStatus,
+    ageMinutes: number,
+    creationSource: OrderCreationSource = OrderCreationSource.CUSTOMER_WEB,
+  ): Promise<string> {
     const order = await prisma.order.create({
       data: {
         publicOrderNumber: `TEST-EXPIRE-${randomUUID()}`,
@@ -83,6 +93,7 @@ describe("Order expiration sweep (5.6, e2e)", () => {
         printConfiguration: {},
         pricingSnapshot: {},
         orderStatus: status,
+        creationSource,
       },
     });
     // Order rows only ever change via OrderStateMachine.transition() in
@@ -155,5 +166,41 @@ describe("Order expiration sweep (5.6, e2e)", () => {
       where: { resourceType: "order", resourceId: orderId, action: "ORDER_EXPIRE" },
     });
     expect(expireAudits).toBe(1);
+  });
+
+  it("24.1: a QR order still in UPLOADED past the TTL expires; a recent QR one, and stale web/counter UPLOADED orders, do not", async () => {
+    const staleQrId = await createOrder(OrderStatus.UPLOADED, 999, OrderCreationSource.QR);
+    const freshQrId = await createOrder(OrderStatus.UPLOADED, 1, OrderCreationSource.QR);
+    // Only QR orders are swept out of UPLOADED: a customer-web order mid-
+    // checkout and a counter order are left exactly as before.
+    const staleWebId = await createOrder(
+      OrderStatus.UPLOADED,
+      999,
+      OrderCreationSource.CUSTOMER_WEB,
+    );
+    const staleCounterId = await createOrder(
+      OrderStatus.UPLOADED,
+      999,
+      OrderCreationSource.COUNTER,
+    );
+
+    const result = await processor.process(fakeJob);
+    expect(result.expiredCount).toBeGreaterThanOrEqual(1);
+
+    const status = async (id: string): Promise<OrderStatus> =>
+      (await prisma.order.findUniqueOrThrow({ where: { id } })).orderStatus;
+    expect(await status(staleQrId)).toBe(OrderStatus.EXPIRED);
+    expect(await status(freshQrId)).toBe(OrderStatus.UPLOADED);
+    expect(await status(staleWebId)).toBe(OrderStatus.UPLOADED);
+    expect(await status(staleCounterId)).toBe(OrderStatus.UPLOADED);
+
+    // Through the state machine (audited), exactly once, same as PAYMENT_PENDING.
+    expect(
+      await prisma.auditLog.count({
+        where: { resourceType: "order", resourceId: staleQrId, action: "ORDER_EXPIRE" },
+      }),
+    ).toBe(1);
+    const again = await processor.process(fakeJob);
+    expect(again.expiredCount).toBe(0);
   });
 });

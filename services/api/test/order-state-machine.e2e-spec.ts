@@ -30,6 +30,8 @@ const EXPECTED: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>> = 
   },
   [OrderStatus.UPLOADED]: {
     [OrderEvent.REQUEST_PAYMENT]: OrderStatus.PAYMENT_PENDING,
+    // 24.1: the worker's expiry sweep fires this only for QR orders.
+    [OrderEvent.EXPIRE]: OrderStatus.EXPIRED,
   },
   [OrderStatus.PAYMENT_PENDING]: {
     [OrderEvent.CONFIRM_PAYMENT]: OrderStatus.PAID,

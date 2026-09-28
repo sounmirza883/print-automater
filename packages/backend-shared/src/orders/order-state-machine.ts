@@ -101,6 +101,12 @@ const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderEvent, OrderStatus>>>
   },
   [OrderStatus.UPLOADED]: {
     [OrderEvent.REQUEST_PAYMENT]: OrderStatus.PAYMENT_PENDING,
+    // 24.1: a guest's QR order has no payment step of its own, so it rests
+    // in UPLOADED until staff take payment. The worker's §108 expiry sweep
+    // (order-expiration.processor.ts) fires EXPIRE here for QR orders only,
+    // so unclaimed QR orders do not sit in a shop's needsAttention forever.
+    // Nothing else fires EXPIRE on an UPLOADED order.
+    [OrderEvent.EXPIRE]: OrderStatus.EXPIRED,
   },
   [OrderStatus.PAYMENT_PENDING]: {
     [OrderEvent.CONFIRM_PAYMENT]: OrderStatus.PAID,

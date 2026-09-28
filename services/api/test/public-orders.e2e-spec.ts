@@ -146,7 +146,9 @@ describe("Public QR ordering (24.1, e2e)", () => {
     await prisma.auditLog.deleteMany({ where: { resourceId: { in: paymentIds } } });
     await prisma.payment.deleteMany({ where: { id: { in: paymentIds } } });
     await prisma.notification.deleteMany({ where: { orderId: { in: orderIds } } });
-    await prisma.auditLog.deleteMany({ where: { resourceId: { in: orderIds } } });
+    await prisma.auditLog.deleteMany({
+      where: { resourceId: { in: [...orderIds, ...systemUserIds] } },
+    });
     await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
     const ownerIds = [...systemUserIds, ...extraUserIds];
     await prisma.document.deleteMany({ where: { ownerUserId: { in: ownerIds } } });
@@ -186,6 +188,15 @@ describe("Public QR ordering (24.1, e2e)", () => {
       where: { id: shop.qrSystemUserId! },
     });
     expect(systemUser.role).toBe(UserRole.SYSTEM);
+
+    // Provisioning it (an anonymous request's side effect) is itself audited:
+    // no human actor, the new account as the resource, the shop in metadata.
+    const provisioned = await prisma.auditLog.findMany({
+      where: { action: AuditAction.QR_SYSTEM_USER_PROVISIONED, resourceId: systemUser.id },
+    });
+    expect(provisioned).toHaveLength(1);
+    expect(provisioned[0]).toMatchObject({ actorId: null, resourceType: "user" });
+    expect(provisioned[0]!.metadata).toEqual({ shopId: openShop.id });
 
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderRes.body.id } });
     expect(order.customerId).toBe(shop.qrSystemUserId);
@@ -256,6 +267,15 @@ describe("Public QR ordering (24.1, e2e)", () => {
       select: { ownerUserId: true },
     });
     expect(new Set(owners.map((d) => d.ownerUserId))).toEqual(new Set([shop.qrSystemUserId]));
+    // ...and exactly one provisioning audit row, written with the user itself.
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          action: AuditAction.QR_SYSTEM_USER_PROVISIONED,
+          resourceId: shop.qrSystemUserId,
+        },
+      }),
+    ).toBe(1);
   });
 
   it("rejects a shop that is not OPEN (409), without provisioning anything for it", async () => {
@@ -527,10 +547,29 @@ describe("Public QR ordering (24.1, e2e)", () => {
         }
       }
 
+      const refusedShopId = randomUUID();
       const over = await request(app.getHttpServer())
-        .post(`/v1/public/shops/${randomUUID()}/orders`)
+        .post(`/v1/public/shops/${refusedShopId}/orders`)
         .send({});
       expect(over.status).toBe(429);
+
+      // The per-IP bucket is checked FIRST: the refused request created no
+      // per-shop key, so cycling shop ids past the IP budget mints nothing.
+      const refusedKeys = await redis.keys(`ratelimit:PublicOrdersController:*${refusedShopId}*`);
+      expect(refusedKeys).toEqual([]);
+    });
+
+    it("a garbage shop id is refused (400) and cannot mint its own rate-limit key", async () => {
+      for (const garbage of ["not-a-uuid", "another-garbage-id", "x".repeat(300)]) {
+        const res = await request(app.getHttpServer())
+          .post(`/v1/public/shops/${garbage}/orders`)
+          .send({});
+        expect(res.status).toBe(400);
+      }
+      const keys = await redis.keys("ratelimit:PublicOrdersController:createOrder:ip-shop:*");
+      // All three share the single `invalid` per-shop key.
+      expect(keys).toHaveLength(1);
+      expect(keys[0]).toMatch(/:invalid$/);
     });
 
     it("the document routes are rate limited too", async () => {

@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   UseGuards,
   UseInterceptors,
@@ -36,28 +37,44 @@ export const PUBLIC_RATE_LIMITS = {
   createOrder: { perIpAndShop: 20, perIp: 60, windowMs: HOUR_MS },
 } as const;
 
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 function clientIp(req: Request): string {
   return req.ip ?? "unknown";
 }
 
+/** The shop part of a bucket key. The route param is attacker-chosen, so it
+ * must not decide how many Redis keys exist: a UUID-shaped id is lower-cased
+ * (case variants of one id share a key) and anything else collapses into the
+ * single `invalid` key (such a request fails validation anyway). */
+function shopKeyPart(req: Request): string {
+  const shopId = String(req.params.shopId ?? "").toLowerCase();
+  return UUID_SHAPE.test(shopId) ? shopId : "invalid";
+}
+
 /** Both buckets for one route. Guards run after routing, so `:shopId` is
  * already on req.params -- and before validation, so a malformed request
- * still spends budget. */
-function ipAndShopBuckets(limits: {
+ * still spends budget.
+ *
+ * ORDER MATTERS: RateLimitGuard checks buckets in order and stops at the first
+ * refusal, so the per-IP bucket (one key per client) goes FIRST. A client past
+ * its IP budget is refused before the per-shop bucket is touched, so cycling
+ * shop ids cannot keep minting new per-shop Redis keys. */
+export function ipAndShopBuckets(limits: {
   perIpAndShop: number;
   perIp: number;
   windowMs: number;
 }): RateLimitOptions[] {
   return [
     {
-      limit: limits.perIpAndShop,
-      windowMs: limits.windowMs,
-      keyGenerator: (req) => `ip-shop:${clientIp(req)}:${String(req.params.shopId)}`,
-    },
-    {
       limit: limits.perIp,
       windowMs: limits.windowMs,
       keyGenerator: (req) => `ip:${clientIp(req)}`,
+    },
+    {
+      limit: limits.perIpAndShop,
+      windowMs: limits.windowMs,
+      keyGenerator: (req) => `ip-shop:${clientIp(req)}:${shopKeyPart(req)}`,
     },
   ];
 }
@@ -79,7 +96,7 @@ export class PublicOrdersController {
   @Post("documents")
   @RateLimit(ipAndShopBuckets(PUBLIC_RATE_LIMITS.createDocument))
   createDocument(
-    @Param("shopId") shopId: string,
+    @Param("shopId", ParseUUIDPipe) shopId: string,
     @Body() dto: CreateDocumentDto,
   ): Promise<CreateDocumentResult> {
     return this.publicOrdersService.createDocument(shopId, dto);
@@ -90,8 +107,8 @@ export class PublicOrdersController {
   @HttpCode(HttpStatus.OK)
   @RateLimit(ipAndShopBuckets(PUBLIC_RATE_LIMITS.confirmUpload))
   confirmUpload(
-    @Param("shopId") shopId: string,
-    @Param("documentId") documentId: string,
+    @Param("shopId", ParseUUIDPipe) shopId: string,
+    @Param("documentId", ParseUUIDPipe) documentId: string,
   ): Promise<DocumentStatusView> {
     return this.publicOrdersService.confirmUpload(shopId, documentId);
   }
@@ -100,8 +117,8 @@ export class PublicOrdersController {
   @Get("documents/:documentId")
   @RateLimit(ipAndShopBuckets(PUBLIC_RATE_LIMITS.getDocumentStatus))
   getDocumentStatus(
-    @Param("shopId") shopId: string,
-    @Param("documentId") documentId: string,
+    @Param("shopId", ParseUUIDPipe) shopId: string,
+    @Param("documentId", ParseUUIDPipe) documentId: string,
   ): Promise<DocumentStatusView> {
     return this.publicOrdersService.getDocumentStatus(shopId, documentId);
   }
@@ -113,7 +130,7 @@ export class PublicOrdersController {
   @RateLimit(ipAndShopBuckets(PUBLIC_RATE_LIMITS.createOrder))
   @UseInterceptors(IdempotencyInterceptor)
   createOrder(
-    @Param("shopId") shopId: string,
+    @Param("shopId", ParseUUIDPipe) shopId: string,
     @Body() dto: CreatePublicOrderDto,
   ): Promise<OrderResponse> {
     return this.publicOrdersService.createOrder(shopId, dto);
