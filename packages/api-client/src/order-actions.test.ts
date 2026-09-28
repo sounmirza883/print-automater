@@ -45,6 +45,28 @@ describe("shared order/job action rules (23.30)", () => {
     expect(availableJobActions(job("PRINTED"), order, operator).reprint).toBe(false);
   });
 
+  it("offers moving a job only where the API can move it (WAITING, QUEUED), never a claimed one", () => {
+    const assigner = holding(Permission.ASSIGN_JOBS);
+    const order = { orderStatus: "PRINTING" as const };
+    const movable = (status: string) =>
+      availableJobActions({ status, reprint: null }, order, assigner).reassign;
+    expect(movable("WAITING")).toBe(true);
+    expect(movable("QUEUED")).toBe(true);
+    for (const status of [
+      "CREATED",
+      "CLAIMED",
+      "PRINTING",
+      "PAUSED",
+      "FAILED",
+      "TIMEOUT",
+      "PRINTED",
+      "UNKNOWN",
+      "REASSIGNED",
+    ]) {
+      expect([status, movable(status)]).toEqual([status, false]);
+    }
+  });
+
   it("steers a failed quality check toward reprint until the order is completed", () => {
     expect(
       shouldSteerToReprint({ qualityCheckStatus: "FAILED", orderStatus: "PRINT_FAILED" }),

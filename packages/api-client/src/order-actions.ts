@@ -26,14 +26,12 @@ const REPRINTABLE_ORDER_STATUSES = new Set([
   "READY_FOR_COLLECTION",
 ]);
 
-const REASSIGNABLE_JOB_STATUSES = new Set([
-  "CREATED",
-  "WAITING",
-  "QUEUED",
-  "PAUSED",
-  "FAILED",
-  "TIMEOUT",
-]);
+/** Moving a job to another printer is the job machine's SUPERSEDE, legal only from WAITING,
+ * QUEUED and CLAIMED (print-job-state-machine.ts). CLAIMED is left out on purpose: its agent
+ * may already be printing it, so moving it risks a second copy. A paused job moves by resuming
+ * it with a printer chosen; a failed one through the order's "change printer". (Until 25.2
+ * this also listed CREATED, PAUSED, FAILED and TIMEOUT, which the API always refused.) */
+const REASSIGNABLE_JOB_STATUSES = new Set(["WAITING", "QUEUED"]);
 
 export interface OrderActions {
   accept: boolean;
