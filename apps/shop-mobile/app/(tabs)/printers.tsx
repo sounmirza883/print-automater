@@ -10,7 +10,13 @@ import {
   View,
 } from "react-native";
 import { tokens } from "@print-automated/design-tokens";
-import type { PrinterCapabilities, PrinterResponse } from "@print-automated/api-client";
+import {
+  humanizeEnum,
+  type PrinterCapabilities,
+  type PrinterResponse,
+} from "@print-automated/api-client";
+import { Permission } from "@print-automated/types";
+import { PairComputer } from "@/components/pair-computer";
 
 const CAPABILITY_LABELS: Array<{ key: keyof PrinterCapabilities; label: string }> = [
   { key: "color", label: "Color" },
@@ -29,24 +35,26 @@ import { useShopAuth } from "@/providers/shop-auth-provider";
 import { usePrinters } from "@/lib/use-printers";
 import { useIsOffline } from "@/lib/use-is-offline";
 
-const STATUS_LABEL: Record<string, string> = {
-  ONLINE: "Online",
-  OFFLINE: "Offline",
-  ERROR: "Error",
-  DISABLED: "Disabled",
-};
-
+// Every PrinterStatus (15.3 added BUSY, PAUSED, MAINTENANCE and UNKNOWN); anything newer
+// still reads as words, in grey.
 const STATUS_COLOR: Record<string, string> = {
   ONLINE: tokens.colors.success,
+  BUSY: tokens.colors.primaryAction,
   OFFLINE: "#9CA3AF",
   ERROR: tokens.colors.error,
+  PAUSED: tokens.colors.warning,
+  MAINTENANCE: tokens.colors.warning,
+  UNKNOWN: "#9CA3AF",
   DISABLED: "#9CA3AF",
 };
 
 /** §38's printer status list plus register/rename/enable-disable/
- * remove -- all inline against a tapped row, no separate modal. */
+ * remove -- all inline against a tapped row, no separate modal. 23.35: pairing a computer's
+ * agent, and every change here, only for roles that may manage printers; others see the
+ * list. */
 export default function PrintersScreen(): ReactNode {
-  const { shopId, apiClient } = useShopAuth();
+  const { shopId, apiClient, can } = useShopAuth();
+  const manage = can(Permission.MANAGE_PRINTERS);
   const printers = usePrinters(apiClient, shopId);
   const [newName, setNewName] = useState("");
   const [registering, setRegistering] = useState(false);
@@ -90,27 +98,30 @@ export default function PrintersScreen(): ReactNode {
 
   return (
     <View style={styles.container}>
-      <View style={styles.addRow}>
-        <TextInput
-          value={newName}
-          onChangeText={setNewName}
-          placeholder="New printer name"
-          style={styles.input}
-          editable={!registering}
-        />
-        <Pressable
-          accessibilityRole="button"
-          disabled={registerBlocked}
-          onPress={() => void handleRegister()}
-          style={[styles.registerButton, registerBlocked && styles.buttonDisabled]}
-        >
-          {registering ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.registerButtonText}>Register</Text>
-          )}
-        </Pressable>
-      </View>
+      {manage && <PairComputer apiClient={apiClient} shopId={activeShopId} offline={isOffline} />}
+      {manage && (
+        <View style={styles.addRow}>
+          <TextInput
+            value={newName}
+            onChangeText={setNewName}
+            placeholder="New printer name"
+            style={styles.input}
+            editable={!registering}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={registerBlocked}
+            onPress={() => void handleRegister()}
+            style={[styles.registerButton, registerBlocked && styles.buttonDisabled]}
+          >
+            {registering ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.registerButtonText}>Register</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
       {formError !== null && (
         <Text accessibilityRole="alert" style={styles.errorText}>
           {formError}
@@ -124,7 +135,11 @@ export default function PrintersScreen(): ReactNode {
         </Text>
       )}
       {printers.phase === "ready" && printers.printers.length === 0 && (
-        <Text style={styles.subtitle}>No printers registered yet.</Text>
+        <Text style={styles.subtitle}>
+          {manage
+            ? "No printers yet. Pair a computer and the printers it finds appear here."
+            : "No printers yet."}
+        </Text>
       )}
       {printers.phase === "ready" && printers.printers.length > 0 && (
         <FlatList
@@ -134,6 +149,7 @@ export default function PrintersScreen(): ReactNode {
           renderItem={({ item }) => (
             <PrinterRow
               printer={item}
+              manage={manage}
               expanded={expandedId === item.id}
               onToggleExpanded={() => setExpandedId(expandedId === item.id ? null : item.id)}
               onChanged={printers.refresh}
@@ -147,11 +163,14 @@ export default function PrintersScreen(): ReactNode {
 
 function PrinterRow({
   printer,
+  manage,
   expanded,
   onToggleExpanded,
   onChanged,
 }: {
   printer: PrinterResponse;
+  /** May change it (MANAGE_PRINTERS); otherwise the row does not open. */
+  manage: boolean;
   expanded: boolean;
   onToggleExpanded: () => void;
   onChanged: () => void;
@@ -202,15 +221,25 @@ function PrinterRow({
 
   return (
     <View style={styles.card}>
-      <Pressable accessibilityRole="button" onPress={onToggleExpanded} style={styles.cardHeaderRow}>
+      <Pressable
+        accessibilityRole={manage ? "button" : undefined}
+        disabled={!manage}
+        onPress={onToggleExpanded}
+        style={styles.cardHeaderRow}
+      >
         <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: STATUS_COLOR[printer.status] }]} />
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: STATUS_COLOR[printer.status] ?? "#9CA3AF" },
+            ]}
+          />
           <Text style={styles.printerName}>{printer.name}</Text>
         </View>
-        <Text style={styles.statusLabel}>{STATUS_LABEL[printer.status] ?? printer.status}</Text>
+        <Text style={styles.statusLabel}>{humanizeEnum(printer.status)}</Text>
       </Pressable>
 
-      {expanded && (
+      {manage && expanded && (
         <View style={styles.expandedSection}>
           {error !== null && (
             <Text accessibilityRole="alert" style={styles.errorText}>
