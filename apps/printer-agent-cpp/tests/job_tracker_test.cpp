@@ -4,6 +4,7 @@
 #include <winspool.h>
 
 #include "printing/job_tracker.h"
+#include "printing/print_monitor.h"
 
 namespace {
 
@@ -94,4 +95,10 @@ TEST_CASE("a normal status is not an error") {
   CHECK_FALSE(pa::is_error_state(queued(0, L"Toner low")));  // a warning; the page prints
   CHECK(pa::is_error_state(queued(0, L"Out of toner")));
   CHECK(pa::is_error_state(queued(0, L"Paper out")));
+}
+
+TEST_CASE("the spooler is watched every 2 seconds for up to 5 minutes, as the Node agent did") {
+  const pa::MonitorOptions defaults;
+  CHECK(defaults.poll == std::chrono::seconds(2));
+  CHECK(defaults.timeout == std::chrono::minutes(5));
 }

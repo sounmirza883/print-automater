@@ -79,3 +79,12 @@ TEST_CASE("a permanent refusal is not retried; a 401, 429 or retryable error is"
   CHECK(pa::is_permanent_refusal(pa::BackendError("bad", "VALIDATION_ERROR", false, 400)));
   CHECK_FALSE(pa::is_permanent_refusal(std::runtime_error("not an API answer")));
 }
+
+TEST_CASE("each job and status has its own idempotency key") {
+  std::vector<std::string> keys;
+  const auto record = [&](const std::string& key) { keys.push_back(key); };
+  pa::report_status_with_retry(record, "job-1", pa::ReportedStatus::Printing, {});
+  pa::report_status_with_retry(record, "job-1", pa::ReportedStatus::Printed, {});
+  pa::report_status_with_retry(record, "job-2", pa::ReportedStatus::Printed, {});
+  CHECK(keys == std::vector<std::string>{"job-1:PRINTING", "job-1:PRINTED", "job-2:PRINTED"});
+}

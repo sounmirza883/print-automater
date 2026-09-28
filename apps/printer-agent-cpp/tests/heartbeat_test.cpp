@@ -50,3 +50,19 @@ TEST_CASE("an empty driver or port name is never sent (the API requires non-empt
   const auto beat = pa::heartbeat_printers({odd}, last);
   CHECK_FALSE(beat[0].contains("driverName"));
 }
+
+TEST_CASE("each printer is tracked on its own") {
+  std::map<std::string, pa::LastReportedPrinter> last;
+  auto back_office = front_desk();
+  back_office.name = "Back office";
+  pa::heartbeat_printers({front_desk(), back_office}, last);
+
+  auto recoloured = back_office;
+  recoloured.capabilities.color = false;
+  const auto beat = pa::heartbeat_printers({front_desk(), recoloured}, last);
+  REQUIRE(beat.size() == 2);
+  CHECK(beat[0] == nlohmann::json({{"name", "Front desk"}, {"status", "ONLINE"}}));
+  CHECK(beat[1]["name"] == "Back office");
+  CHECK(beat[1]["capabilities"]["color"] == false);
+  CHECK_FALSE(beat[1].contains("driverName"));
+}

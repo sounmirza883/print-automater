@@ -464,3 +464,83 @@ Done directly in the main session (Opus), one committer, each red-first where it
 - **23.28 (`9e2f0f9`)** product/customer edit forms clear a blank optional field (send `null`); creating is unchanged.
 - **23.29 (`2da6022`)** shop-web reports screen (PRD 72-74): picker + one filter row (UTC presets or custom range <= 366 days, grouping for periodic reports, currency switch, CSV via `reports.csv()` blob), stat tiles, single-series column charts per the dataviz spec (accent validated on both surfaces), full tables; operator workload table-only, alphabetical, with the notice (PRD 74). Rendered in headless Chromium (light, dark, 390px). Shared `Panel` now `min-w-0` (a wide table scrolls inside it instead of widening the page on a phone).
 - **23.6 status:** every list screen has search on the shared budget (orders, customers, inventory, products, staff, suppliers); the order search's customer filter still takes an id (minor follow-up).
+
+## Phase 24: the native C++ agent (2026-09-28)
+
+`apps/printer-agent-cpp`, built alongside the Node agent in the main session (Opus). Toolchain on this machine: VS 2019 Build Tools (MSVC 14.29, Windows SDK 10.0.20348, CMake 3.20 + Ninja), vcpkg at `%USERPROFILE%\vcpkg`, Inno Setup 6.7.3 (per-user). Each commit below was built and its tests run on its own (13 tests at 24.2, rising to 113).
+
+- **24.1 (`b69f1d5`)** scaffold: CMake presets, vcpkg manifest on a pinned baseline, static CRT, PDFium from bblanchon/pdfium-binaries pinned by SHA-256. The dependency test caught that vcpkg's curl `sspi` feature is auth only: TLS is the `ssl` feature (Schannel).
+- **24.2 (`3873078`)** state folder, config.json + env overrides (https only, except localhost), `PRINT_AUTOMATED_AGENT_HOME` for trials, `printToFileDir` (trials only).
+- **24.3 (`263e546`)** Ed25519 via libsodium (RFC 8032 vectors), DPAPI-sealed `identity.dat`, atomic writes; a Node `identity.json` is imported, verified and only then deleted (no re-pairing).
+- **24.6 (`3fb246b`)** the ledger, same file and table as Node (a Node ledger opens unchanged), WAL + synchronous=FULL, thread-safe.
+- **24.4 (`024f8b2`)** API client (libcurl + Schannel), single-flighted token cache, documents streamed to a private file, `http_shutdown()`.
+- **24.11 (`8923777`)** status reports; a permanent 4xx refusal no longer blocks the job loop forever (a latent Node bug).
+- **24.10 (`055e3bf`)** safe/unsafe by stage (before/after StartDoc); the tracker reads spooler flags for the exact job id.
+- **24.5 (`1d63771`)** discovery with the driver's real colour/duplex/A4/A3 answers; fax, `NUL:` and save-to-file queues are not reported.
+- **24.8 (`fb1126f`)** job document guard, PDF signature check, the temp sweep.
+- **24.9 (`bc48d13`)** PDFium to a printer DC; driver-dropped settings refuse the job before spooling; copies, page ranges, greyscale; spooler monitor.
+- **24.7 (`263effb`)** the job processor; JSON-lines logging.
+- **24.12-24.13 (`1327263`, fix `023b32e`)** agent threads, pairing page (hardened), tray, `--pair`, housekeeping. **`d00d257`**: shop-web "Pair a computer" (no screen issued a pairing code before).
+- **24.14 (`d64b0c1`)** the installer, built and put through install / upgrade over a running agent / uninstall over a running agent on this machine.
+
+### Deliberate differences from the Node agent
+
+1. A job that showed an error and then left the queue, or is still queued at the deadline, is **UNKNOWN**, not FAILED: it may print once the jam is cleared, and FAILED invites a reprint. Only a job seen being deleted is FAILED. "Toner low" is a warning, not an error.
+2. A failed document download is **FAILED** (no printer was touched), not UNKNOWN.
+3. Jobs left unresolved by a crash are **reported UNKNOWN at the next start** (Node only marked them locally).
+4. A driver that silently drops a paid-for setting (double-sided, paper size, colour) **refuses the job** before anything prints.
+5. A status report the API refuses for good is given up on instead of retried forever.
+6. The pairing page checks Host (DNS rebinding) and refuses cross-site requests; the `backendBaseUrl` override is gone; the page never sets HTML.
+7. Queues that cannot print unattended (fax, `NUL:`, save-to-file) are never offered to the allocation engine.
+8. Heartbeat fields count as reported only once the API accepted the beat (Node committed them first, so a failed beat could hide a capability change until restart).
+
+### 24.15 parity gate
+
+| Node test file                 | Covered by (C++)                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| reconnect-backoff.test.ts (4)  | backoff_test                                                                                            |
+| status-reporter.test.ts (4)    | status_reporter_test (+ per-job/status keys, permanent refusal, shutdown)                               |
+| document-fetch.test.ts (3)     | job_document_test (deleted on success and on throw; a failed download leaves no file)                   |
+| temp-sweep.test.ts (4)         | job_document_test (startup, hourly age floor, missing folder)                                           |
+| ledger.test.ts (5)             | ledger_test (prune rules, UNKNOWN/in-flight kept, Node file compatibility, durability)                  |
+| discovery.test.ts (6)          | heartbeat_test (first beat, omit unchanged, each field alone, per printer), discovery_test              |
+| failure-classifier.test.ts (6) | print_failure_test (spawn-shape rules replaced by the StartDoc boundary; anything unknown is unsafe)    |
+| settings-mapping.test.ts (10)  | print_settings_test + pdf_printer_test placement (actual size, orientation)                             |
+| job-processor.test.ts (6)      | job_processor_test (all six, plus download, bad settings, already-in-ledger, shutdown, refused reports) |
+| monitor-print-job.test.ts (3)  | job_tracker_test (2 s / 5 min defaults, verdicts), pdf_printer_test (GetJob on a real queue)            |
+| print-job-tracker.test.ts (8)  | job_tracker_test (the baseline-diff cases are moot: StartDoc returns the job's own id)                  |
+
+End to end against the local API (Shop A, dev data), with a scratch state folder:
+
+- paired through the real pairing page with a lower-cased code; heartbeat with driver-probed capabilities;
+- a real counter order printed by PDFium through the spooler and the Microsoft Print to PDF driver: job `PRINTED`, `os_job_id` 10, order `PRINTED`, `PAID` (checked in Postgres);
+- **duplicate protection under a kill:** the agent was force-killed 86 ms after claiming a second job; on restart the ledger row was marked UNKNOWN, reported (job `UNKNOWN`, order `PRINT_STATUS_UNKNOWN` in Postgres), the orphaned document swept, and nothing printed;
+- quit mid long poll: stopped in 482 ms.
+
+Not proven on this machine: paper from a physical printer (none attached; the same hardware gap as 9.14). The trial left one agent with two printers (Microsoft Print to PDF, and Send To OneNote, disabled) and two orders in Shop A.
+
+### Known gaps
+
+- A final status report abandoned at shutdown (the ledger already has the result) is left to the API's print-timeout sweep, as with Node.
+- The installer is not code-signed (SmartScreen warns).
+- A pairing code can only be issued from shop-web now; shop-mobile has no such screen.
+
+### CI change needed (not applied: `.github/workflows/ci.yml` is the user's dirty file)
+
+`ci.yml` needs nothing for the Node agent's removal (turbo runs whatever workspace packages exist). To build and test the C++ agent on every push, add a job:
+
+```yaml
+printer-agent-cpp:
+  runs-on: windows-latest
+  steps:
+    - uses: actions/checkout@v4
+    - name: vcpkg
+      run: |
+        git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+        & $env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+    - name: Build and test
+      working-directory: apps/printer-agent-cpp
+      run: ./build.ps1
+```
+
+(`windows-latest` has Visual Studio 2022 with the C++ and CMake components, and Microsoft Print to PDF for the `[spooler]` tests. Caching `%LOCALAPPDATA%\vcpkg\archives` and `%LOCALAPPDATA%\PrintAutomatedBuild` keeps it to a few minutes.)
