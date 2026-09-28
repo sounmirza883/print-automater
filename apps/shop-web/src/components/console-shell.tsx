@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { PlanBanner } from "@/components/plan-banner";
 import { useSession } from "@/components/session-provider";
 import { Button } from "@/components/ui";
 import { visibleNavItems, type NavItem } from "@/lib/nav";
@@ -257,6 +258,7 @@ export function ConsoleShell({
             <UserMenu />
           </div>
         </div>
+        <PlanBanner />
         <main id="main" className="mx-auto w-full max-w-[90rem] flex-1 px-4 py-5 sm:px-6">
           {children}
         </main>

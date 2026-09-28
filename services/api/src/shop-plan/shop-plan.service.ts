@@ -1,18 +1,13 @@
 import { ForbiddenException, HttpStatus, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { AppException, PrismaService } from "@print-automated/backend-shared";
+import type { ShopPlanResponse } from "@print-automated/types";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface ShopPlanResponse {
-  shopId: string;
-  active: boolean;
-  /** ISO-8601; null means never activated (reads identically to expired). */
-  expiresAt: string | null;
-  activatedAt: string | null;
-}
+export type { ShopPlanResponse };
 
 function isActiveAt(expiresAt: Date | null, now: Date): boolean {
   return expiresAt !== null && expiresAt.getTime() > now.getTime();

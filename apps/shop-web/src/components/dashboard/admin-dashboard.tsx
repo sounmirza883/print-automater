@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import type { AdminDashboardResponse } from "@print-automated/types";
 import { ResourceBoundary } from "@/components/resource-boundary";
+import { PlanManagementPanel } from "@/components/dashboard/plan-management-panel";
 import { useSession } from "@/components/session-provider";
 import {
   BarList,
@@ -164,12 +165,16 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
         </Panel>
       </div>
 
-      <Panel title="Subscriptions" id="subscriptions">
-        <p className="text-muted">
-          {data.subscriptions === null
-            ? "The platform has no subscription or billing model yet, so there is nothing to show here."
-            : "Subscription data is available."}
-        </p>
+      <Panel
+        title="Business plans"
+        id="plans"
+        aside={
+          data.subscriptions === null ? (
+            <span className="text-xs text-muted">No payment gateway -- manual activation</span>
+          ) : undefined
+        }
+      >
+        <PlanManagementPanel />
       </Panel>
     </div>
   );
