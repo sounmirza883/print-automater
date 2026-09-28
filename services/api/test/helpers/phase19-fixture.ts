@@ -131,6 +131,14 @@ export async function createPhase19Fixture(
         }),
       );
       await step("orders", () => prisma.order.deleteMany({ where: { id: { in: orderIds } } }));
+      // Rows a test created through the API in this suite's own shop (counter customers,
+      // price lists); scoped to the shop, never bulk.
+      await step("customers", () =>
+        prisma.customer.deleteMany({ where: shopId ? { shopId } : { id: "none" } }),
+      );
+      await step("pricing_rules", () =>
+        prisma.pricingRule.deleteMany({ where: shopId ? { shopId } : { id: "none" } }),
+      );
       await step("printers", () =>
         prisma.printer.deleteMany({ where: { id: { in: reg.printerIds } } }),
       );
@@ -277,6 +285,11 @@ export async function createPhase19Fixture(
       return { orderId: order.id, itemIds };
     }
 
+    /** A document a test uploaded through the API: deleted after the orders that use it. */
+    function trackDocument(id: string): void {
+      reg.documentIds.push(id);
+    }
+
     return {
       app,
       prisma,
@@ -286,6 +299,8 @@ export async function createPhase19Fixture(
       token,
       makePrinter,
       makeOrder,
+      trackDocument,
+      document,
       cleanup,
       printerIds: reg.printerIds,
       orderIds: reg.orderIds,
