@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ShopAgentsModule } from "../shop-agents/shop-agents.module.js";
 import { DocumentsModule } from "../documents/documents.module.js";
 import { IdempotencyModule } from "../idempotency/idempotency.module.js";
+import { ShopPlanModule } from "../shop-plan/shop-plan.module.js";
 import { AgentAuthGuard } from "./agent-auth.guard.js";
 import { AgentChallengeService } from "./agent-challenge.service.js";
 import { AgentHeartbeatService } from "./agent-heartbeat.service.js";
@@ -11,7 +12,7 @@ import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
 
 @Module({
-  imports: [ShopAgentsModule, DocumentsModule, IdempotencyModule],
+  imports: [ShopAgentsModule, DocumentsModule, IdempotencyModule, ShopPlanModule],
   controllers: [AgentsController],
   providers: [
     AgentsService,

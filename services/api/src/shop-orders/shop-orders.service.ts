@@ -62,6 +62,7 @@ import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
 import { toDeliveryResponse, type DeliveryResponse } from "../deliveries/deliveries.service.js";
 import { ManualPaymentService } from "../payments/manual-payment.service.js";
 import { RefundService } from "../payments/refund.service.js";
+import { ShopPlanService } from "../shop-plan/shop-plan.service.js";
 
 const SHOP_ORDER_INCLUDE = {
   customer: { select: { name: true } },
@@ -435,6 +436,7 @@ export class ShopOrdersService {
     private readonly refundService: RefundService,
     private readonly ordersService: OrdersService,
     private readonly manualPaymentService: ManualPaymentService,
+    private readonly shopPlan: ShopPlanService,
   ) {
     this.repository = ShopOrdersService.buildRepository(prisma);
   }
@@ -889,6 +891,20 @@ export class ShopOrdersService {
         HttpStatus.CONFLICT,
         "DOCUMENT_NOT_READY",
         "This order's document is not ready to print.",
+        true,
+      );
+    }
+
+    // 26.3 (Phase 26): shared by every caller of dispatchToPrinter (acceptOrder,
+    // retryPrint, changePrinter, resolveUnknownPrint per this method's own doc
+    // comment), so one check here blocks every path that creates or re-dispatches
+    // a job -- login, dashboards and every non-print route are unaffected (that's
+    // the whole point: only the print pipeline itself is gated).
+    if (!(await this.shopPlan.isActive(tx, freshOrder.shopId))) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "SHOP_PLAN_EXPIRED",
+        "This business's plan has expired. Printing is paused until it's renewed.",
         true,
       );
     }

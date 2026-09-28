@@ -19,6 +19,7 @@ import {
   signalAgentDevice,
   type FailoverTrigger,
 } from "@print-automated/backend-shared";
+import { ShopPlanService } from "../shop-plan/shop-plan.service.js";
 
 export interface PrintJobSummary {
   id: string;
@@ -70,6 +71,7 @@ export class AgentJobsService implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly orderStateMachine: OrderStateMachine,
     private readonly jobStateMachine: PrintJobStateMachine,
+    private readonly shopPlan: ShopPlanService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.blockingRedis = redis.duplicate();
@@ -227,7 +229,7 @@ export class AgentJobsService implements OnModuleDestroy {
             const printer = job.printerId
               ? await tx.printer.findFirst({
                   where: { id: job.printerId, agent: { deviceId } },
-                  select: { id: true },
+                  select: { id: true, shopId: true },
                 })
               : null;
             if (!printer) {
@@ -236,6 +238,19 @@ export class AgentJobsService implements OnModuleDestroy {
                 "JOB_NOT_FOUND",
                 "No such print job for this agent.",
                 false,
+              );
+            }
+            // 26.3: a job queued while the shop's plan was active must still not
+            // be claimable/printable after it expires -- dispatchToPrinter's own
+            // check (shop-orders.service.ts) only stops a NEW job from being
+            // created; this is the second half of "the printing system stops
+            // working" (login and every non-print route stay unaffected).
+            if (!(await this.shopPlan.isActive(tx, printer.shopId))) {
+              throw new AppException(
+                HttpStatus.CONFLICT,
+                "SHOP_PLAN_EXPIRED",
+                "This business's plan has expired. Printing is paused until it's renewed.",
+                true,
               );
             }
           },
