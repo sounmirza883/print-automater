@@ -1,7 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { type AuditLog, type Prisma, type Shop, type User } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
-import type { AdminListQueryInput, AdminAuditQueryInput } from "@print-automated/validation";
+import { AuditService, PrismaService } from "@print-automated/backend-shared";
+import type {
+  AdminListQueryInput,
+  AdminAuditQueryInput,
+  CreateBusinessInput,
+} from "@print-automated/validation";
+import { AuditAction } from "../audit/audit-action.js";
 import { HealthService, type ReadinessResult } from "../health/health.service.js";
 
 export interface AdminBusinessResponse {
@@ -10,6 +15,18 @@ export interface AdminBusinessResponse {
   address: string;
   status: Shop["status"];
   createdAt: Date;
+}
+
+export interface AdminBusinessDetailResponse extends AdminBusinessResponse {
+  phone: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  capabilities: Shop["capabilities"];
+  counts: {
+    staff: number;
+    orders: number;
+    printers: number;
+  };
 }
 
 export interface AdminUserResponse {
@@ -58,6 +75,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly healthService: HealthService,
+    private readonly audit: AuditService,
   ) {}
 
   async listBusinesses(
@@ -82,6 +100,103 @@ export class AdminService {
       total,
       limit: query.take,
       offset: query.skip,
+    };
+  }
+
+  /** 23.7/Workstream A: an admin creating a business outright (PRD §106's
+   * fallback: "MVP can use administrator-assisted shop onboarding").
+   * `status` is never accepted from the client -- every new business is
+   * born `CLOSED` (the schema's own default) until its own staff open it,
+   * and `id` is always server-generated. No `qrSystemUserId` is touched
+   * here: that field doesn't exist until a later task, whose lazy-
+   * creation design has no dependency on business creation at all. */
+  async createBusiness(
+    actorId: string,
+    input: CreateBusinessInput,
+  ): Promise<AdminBusinessResponse> {
+    const shop = await this.prisma.shop.create({
+      data: {
+        name: input.name,
+        address: input.address,
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
+        phone: input.phone ?? null,
+        capabilities: input.capabilities ?? undefined,
+      },
+    });
+    await this.audit.record({
+      actorId,
+      action: AuditAction.SHOP_CREATED,
+      resourceType: "shop",
+      resourceId: shop.id,
+      metadata: { name: shop.name },
+    });
+    return {
+      id: shop.id,
+      name: shop.name,
+      address: shop.address,
+      status: shop.status,
+      createdAt: shop.createdAt,
+    };
+  }
+
+  /** 23.7/Workstream A: one business's detail -- the shop row plus how
+   * much is actually happening there (active staff, orders, printers) --
+   * so an admin can tell a real, working business from an empty shell. */
+  async getBusiness(id: string): Promise<AdminBusinessDetailResponse> {
+    const shop = await this.prisma.shop.findUnique({ where: { id } });
+    if (!shop) {
+      throw new NotFoundException("Business not found.");
+    }
+    const [staff, orders, printers] = await Promise.all([
+      this.prisma.shopStaff.count({ where: { shopId: id, status: "ACTIVE" } }),
+      this.prisma.order.count({ where: { shopId: id } }),
+      this.prisma.printer.count({ where: { shopId: id } }),
+    ]);
+    return {
+      id: shop.id,
+      name: shop.name,
+      address: shop.address,
+      status: shop.status,
+      createdAt: shop.createdAt,
+      phone: shop.phone,
+      latitude: shop.latitude,
+      longitude: shop.longitude,
+      capabilities: shop.capabilities,
+      counts: { staff, orders, printers },
+    };
+  }
+
+  /** 23.7/Workstream A: an admin forcing a business's status (e.g.
+   * suspending one for abuse) -- distinct from a shop owner's own
+   * settings-driven open/close toggle, and audited so it's traceable
+   * as a platform action rather than the business's own choice. */
+  async updateBusinessStatus(
+    actorId: string,
+    shopId: string,
+    status: Shop["status"],
+  ): Promise<AdminBusinessResponse> {
+    const existing = await this.prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
+      throw new NotFoundException("Business not found.");
+    }
+    const shop = await this.prisma.shop.update({ where: { id: shopId }, data: { status } });
+    await this.audit.record({
+      actorId,
+      action: AuditAction.SHOP_STATUS_CHANGED,
+      resourceType: "shop",
+      resourceId: shop.id,
+      metadata: { from: existing.status, to: status },
+    });
+    return {
+      id: shop.id,
+      name: shop.name,
+      address: shop.address,
+      status: shop.status,
+      createdAt: shop.createdAt,
     };
   }
 

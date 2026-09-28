@@ -76,6 +76,10 @@ export const AuditAction = {
   PRINTER_RULE_UPDATED: "PRINTER_RULE_UPDATED",
   PRINTER_RULE_DELETED: "PRINTER_RULE_DELETED",
   PRINTER_RULES_REORDERED: "PRINTER_RULES_REORDERED",
+  // Workstream A (admin panel business management): an admin creating a
+  // business, or changing its status, outside that business's own staff.
+  SHOP_CREATED: "SHOP_CREATED",
+  SHOP_STATUS_CHANGED: "SHOP_STATUS_CHANGED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

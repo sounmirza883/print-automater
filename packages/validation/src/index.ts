@@ -91,6 +91,10 @@ export {
   type AdminListQueryInput,
   adminAuditQuerySchema,
   type AdminAuditQueryInput,
+  createBusinessSchema,
+  type CreateBusinessInput,
+  updateBusinessStatusSchema,
+  type UpdateBusinessStatusInput,
 } from "./admin/index.js";
 export {
   createCustomerSchema,

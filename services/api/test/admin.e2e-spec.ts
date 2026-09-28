@@ -138,18 +138,89 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
     expect(res.body.counts.shops).toBeGreaterThanOrEqual(2);
   });
 
+  it("ADMIN can create a business (never accepting a client id/status), see it listed, read its detail, and change its status -- both mutations audited", async () => {
+    const name = `Admin E2E Created Shop ${randomUUID()}`;
+    const createRes = await request(app.getHttpServer())
+      .post("/v1/admin/businesses")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name,
+        address: "123 Created St",
+        // A client-supplied id/status must never win: the create schema
+        // does not even accept these keys, so they are silently dropped.
+        id: randomUUID(),
+        status: ShopStatus.OPEN,
+      });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body).toMatchObject({ name, address: "123 Created St" });
+    // Never the client-supplied status: a brand-new business is always CLOSED.
+    expect(createRes.body.status).toBe(ShopStatus.CLOSED);
+    const createdId = createRes.body.id as string;
+    shopIds.push(createdId);
+
+    const listRes = await request(app.getHttpServer())
+      .get("/v1/admin/businesses")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(listRes.status).toBe(200);
+    expect((listRes.body.items as Array<{ id: string }>).map((b) => b.id)).toContain(createdId);
+
+    const detailRes = await request(app.getHttpServer())
+      .get(`/v1/admin/businesses/${createdId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body).toMatchObject({
+      id: createdId,
+      name,
+      status: ShopStatus.CLOSED,
+      counts: { staff: 0, orders: 0, printers: 0 },
+    });
+
+    const statusRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/businesses/${createdId}/status`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ status: ShopStatus.OPEN });
+    expect(statusRes.status).toBe(200);
+    expect(statusRes.body.status).toBe(ShopStatus.OPEN);
+
+    const createAudit = await prisma.auditLog.findFirst({
+      where: { action: "SHOP_CREATED", resourceId: createdId },
+    });
+    expect(createAudit?.actorId).toBe(admin.id);
+
+    const statusAudit = await prisma.auditLog.findFirst({
+      where: { action: "SHOP_STATUS_CHANGED", resourceId: createdId },
+    });
+    expect(statusAudit?.actorId).toBe(admin.id);
+    expect(statusAudit?.metadata).toMatchObject({
+      from: ShopStatus.CLOSED,
+      to: ShopStatus.OPEN,
+    });
+  });
+
   it("a SHOP_OWNER gets 403 on every admin route, not elevated access", async () => {
     for (const path of [
       "/v1/admin/businesses",
       "/v1/admin/users",
       "/v1/admin/audit",
       "/v1/admin/system",
+      `/v1/admin/businesses/${shopA.id}`,
     ]) {
       const res = await request(app.getHttpServer())
         .get(path)
         .set("Authorization", `Bearer ${ownerToken}`);
       expect(res.status).toBe(403);
     }
+    const createRes = await request(app.getHttpServer())
+      .post("/v1/admin/businesses")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ name: "Owner-attempted shop", address: "nope" });
+    expect(createRes.status).toBe(403);
+
+    const statusRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/businesses/${shopA.id}/status`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ status: ShopStatus.SUSPENDED });
+    expect(statusRes.status).toBe(403);
   });
 
   it("no token: 401 on every admin route", async () => {
@@ -158,9 +229,19 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       "/v1/admin/users",
       "/v1/admin/audit",
       "/v1/admin/system",
+      `/v1/admin/businesses/${shopA.id}`,
     ]) {
       const res = await request(app.getHttpServer()).get(path);
       expect(res.status).toBe(401);
     }
+    const createRes = await request(app.getHttpServer())
+      .post("/v1/admin/businesses")
+      .send({ name: "No token shop", address: "nope" });
+    expect(createRes.status).toBe(401);
+
+    const statusRes = await request(app.getHttpServer())
+      .patch(`/v1/admin/businesses/${shopA.id}/status`)
+      .send({ status: ShopStatus.SUSPENDED });
+    expect(statusRes.status).toBe(401);
   });
 });
