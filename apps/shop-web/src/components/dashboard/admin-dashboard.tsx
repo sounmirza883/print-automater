@@ -6,6 +6,7 @@ import { ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
 import {
   BarList,
+  DataTable,
   ForbiddenState,
   LiveStatus,
   PageHeader,
@@ -15,7 +16,8 @@ import {
   StatGrid,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
-import { formatBytes, formatCount, humanizeEnum } from "@/lib/format";
+import { formatAge, formatBytes, formatCount, humanizeEnum } from "@/lib/format";
+import { orderStatusTone } from "@/lib/orders-view";
 import { useResource } from "@/lib/use-resource";
 
 const POLL_MS = 60_000;
@@ -137,6 +139,21 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
           value={formatCount(data.securityEvents24h.total)}
           tone={data.securityEvents24h.total > 0 ? "caution" : "neutral"}
         />
+        <Stat
+          label="Active users, 15 min"
+          value={formatCount(data.activeUsersNow)}
+          hint="Distinct logins in the last 15 minutes"
+        />
+        <Stat
+          label="Requests / min"
+          value={formatCount(Math.round(data.traffic.requestsPerMinute))}
+          hint={`${formatCount(data.traffic.totalSinceStart)} since this instance started`}
+        />
+        <Stat
+          label="Printer agents connected"
+          value={formatCount(data.instances.printerAgentsConnected)}
+          hint={<span title={data.instances.note}>{data.instances.note}</span>}
+        />
       </StatGrid>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -173,6 +190,25 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
           )}
         </Panel>
       </div>
+
+      <Panel title="Recent orders" id="recent-orders">
+        {data.recentOrders.length === 0 ? (
+          <p className="text-muted">No orders have been placed yet.</p>
+        ) : (
+          <DataTable caption="Recent orders" head={["Order", "Business", "Status", "Placed"]}>
+            {data.recentOrders.map((order) => (
+              <tr key={order.id}>
+                <td className="px-4 py-2 num font-medium">{order.publicOrderNumber}</td>
+                <td className="px-4 py-2 text-muted">{order.shopName}</td>
+                <td className="px-4 py-2">
+                  <Pill tone={orderStatusTone(order.status)}>{humanizeEnum(order.status)}</Pill>
+                </td>
+                <td className="px-4 py-2 text-muted">{formatAge(order.createdAt)}</td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+      </Panel>
 
       <Panel title="Subscriptions" id="subscriptions">
         <p className="text-muted">
