@@ -1,15 +1,18 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
+import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
 import type { AdminDashboardResponse } from "@print-automated/types";
 import { AdminDashboardService } from "./admin-dashboard.service.js";
 import { AdminListQueryDto } from "./dto/admin-list-query.dto.js";
 import { AdminAuditQueryDto } from "./dto/admin-audit-query.dto.js";
+import { CreateBusinessDto } from "./dto/create-business.dto.js";
+import { UpdateBusinessStatusDto } from "./dto/update-business-status.dto.js";
 import {
   AdminService,
   type AdminBusinessResponse,
+  type AdminBusinessDetailResponse,
   type AdminUserResponse,
   type AdminAuditEntryResponse,
   type AdminListResult,
@@ -41,6 +44,29 @@ export class AdminController {
     @Query() query: AdminListQueryDto,
   ): Promise<AdminListResult<AdminBusinessResponse>> {
     return this.adminService.listBusinesses(query);
+  }
+
+  /** 23.7/Workstream A (PRD §106's admin-assisted onboarding fallback). */
+  @Post("businesses")
+  createBusiness(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateBusinessDto,
+  ): Promise<AdminBusinessResponse> {
+    return this.adminService.createBusiness(req.user!.id, dto);
+  }
+
+  @Get("businesses/:id")
+  getBusiness(@Param("id") id: string): Promise<AdminBusinessDetailResponse> {
+    return this.adminService.getBusiness(id);
+  }
+
+  @Patch("businesses/:id/status")
+  updateBusinessStatus(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateBusinessStatusDto,
+  ): Promise<AdminBusinessResponse> {
+    return this.adminService.updateBusinessStatus(req.user!.id, id, dto.status);
   }
 
   @Get("users")
