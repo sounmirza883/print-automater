@@ -13,7 +13,6 @@ import {
   OrderStatus,
   PaymentStatus,
   Prisma,
-  PrinterStatus,
   PrintJobStatus,
 } from "@prisma/client";
 import {
@@ -1065,23 +1064,26 @@ export class ShopOrdersService {
       if (allocation.outcome !== "ALLOCATED" || pass > candidates.length + 1) {
         return allocation;
       }
-      const rows = await tx.$queryRaw<Array<{ status: PrinterStatus }>>`
-        SELECT status FROM printers WHERE id = ${allocation.printerId} FOR SHARE
-      `;
-      const current = rows[0]?.status;
+      // Lock first (bare SELECT id .. FOR SHARE, the same idiom resume and failover already
+      // use), THEN re-read through Prisma's own typed client -- never hand-parse a raw row.
+      await tx.$queryRaw`SELECT id FROM printers WHERE id = ${allocation.printerId} FOR SHARE`;
+      const current = await tx.printer.findUnique({
+        where: { id: allocation.printerId },
+        select: { status: true },
+      });
       const chosen = candidates.find((candidate) => candidate.id === allocation.printerId);
-      if (current === undefined || chosen === undefined) {
+      if (current === null || chosen === undefined) {
         // Deleted meanwhile: never a candidate again in this dispatch.
         const index = candidates.findIndex((candidate) => candidate.id === allocation.printerId);
         if (index >= 0) candidates.splice(index, 1);
         continue;
       }
-      if (current === chosen.status) {
+      if (current.status === chosen.status) {
         return allocation;
       }
       // Changed since it was read: allocate again with the status as it is now (the same
       // candidate list later items in this dispatch use, so they see it too).
-      chosen.status = current;
+      chosen.status = current.status;
     }
   }
 
