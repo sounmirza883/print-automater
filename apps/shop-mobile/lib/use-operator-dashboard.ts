@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ApiClient } from "@print-automated/api-client";
 import type { OperatorDashboardResponse } from "@print-automated/types";
 import { useIsOffline } from "./use-is-offline.js";
@@ -15,18 +15,21 @@ export const OPERATOR_DASHBOARD_LIMIT = 10;
 
 /** 23.33: the operator's production view (GET /shop/dashboard/operator). Same offline
  * behaviour as use-shop-orders.ts: no polling while offline, the last good data kept, and an
- * immediate reload on reconnect. `reload()` is for pull-to-refresh. */
+ * immediate reload on reconnect. `reload()` is for pull-to-refresh: it bumps a counter the
+ * effect depends on (the use-printers.ts pattern), and does nothing while nothing can load,
+ * so the refresh spinner can never be left turning. */
 export function useOperatorDashboard(
   apiClient: ApiClient,
   shopId: string | null,
   enabled: boolean,
 ): { state: OperatorDashboardState; reload: () => void } {
   const [state, setState] = useState<OperatorDashboardState>({ phase: "loading" });
+  const [reloads, setReloads] = useState(0);
   const isOffline = useIsOffline();
-  const loadRef = useRef<() => Promise<void>>(async () => undefined);
+  const canLoad = shopId !== null && enabled && !isOffline;
 
   useEffect(() => {
-    if (shopId === null || !enabled || isOffline) {
+    if (!canLoad || shopId === null) {
       return;
     }
     const activeShopId = shopId;
@@ -48,19 +51,21 @@ export function useOperatorDashboard(
       }
     }
 
-    loadRef.current = load;
     void load();
     const interval = setInterval(() => void load(), OPERATOR_DASHBOARD_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [apiClient, shopId, enabled, isOffline]);
+  }, [apiClient, shopId, canLoad, reloads]);
 
   const reload = useCallback(() => {
+    if (!canLoad) {
+      return;
+    }
     setState((current) => (current.phase === "ready" ? { ...current, refreshing: true } : current));
-    void loadRef.current();
-  }, []);
+    setReloads((count) => count + 1);
+  }, [canLoad]);
 
   return { state, reload };
 }
