@@ -78,6 +78,9 @@ export const AuditAction = {
   PRINTER_RULES_REORDERED: "PRINTER_RULES_REORDERED",
   // 26.2: a platform admin activating or extending a business's plan.
   SHOP_PLAN_ACTIVATED: "SHOP_PLAN_ACTIVATED",
+  // Self-service business signup (definition-of-done.md #1): a prospective
+  // business created its own Shop + SHOP_OWNER account through the public API.
+  SHOP_REGISTERED: "SHOP_REGISTERED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
