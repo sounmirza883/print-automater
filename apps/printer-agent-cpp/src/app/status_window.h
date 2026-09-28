@@ -1,0 +1,76 @@
+#pragma once
+
+#include <windows.h>
+
+#include <functional>
+#include <string>
+#include <string_view>
+
+#include "agent/agent.h"
+
+namespace pa {
+
+/// 28 (added alongside the browser pairing page, not replacing it -- see
+/// server/pairing_page.cpp and loopback.cpp, whose URL stays the pairing
+/// instructions shown in shop-mobile/shop-web/marketing-web, the README and
+/// the installer, and the only way a second launched instance can show a
+/// running instance's state).
+///
+/// The same fields as the HTML page -- state, shop, device, last heartbeat,
+/// printer count, last job, last error, and the pairing-code form -- as
+/// plain Win32 controls in-process. No HTTP round trip and no polling timer:
+/// `on_status_changed()` is pushed from Agent's own status listener exactly
+/// the way Tray::set_status() already is, so the window is always current
+/// the instant it's shown.
+class StatusWindow {
+ public:
+  StatusWindow(HINSTANCE instance, std::function<AgentStatus()> get_status,
+               std::function<void(std::string_view)> pair);
+  StatusWindow(const StatusWindow&) = delete;
+  StatusWindow& operator=(const StatusWindow&) = delete;
+  ~StatusWindow();
+
+  /// Shows the window (creating its controls the first time) and brings it
+  /// to the foreground. Safe to call repeatedly -- later calls just re-show.
+  void show();
+
+  /// Thread-safe: call from any thread whenever the agent's status changes.
+  /// Refreshes the window's own fields if it has been created; harmless if
+  /// show() has never been called.
+  void on_status_changed();
+
+  // Shop / This computer / Last heartbeat / Printers found / Last job, in that order. Public:
+  // status_window.cpp's own free-function label table is sized off this too.
+  static constexpr int kDetailRowCount = 5;
+
+ private:
+  static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+  LRESULT handle(UINT message, WPARAM wparam, LPARAM lparam);
+  void create_window();
+  void create_controls();
+  void refresh();
+  void submit_pairing_code();
+
+  HINSTANCE instance_;
+  std::function<AgentStatus()> get_status_;
+  std::function<void(std::string_view)> pair_;
+
+  HWND window_ = nullptr;
+  HFONT font_ = nullptr;
+  HWND status_text_ = nullptr;
+
+  HWND detail_labels_[kDetailRowCount] = {};
+  HWND detail_values_[kDetailRowCount] = {};
+
+  HWND problem_text_ = nullptr;
+
+  HWND pair_label_ = nullptr;
+  HWND pair_hint_ = nullptr;
+  HWND pair_edit_ = nullptr;
+  HWND pair_button_ = nullptr;
+  HWND pair_error_ = nullptr;
+
+  HWND version_text_ = nullptr;
+};
+
+}  // namespace pa

@@ -18,7 +18,14 @@ namespace pa {
 /// It lives on the thread that calls run(); set_status() and quit() may be called from any.
 class Tray {
  public:
-  Tray(HINSTANCE instance, std::wstring page_url, std::function<void()> on_quit);
+  /// `on_show_window` (28) is the default action -- a plain click, or "Show agent window" in the
+  /// menu -- and shows the native status/pairing window. `page_url` is still opened by "Open in
+  /// browser", unchanged: it's the only way a second launched instance can show a running
+  /// instance's state (main.cpp's ERROR_ALREADY_EXISTS branch has no way to reach a different
+  /// process's window), and it's what shop-mobile/shop-web/marketing-web's own pairing
+  /// instructions already point at.
+  Tray(HINSTANCE instance, std::wstring page_url, std::function<void()> on_show_window,
+       std::function<void()> on_quit);
   Tray(const Tray&) = delete;
   Tray& operator=(const Tray&) = delete;
   ~Tray();
@@ -34,11 +41,13 @@ class Tray {
   void add_icon();
   void update_tooltip();
   void show_menu();
+  void show_window() const;
   void open_page() const;
   void shut_down();
 
   HINSTANCE instance_;
   std::wstring page_url_;
+  std::function<void()> on_show_window_;
   std::function<void()> on_quit_;
   HWND window_ = nullptr;
   HICON icon_ = nullptr;

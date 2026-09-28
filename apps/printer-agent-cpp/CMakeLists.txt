@@ -74,7 +74,9 @@ add_library(agent_core STATIC
   src/agent/agent.cpp
   src/server/loopback.cpp
   src/server/pairing_page.cpp
-  src/app/tray.cpp)
+  src/app/tray.cpp
+  # 28: the native status/pairing window, alongside the browser page above
+  src/app/status_window.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3

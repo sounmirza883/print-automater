@@ -9,6 +9,7 @@
 
 #include "agent/agent.h"
 #include "app/log.h"
+#include "app/status_window.h"
 #include "app/tray.h"
 #include "app/version.h"
 #include "app/win.h"
@@ -116,14 +117,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
     server.start();  // throws when the port is taken: never two agents printing at once
     agent.start();
 
-    pa::Tray tray(instance, kPageUrl, [&] {
-      log.info("shutting down");
-      server.stop();
-      agent.stop();
-    });
-    const auto refresh_tray = [&tray, &agent] { tray.set_status(describe(agent.status())); };
-    agent.set_status_listener(refresh_tray);
-    refresh_tray();
+    // 28: the tray's own click/menu default shows this in-process window; the browser page
+    // (kPageUrl) stays reachable too, unchanged, since it's the only thing a SECOND launched
+    // instance (below) or an external pairing walkthrough can reach.
+    pa::StatusWindow window(
+        instance, [&agent] { return agent.status(); },
+        [&agent](std::string_view code) { agent.pair(code); });
+    pa::Tray tray(
+        instance, kPageUrl, [&] { window.show(); },
+        [&] {
+          log.info("shutting down");
+          server.stop();
+          agent.stop();
+        });
+    const auto refresh_status = [&] {
+      tray.set_status(describe(agent.status()));
+      window.on_status_changed();
+    };
+    agent.set_status_listener(refresh_status);
+    refresh_status();
     if (open_page) ShellExecuteW(nullptr, L"open", kPageUrl, nullptr, nullptr, SW_SHOWNORMAL);
 
     const int code = tray.run();

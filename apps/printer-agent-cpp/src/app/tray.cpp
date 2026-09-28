@@ -12,14 +12,19 @@ namespace {
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kStatusMessage = WM_APP + 2;
 constexpr UINT kIconId = 1;
-constexpr UINT_PTR kOpenCommand = 1;
-constexpr UINT_PTR kQuitCommand = 2;
+constexpr UINT_PTR kShowCommand = 1;
+constexpr UINT_PTR kOpenCommand = 2;
+constexpr UINT_PTR kQuitCommand = 3;
 constexpr wchar_t kWindowClass[] = L"PrintAutomatedAgentTray";
 
 }  // namespace
 
-Tray::Tray(HINSTANCE instance, std::wstring page_url, std::function<void()> on_quit)
-    : instance_(instance), page_url_(std::move(page_url)), on_quit_(std::move(on_quit)) {
+Tray::Tray(HINSTANCE instance, std::wstring page_url, std::function<void()> on_show_window,
+          std::function<void()> on_quit)
+    : instance_(instance),
+      page_url_(std::move(page_url)),
+      on_show_window_(std::move(on_show_window)),
+      on_quit_(std::move(on_quit)) {
   taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
   icon_ = static_cast<HICON>(LoadImageW(instance_, MAKEINTRESOURCEW(IDI_AGENT), IMAGE_ICON,
                                         GetSystemMetrics(SM_CXSMICON),
@@ -95,15 +100,20 @@ void Tray::show_menu() {
   }
   AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, status.c_str());
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, kOpenCommand, L"Open agent page");
+  AppendMenuW(menu, MF_STRING, kShowCommand, L"Show agent window");
+  AppendMenuW(menu, MF_STRING, kOpenCommand, L"Open in browser");
   AppendMenuW(menu, MF_STRING, kQuitCommand, L"Quit Print Automated agent");
-  SetMenuDefaultItem(menu, static_cast<UINT>(kOpenCommand), FALSE);
+  SetMenuDefaultItem(menu, static_cast<UINT>(kShowCommand), FALSE);
   POINT at{};
   GetCursorPos(&at);
   SetForegroundWindow(window_);  // so the menu closes when the user clicks elsewhere
   TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, at.x, at.y, 0, window_, nullptr);
   PostMessageW(window_, WM_NULL, 0, 0);
   DestroyMenu(menu);
+}
+
+void Tray::show_window() const {
+  if (on_show_window_) on_show_window_();
 }
 
 void Tray::open_page() const {
@@ -129,7 +139,7 @@ LRESULT Tray::handle(UINT message, WPARAM wparam, LPARAM lparam) {
       switch (LOWORD(lparam)) {
         case NIN_SELECT:
         case NIN_KEYSELECT:
-          open_page();
+          show_window();
           return 0;
         case WM_CONTEXTMENU:
           show_menu();
@@ -141,6 +151,7 @@ LRESULT Tray::handle(UINT message, WPARAM wparam, LPARAM lparam) {
       update_tooltip();
       return 0;
     case WM_COMMAND:
+      if (LOWORD(wparam) == kShowCommand) show_window();
       if (LOWORD(wparam) == kOpenCommand) open_page();
       if (LOWORD(wparam) == kQuitCommand) DestroyWindow(window_);
       return 0;
