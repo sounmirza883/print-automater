@@ -26,15 +26,15 @@ Phases 0–13) left off at. Read it before touching anything in Phase 14+.
 
 ### Decisions already locked (do not re-litigate these)
 
-| Decision                    | Choice                                                                                                                                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Relationship to the old PRD | **Extend** — nothing working is retired                                                                                                                                                               |
-| Tenant naming               | `Shop` stays the Prisma model / API / code name; UI copy says "Business"                                                                                                                              |
-| Back-office UI              | New `apps/shop-web` (Next.js); `apps/shop-mobile` stays the production-floor app                                                                                                                      |
-| Infrastructure              | **Docker only.** No Terraform, no AWS. `infrastructure/terraform/` is deleted in 14.2.                                                                                                                |
-| Printer agent               | Being rewritten **natively in C++** (`apps/printer-agent-cpp`), built to parity alongside the existing Node agent (`apps/printer-agent`), which is deleted only once C++ proves it can print for real |
-| C++ stack                   | Win32 (`winspool`, `Shell_NotifyIcon`) + libcurl + libsodium + SQLite + nlohmann/json, CMake + vcpkg + MSVC                                                                                           |
-| Print filter                | **PDFium linked in-process** — not SumatraPDF (GPLv3, unresolved licensing risk)                                                                                                                      |
+| Decision                    | Choice                                                                                                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relationship to the old PRD | **Extend** — nothing working is retired                                                                                                                     |
+| Tenant naming               | `Shop` stays the Prisma model / API / code name; UI copy says "Business"                                                                                    |
+| Back-office UI              | New `apps/shop-web` (Next.js); `apps/shop-mobile` stays the production-floor app                                                                            |
+| Infrastructure              | **Docker only.** No Terraform, no AWS. `infrastructure/terraform/` is deleted in 14.2.                                                                      |
+| Printer agent               | **Native C++** (`apps/printer-agent-cpp`, Phase 24). The Node agent was deleted in 24.15 once the C++ one had printed a real job and passed the parity gate |
+| C++ stack                   | Win32 (`winspool`, `Shell_NotifyIcon`) + libcurl + libsodium + SQLite + nlohmann/json, CMake + vcpkg + MSVC                                                 |
+| Print filter                | **PDFium linked in-process** — not SumatraPDF (GPLv3, unresolved licensing risk)                                                                            |
 
 ## Repo layout
 
@@ -43,8 +43,8 @@ apps/
   customer-web/       Next.js — consumer marketplace (built, working)
   shop-mobile/         Expo/React Native — shop production floor (built, working)
   shop-web/             Next.js — owner/admin/back-office (NEW, Phase 23)
-  printer-agent/       Node.js Windows agent (built, working — reference impl, deleted at end of Phase 24)
-  printer-agent-cpp/  Native C++ Windows agent (NEW, Phase 24)
+  printer-agent-cpp/   Native C++ Windows agent (Phase 24; not in the pnpm workspace:
+                       build with its build.ps1, see its README)
 services/
   api/                 NestJS + Prisma — the backend of record
   worker/              BullMQ background processors

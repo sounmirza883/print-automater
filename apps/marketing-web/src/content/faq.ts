@@ -22,7 +22,7 @@ export const faqs: FaqItem[] = [
     category: "Setup",
     question: "How does the printer agent get set up?",
     answer:
-      "Install the agent on a Windows computer in your shop, sign in and pick which printers to share. It connects outward to Print Automated, so you do not open any ports on your network.",
+      "Install the agent on a Windows computer in your shop and enter the pairing code from Printers, Pair a computer. It reports the printers it finds on its own, and it connects outward to Print Automated, so you do not open any ports on your network.",
   },
   {
     id: "going-live",

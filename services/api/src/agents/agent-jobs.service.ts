@@ -28,10 +28,10 @@ export interface PrintJobSummary {
   status: PrintJobStatus;
   claimedAt: string | null;
   createdAt: string;
-  // §9.9: the agent needs the order's own print configuration to build
-  // SumatraPDF's settings string -- there is nowhere else for it to
-  // get this from, since a job carries no configuration of its own
-  // (print_configuration lives on the order, snapshotted at 5.5).
+  // §9.9: the agent needs the order's own print configuration to set up
+  // the printer (DEVMODE) and choose the pages -- there is nowhere else
+  // for it to get this from, since a job carries no configuration of its
+  // own (print_configuration lives on the order, snapshotted at 5.5).
   printConfiguration: PrintConfiguration;
 }
 

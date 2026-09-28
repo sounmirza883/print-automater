@@ -111,13 +111,13 @@ export default function GettingStartedPage() {
       </p>
       <ol>
         <li>
-          Generate a one-time <strong>pairing code</strong> for your business. It is 8 characters,
-          works once and expires after 10 minutes. You need the <code>MANAGE_PRINTERS</code>{" "}
-          permission.
+          In <strong>Printers</strong>, choose <strong>Pair a computer</strong> to get a one-time{" "}
+          <strong>pairing code</strong> for your business. It is 8 characters, works once and
+          expires after 10 minutes. You need the <code>MANAGE_PRINTERS</code> permission.
         </li>
         <li>
-          Install the agent on the shop PC, open its status page at{" "}
-          <code>http://127.0.0.1:7171</code> and enter the code.
+          Install the agent on the shop PC. Its page (<code>http://127.0.0.1:7171</code>) opens when
+          the installer finishes: enter the code there.
         </li>
         <li>
           Within about 30 seconds the agent reports the printers Windows can see. Check them on the{" "}

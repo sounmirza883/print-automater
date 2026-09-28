@@ -365,7 +365,7 @@ describe("Edge case suite (13.2, e2e)", () => {
     // "Reconnect": the outage is on the network path between agent and
     // backend, not the agent process itself or its own already-issued
     // token, so the SAME session's accessToken is what a real agent's
-    // reconnect-backoff loop (apps/printer-agent) resumes heartbeating
+    // reconnect-backoff loop (apps/printer-agent-cpp) resumes heartbeating
     // with once connectivity returns -- re-authenticating from scratch
     // here would just re-derive the signature flow already proven in
     // agent-heartbeat.e2e-spec.ts, not add anything to what THIS

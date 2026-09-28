@@ -15,9 +15,9 @@ export const heartbeatSchema = z.object({
       name: z.string().min(1),
       status: z.enum(["ONLINE", "ERROR"]),
       capabilities: printerCapabilitiesSchema.optional(),
-      // 15.6/§16. `Get-Printer`/`Get-PrintConfiguration`
-      // (apps/printer-agent/src/printers/discovery.ts) already
-      // discover these two -- this is the wire contract catching up
+      // 15.6/§16. The agent's printer discovery (EnumPrinters, in
+      // apps/printer-agent-cpp/src/printing/discovery.cpp) already
+      // discovers these two -- this is the wire contract catching up
       // to data the agent was silently dropping, not new hardware
       // access. Both optional for two independent reasons: an agent
       // built before 15.6 sends neither at all (must not be treated

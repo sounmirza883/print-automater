@@ -34,7 +34,7 @@ async function counterAccessToken(request: APIRequestContext): Promise<string> {
   return accessToken;
 }
 
-/** Everything the real printer-agent process (apps/printer-agent) would
+/** Everything the real printer-agent process (apps/printer-agent-cpp) would
  * do against the real backend HTTP surface -- claim the queued job,
  * download the decrypted document, report success -- except actually
  * driving a printer, which 13.1's own Build line names as the one step
@@ -150,8 +150,8 @@ async function actAsAgentAndPrint(
   expect(documentBytes.subarray(0, 4).toString("latin1")).toBe("%PDF");
 
   // 21/22. Agent sends document to printer; printer prints. <-- The one
-  // manual step (13.1's own Build line): a real SumatraPrinterDriver
-  // submission to a real, physically attached printer against the
+  // manual step (13.1's own Build line): the agent's own PDFium print
+  // to a real, physically attached printer against the
   // bytes just downloaded above. Everything before and after this
   // point is genuinely automated against the real backend.
 
