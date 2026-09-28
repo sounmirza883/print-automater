@@ -1,5 +1,5 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import { ShopStatus, ShopStaffStatus, UserRole, type Prisma, type Shop } from "@prisma/client";
+import { Prisma, ShopStatus, ShopStaffStatus, UserRole, type Shop } from "@prisma/client";
 import { PaperSize, type Page, type PrinterCapabilities } from "@print-automated/types";
 import type { ListShopsQueryInput, RegisterShopInput } from "@print-automated/validation";
 import { PrismaService, AuditService } from "@print-automated/backend-shared";
@@ -86,65 +86,75 @@ export class ShopsService {
 
     const passwordHash = await this.passwordService.hash(input.owner.password);
 
-    const { user, shop } = await this.prisma.$transaction(
-      async (tx) => {
-        // Re-check inside the transaction: two concurrent registrations
-        // for the same email could both pass the outer check.
-        const raced = await tx.user.findUnique({ where: { email: input.owner.email } });
-        if (raced) {
-          throw new ConflictException("An account with this email already exists.");
-        }
+    // The outer findUnique above and this transaction's own tx.user.create()
+    // don't actually close the race under READ COMMITTED: two concurrent
+    // registrations for the same email can both pass their SELECT before
+    // either INSERT commits. users.email @unique still prevents a duplicate
+    // row, but the losing transaction's tx.user.create() throws a raw P2002
+    // that must be translated to the same 409 the outer check gives, or the
+    // caller gets a misleading 500 "please retry" for an account that
+    // already exists.
+    let created: { user: { id: string; name: string; email: string; role: UserRole }; shop: Shop };
+    try {
+      created = await this.prisma.$transaction(
+        async (tx) => {
+          const shop = await tx.shop.create({
+            data: {
+              name: input.shop.name,
+              address: input.shop.address,
+              phone: input.shop.phone,
+              status: ShopStatus.OPEN,
+              capabilities: input.shop.capabilities as unknown as Prisma.InputJsonValue,
+            },
+          });
 
-        const shop = await tx.shop.create({
-          data: {
-            name: input.shop.name,
-            address: input.shop.address,
-            phone: input.shop.phone,
-            status: ShopStatus.OPEN,
-            capabilities: input.shop.capabilities as unknown as Prisma.InputJsonValue,
-          },
-        });
+          const user = await tx.user.create({
+            data: {
+              role: UserRole.SHOP_OWNER,
+              name: input.owner.name,
+              email: input.owner.email,
+              phone: input.owner.phone,
+              passwordHash,
+            },
+          });
 
-        const user = await tx.user.create({
-          data: {
-            role: UserRole.SHOP_OWNER,
-            name: input.owner.name,
-            email: input.owner.email,
-            phone: input.owner.phone,
-            passwordHash,
-          },
-        });
+          await tx.shopStaff.create({
+            data: {
+              shopId: shop.id,
+              userId: user.id,
+              role: UserRole.SHOP_OWNER,
+              status: ShopStaffStatus.ACTIVE,
+            },
+          });
 
-        await tx.shopStaff.create({
-          data: {
-            shopId: shop.id,
-            userId: user.id,
-            role: UserRole.SHOP_OWNER,
-            status: ShopStaffStatus.ACTIVE,
-          },
-        });
+          await tx.pricingRule.create({
+            data: {
+              shopId: shop.id,
+              version: 1,
+              currency: input.pricing.currency,
+              pricePerPageMinor: input.pricing.pricePerPageMinor,
+              colorSurchargePerPageMinor: input.pricing.colorSurchargePerPageMinor,
+              otherCharges: input.pricing.otherCharges,
+              minimumChargeMinor: input.pricing.minimumChargeMinor,
+              paperSizeSurchargePerPageMinor: input.pricing.paperSizeSurchargePerPageMinor,
+              paperTypeSurchargePerPageMinor: input.pricing.paperTypeSurchargePerPageMinor,
+              finishingChargeMinor: input.pricing.finishingChargeMinor,
+              taxRateBasisPoints: input.pricing.taxRateBasisPoints,
+            },
+          });
 
-        await tx.pricingRule.create({
-          data: {
-            shopId: shop.id,
-            version: 1,
-            currency: input.pricing.currency,
-            pricePerPageMinor: input.pricing.pricePerPageMinor,
-            colorSurchargePerPageMinor: input.pricing.colorSurchargePerPageMinor,
-            otherCharges: input.pricing.otherCharges,
-            minimumChargeMinor: input.pricing.minimumChargeMinor,
-            paperSizeSurchargePerPageMinor: input.pricing.paperSizeSurchargePerPageMinor,
-            paperTypeSurchargePerPageMinor: input.pricing.paperTypeSurchargePerPageMinor,
-            finishingChargeMinor: input.pricing.finishingChargeMinor,
-            taxRateBasisPoints: input.pricing.taxRateBasisPoints,
-          },
-        });
+          return { user, shop };
+        },
+        { maxWait: 10_000, timeout: 10_000 },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("An account with this email already exists.");
+      }
+      throw error;
+    }
 
-        return { user, shop };
-      },
-      { maxWait: 10_000, timeout: 10_000 },
-    );
-
+    const { user, shop } = created;
     const pair = await this.tokenService.issueTokenPair(user);
     await this.auditService.record({
       actorId: user.id,

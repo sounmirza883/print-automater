@@ -134,6 +134,34 @@ describe("Shop registration (e2e)", () => {
     expect(second.status).toBe(409);
   });
 
+  // Regression: the outer findUnique() doesn't close the race under READ
+  // COMMITTED -- two concurrent requests for the same email can both pass
+  // their own SELECT before either INSERT commits. users.email @unique
+  // still prevents a duplicate row, but without translating the loser's
+  // raw P2002 into the same 409, it fell through to a generic 500. Fire
+  // two identical requests genuinely in parallel: exactly one must win
+  // with 201, the other must get 409 -- never 500.
+  it("resolves a genuinely concurrent duplicate-email race as 201 + 409, never 500", async () => {
+    const email = `shop-registration-e2e-race-${randomUUID()}@print-automated.dev`;
+    createdEmails.push(email);
+    const shopName = `Self-Service Print Shop Race ${randomUUID()}`;
+
+    const [first, second] = await Promise.all([
+      request(app.getHttpServer())
+        .post("/v1/shops/register")
+        .send(validBody({ ownerEmail: email, shopName: `${shopName} A` })),
+      request(app.getHttpServer())
+        .post("/v1/shops/register")
+        .send(validBody({ ownerEmail: email, shopName: `${shopName} B` })),
+    ]);
+
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const users = await prisma.user.findMany({ where: { email } });
+    expect(users).toHaveLength(1);
+  });
+
   it("rejects negative pricing values with validation, never reaching the DB", async () => {
     const body = validBody();
     body.pricing.pricePerPageMinor = -1;
