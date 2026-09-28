@@ -1,24 +1,15 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { instructionSummary as sharedInstructionSummary } from "@print-automated/api-client";
 import type { DashboardJob } from "@print-automated/types";
 import { BlockedNote } from "@/components/blocked-note";
 import { Pill } from "@/components/ui";
 import { formatAge, humanizeEnum, priorityLabel } from "@/lib/format";
 import { isHeldByLatePrint, jobStatusTone } from "@/lib/job-status";
 
-/** What to load and how to print, on one line: "A4 · Plain · Colour ·
- * Double-sided · 2 copies x 12 pp = 24 pp". This is the "required paper"
- * and "job instructions" of PRD 40. */
+/** What to load and how to print, on one line (shared with shop-mobile, 23.31). */
 export function instructionSummary(job: DashboardJob): string {
-  const { instructions: i } = job;
-  const parts = [i.paperSize, i.paperType, i.color, i.sides, i.orientation, ...i.finishing]
-    .filter((part): part is string => part !== null && part !== "")
-    .map(humanizeEnum);
-  const pages =
-    i.copies > 1
-      ? `${i.copies} copies × ${i.pagesPerCopy} pp = ${i.totalPages} pp`
-      : `${i.totalPages} pp`;
-  return [...parts, pages].join(" · ");
+  return sharedInstructionSummary(job.instructions);
 }
 
 /** One job on the operator dashboard. The order number links to the

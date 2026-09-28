@@ -72,11 +72,9 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
-/** `PRINTER_OFFLINE` -> "Printer offline". */
-export function humanizeEnum(value: string): string {
-  const spaced = value.toLowerCase().replaceAll("_", " ");
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
+/** `PRINTER_OFFLINE` -> "Printer offline", and the priority labels: shared with shop-mobile
+ * (@print-automated/api-client, 23.31). */
+export { humanizeEnum, priorityLabel } from "@print-automated/api-client";
 
 /** "3 min ago" style age of an ISO timestamp, relative to `now`. */
 export function formatAge(iso: string | null, now: number = Date.now()): string {
@@ -107,22 +105,6 @@ export function formatDateTime(iso: string): string {
 
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en", { dateStyle: "medium" });
-}
-
-const JOB_PRIORITY_LABELS: ReadonlyArray<readonly [number, string]> = [
-  [20, "Urgent"],
-  [10, "High"],
-  [0, "Normal"],
-];
-
-/** `JobPriority` scale: 0 normal, 10 high, 20 urgent. */
-export function priorityLabel(priority: number): string {
-  for (const [threshold, label] of JOB_PRIORITY_LABELS) {
-    if (priority >= threshold) {
-      return label;
-    }
-  }
-  return "Normal";
 }
 
 /** "125.50" -> 12550 in `currency`, or null when the text is not a
