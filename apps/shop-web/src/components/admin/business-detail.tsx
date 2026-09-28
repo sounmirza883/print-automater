@@ -22,6 +22,7 @@ import { getApi } from "@/lib/api";
 import { formatCount, formatDate, humanizeEnum } from "@/lib/format";
 import { useResource } from "@/lib/use-resource";
 import { STATUS_OPTIONS, STATUS_TONE } from "./businesses-screen";
+import { ShopQrCode } from "./shop-qr-code";
 
 /** Workstream A (23.7): one business's detail -- counts of what's
  * actually happening there, its profile, and the one thing an admin can
@@ -112,6 +113,8 @@ function BusinessBody({
           </div>
         </dl>
       </Panel>
+
+      <ShopQrCode shopId={data.id} shopName={data.name} />
 
       <Panel title="Status" id="status">
         <form
