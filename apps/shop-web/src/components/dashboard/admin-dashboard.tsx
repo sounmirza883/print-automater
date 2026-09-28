@@ -95,7 +95,12 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
       </Panel>
 
       <StatGrid>
-        <Stat label="Businesses" value={formatCount(data.businesses.total)} />
+        <Stat
+          label="Businesses"
+          value={formatCount(data.businesses.total)}
+          hint="Manage businesses"
+          href="/admin/businesses"
+        />
         <Stat label="Users" value={formatCount(data.users.total)} />
         <Stat
           label="Orders"

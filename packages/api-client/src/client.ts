@@ -19,6 +19,7 @@ import {
 import { SettingsResource, PrinterRulesResource } from "./resources/settings.resource.js";
 import { ReportsResource } from "./resources/reports.resource.js";
 import { NotificationsResource } from "./resources/notifications.resource.js";
+import { AdminResource } from "./resources/admin.resource.js";
 
 export class ApiClient {
   readonly auth: AuthResource;
@@ -38,6 +39,7 @@ export class ApiClient {
   readonly printerRules: PrinterRulesResource;
   readonly reports: ReportsResource;
   readonly notifications: NotificationsResource;
+  readonly admin: AdminResource;
 
   constructor(options: HttpClientOptions) {
     const http = new HttpClient(options);
@@ -58,5 +60,6 @@ export class ApiClient {
     this.printerRules = new PrinterRulesResource(http);
     this.reports = new ReportsResource(http);
     this.notifications = new NotificationsResource(http);
+    this.admin = new AdminResource(http);
   }
 }
