@@ -1,12 +1,14 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
+import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { Roles } from "../auth/roles.decorator.js";
 import type { AdminDashboardResponse } from "@print-automated/types";
+import { ShopPlanService, type ShopPlanResponse } from "../shop-plan/shop-plan.service.js";
 import { AdminDashboardService } from "./admin-dashboard.service.js";
 import { AdminListQueryDto } from "./dto/admin-list-query.dto.js";
 import { AdminAuditQueryDto } from "./dto/admin-audit-query.dto.js";
+import { ActivatePlanDto } from "./dto/activate-plan.dto.js";
 import {
   AdminService,
   type AdminBusinessResponse,
@@ -28,6 +30,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly adminDashboard: AdminDashboardService,
+    private readonly shopPlan: ShopPlanService,
   ) {}
 
   /** 23.2 (§42): platform-wide dashboard. Reuses this controller's ADMIN-only gate. */
@@ -56,5 +59,24 @@ export class AdminController {
   @Get("system")
   getSystemStatus(): Promise<AdminSystemStatus> {
     return this.adminService.getSystemStatus();
+  }
+
+  /** 26.4: the Plan (subscription) system -- a platform admin manually
+   * activates/renews a business's plan; there is no payment gateway here.
+   * `ShopPlanService.getStatusForAdmin`/`activate` skip the shop-membership
+   * check `GET /shop/plan` (26.5) requires, matching this whole controller's
+   * own "no ShopScopeGuard, by design" comment above. */
+  @Get("businesses/:shopId/plan")
+  getPlan(@Param("shopId") shopId: string): Promise<ShopPlanResponse> {
+    return this.shopPlan.getStatusForAdmin(shopId);
+  }
+
+  @Post("businesses/:shopId/plan/activate")
+  activatePlan(
+    @Req() req: RequestWithUser,
+    @Param("shopId") shopId: string,
+    @Body() body: ActivatePlanDto,
+  ): Promise<ShopPlanResponse> {
+    return this.shopPlan.activate(shopId, req.user!.id, body.days);
   }
 }

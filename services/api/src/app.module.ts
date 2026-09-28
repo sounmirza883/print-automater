@@ -38,6 +38,7 @@ import { PrintJobsModule } from "./print-jobs/print-jobs.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { ReportsModule } from "./reports/reports.module.js";
 import { NotificationCenterModule } from "./notification-center/notification-center.module.js";
+import { ShopPlanModule } from "./shop-plan/shop-plan.module.js";
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { NotificationCenterModule } from "./notification-center/notification-cen
     DashboardModule,
     ReportsModule,
     NotificationCenterModule,
+    ShopPlanModule,
   ],
 })
 export class AppModule {}

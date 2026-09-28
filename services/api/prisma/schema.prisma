@@ -1505,14 +1505,20 @@ model ShopSettings {
   @@map("shop_settings")
 }
 
-// 26.1: one row per shop, mirroring ShopSettings's pattern -- a trigger on `shops`
-// creates it for every shop, so readers never see "no row" and a row lock (FOR
-// SHARE) on it is a real barrier against a concurrent activate/renew write. A shop
-// is active when `expiresAt` is non-null and in the future; `expiresAt = null`
-// (every shop's starting state -- this platform has no self-service business
-// signup, so a shop only exists because an admin created it, and its plan is a
-// deliberate second step, never an automatic trial) means never activated, which
-// reads the same as expired. `activatedByUserId` is a bare id like
+// 26.1 (default corrected by the 20261001100100 follow-up migration): one row
+// per shop, mirroring ShopSettings's pattern -- a trigger on `shops` creates it
+// for every shop, so readers never see "no row" and a row lock (FOR SHARE) is a
+// real barrier against a concurrent activate/renew write. A shop is active when
+// `expiresAt` is non-null and in the future. A new shop is NOT provisioned with
+// `expiresAt = null` (which would read as expired from the instant it exists,
+// requiring day-one admin activation before it could ever print -- breaking
+// every one of the dozens of e2e fixtures that create a shop directly, and
+// stopping a real new business from printing before an admin has even seen it):
+// the trigger gives it a 30-day grace period instead, and a shop that existed
+// before this feature shipped is grandfathered out to 3650 days. `expiresAt`
+// stays nullable -- an admin can still let a plan lapse to null -- and
+// ShopPlanService.isActiveAt still treats null as expired; only the default
+// PROVISIONING value changes. `activatedByUserId` is a bare id like
 // `ShopStaffInvite.invitedBy` / `AuditLog.actorId` -- no FK, so an admin account
 // being removed later never blocks reading plan history.
 model ShopPlan {

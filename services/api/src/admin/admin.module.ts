@@ -1,12 +1,13 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module.js";
 import { HealthModule } from "../health/health.module.js";
+import { ShopPlanModule } from "../shop-plan/shop-plan.module.js";
 import { AdminController } from "./admin.controller.js";
 import { AdminDashboardService } from "./admin-dashboard.service.js";
 import { AdminService } from "./admin.service.js";
 
 @Module({
-  imports: [AuthModule, HealthModule],
+  imports: [AuthModule, HealthModule, ShopPlanModule],
   controllers: [AdminController],
   providers: [AdminService, AdminDashboardService],
 })

@@ -91,6 +91,8 @@ export {
   type AdminListQueryInput,
   adminAuditQuerySchema,
   type AdminAuditQueryInput,
+  activatePlanSchema,
+  type ActivatePlanInput,
 } from "./admin/index.js";
 export {
   createCustomerSchema,

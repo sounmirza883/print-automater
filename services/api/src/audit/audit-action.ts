@@ -76,6 +76,8 @@ export const AuditAction = {
   PRINTER_RULE_UPDATED: "PRINTER_RULE_UPDATED",
   PRINTER_RULE_DELETED: "PRINTER_RULE_DELETED",
   PRINTER_RULES_REORDERED: "PRINTER_RULES_REORDERED",
+  // 26.2: a platform admin activating or extending a business's plan.
+  SHOP_PLAN_ACTIVATED: "SHOP_PLAN_ACTIVATED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
