@@ -99,18 +99,6 @@ export class ShopOrdersResource {
     });
   }
 
-  /** Legacy (no `jobId`): the API answers 409 UNKNOWN_JOB_ID_REQUIRED, so new callers use
-   * `resolveUnknownPrint`. Kept only so shop-mobile keeps compiling. */
-  resolveUnknown(
-    orderId: string,
-    resolution: "CONFIRMED_PRINTED" | "RETRY" | "MARK_FAILED",
-  ): Promise<ShopOrderResponse> {
-    return this.http.request<ShopOrderResponse>(`/v1/shop/orders/${orderId}/resolve-unknown`, {
-      method: "POST",
-      body: { resolution },
-    });
-  }
-
   /** `jobId` is required by the API (409 UNKNOWN_JOB_ID_REQUIRED without it). */
   resolveUnknownPrint(
     orderId: string,

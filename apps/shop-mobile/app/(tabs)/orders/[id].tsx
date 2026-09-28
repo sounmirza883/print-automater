@@ -2,9 +2,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { tokens } from "@print-automated/design-tokens";
-import type { ShopOrderResponse, ShopRejectionReason } from "@print-automated/api-client";
+import { humanizeEnum, priorityLabel, type ShopOrderResponse } from "@print-automated/api-client";
+import { JobPanel, type JobActionKind, type RunAction } from "@/components/job-panel";
+import { OrderActions } from "@/components/order-actions";
+import { MUTED, Pill, SectionTitle, TONES } from "@/components/ui";
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
+import { errorMessage } from "@/lib/job-actions";
 import { usePrinters } from "@/lib/use-printers";
 import { inFlightLabel, isInFlight } from "@/lib/order-status";
 import { useIsOffline } from "@/lib/use-is-offline";
@@ -14,78 +18,46 @@ type LoadState =
   | { phase: "ready"; order: ShopOrderResponse }
   | { phase: "error"; message: string };
 
-const REJECTION_REASONS: { value: ShopRejectionReason; label: string }[] = [
-  { value: "PRINTER_UNAVAILABLE", label: "Printer unavailable" },
-  { value: "CAPABILITY_UNAVAILABLE", label: "Requested capability unavailable" },
-  { value: "SHOP_UNAVAILABLE", label: "Shop temporarily unavailable" },
-  { value: "DOCUMENT_ISSUE", label: "Document issue" },
-];
-
 // In-flight polling + labels live in lib/order-status.ts (exhaustive
 // over OrderStatus). Same 5s cadence 8.5's dashboard established.
 const PRINTING_POLL_MS = 5_000;
 
-/** §34's detail screen, §35's unmistakable payment banner, and §36's
- * accept/reject (plus 8.3's ready/complete, which have no separate
- * PRD section of their own but are the same "one action, one state
- * transition" shape). */
+function isOrderResponse(value: unknown): value is ShopOrderResponse {
+  return (
+    typeof value === "object" && value !== null && "orderStatus" in value && "printJobs" in value
+  );
+}
+
+/** §34's detail screen and §35's unmistakable payment banner, rebuilt in 23.34 for orders of
+ * several jobs: the order's own actions and every live job with its own, all from the rules
+ * shop-web uses (23.30) and the person's role (23.32). */
 export default function OrderDetailScreen(): ReactNode {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { apiClient, shopId } = useShopAuth();
+  const { apiClient, shopId, can } = useShopAuth();
   const [state, setState] = useState<LoadState>({ phase: "loading" });
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionInFlight, setActionInFlight] = useState(false);
-  const [showRejectPicker, setShowRejectPicker] = useState(false);
-  const [showPrinterPicker, setShowPrinterPicker] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [openJob, setOpenJob] = useState<{ jobId: string; kind: JobActionKind } | null>(null);
   const printers = usePrinters(apiClient, shopId);
-  // §89/§90/10.7: see use-shop-orders.ts's own comment for the general
-  // pattern -- both effects below skip entirely while offline (no
-  // wasted requests, last-known state preserved untouched) and re-run
-  // the instant connectivity returns, which fires an immediate refetch
-  // rather than waiting for the next tick.
+  // §89/§90/10.7: both effects below skip entirely while offline (no wasted requests,
+  // last-known state kept) and re-run the moment the connection returns; every action is
+  // disabled meanwhile (§90's "blocks duplicate operations").
   const isOffline = useIsOffline();
-  // §90's "blocks duplicate operations": actionInFlight alone only
-  // covers the in-flight race (can't double-tap while a request is
-  // already out); a device known offline needs every mutating action
-  // disabled too, not just left to fail into actionError on tap.
-  const actionBlocked = actionInFlight || isOffline;
-
-  /** The API requires WHICH unresolved job is being resolved (409
-   * UNKNOWN_JOB_ID_REQUIRED without it). The order carries its live jobs. */
-  function resolveUnknownJob(
-    resolution: "CONFIRMED_PRINTED" | "RETRY" | "MARK_FAILED",
-  ): ReturnType<typeof apiClient.shopOrders.resolveUnknownPrint> {
-    const job = order?.printJobs.find((candidate) => candidate.status === "UNKNOWN");
-    if (job === undefined || order === null) {
-      return Promise.reject(new Error("No unresolved print job on this order."));
-    }
-    return apiClient.shopOrders.resolveUnknownPrint(order.id, { resolution, jobId: job.id });
-  }
 
   useEffect(() => {
     if (isOffline) {
       return;
     }
     let cancelled = false;
-
-    async function load(): Promise<void> {
-      try {
-        const order = await apiClient.shopOrders.get(id);
+    apiClient.shopOrders
+      .get(id)
+      .then((order) => !cancelled && setState({ phase: "ready", order }))
+      .catch((error: unknown) => {
         if (!cancelled) {
-          setState({ phase: "ready", order });
+          setState({ phase: "error", message: errorMessage(error, "Could not load this order.") });
         }
-      } catch (error) {
-        if (!cancelled) {
-          setState({
-            phase: "error",
-            message: error instanceof Error ? error.message : "Could not load this order.",
-          });
-        }
-      }
-    }
-
-    void load();
+      });
     return () => {
       cancelled = true;
     };
@@ -109,20 +81,30 @@ export default function OrderDetailScreen(): ReactNode {
     return () => clearInterval(intervalId);
   }, [apiClient, id, orderStatus, isOffline]);
 
-  async function runAction(action: () => Promise<ShopOrderResponse>): Promise<void> {
+  /** Runs one action. Order actions answer with the order; job actions answer with the job,
+   * so the order is fetched again. `onError` may take over a refusal (the late-print one). */
+  const run: RunAction = async (action, onError) => {
     setActionError(null);
-    setActionInFlight(true);
+    setBusy(true);
     try {
-      const order = await action();
-      setState({ phase: "ready", order });
-      setShowRejectPicker(false);
-      setShowPrinterPicker(false);
+      const result = await action();
+      setOpenJob(null);
+      if (isOrderResponse(result)) {
+        setState({ phase: "ready", order: result });
+      } else {
+        const fresh = await apiClient.shopOrders.get(id).catch(() => null);
+        if (fresh !== null) setState({ phase: "ready", order: fresh });
+      }
+      return true;
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "That action failed.");
+      if (!(onError?.(error) ?? false)) {
+        setActionError(errorMessage(error));
+      }
+      return false;
     } finally {
-      setActionInFlight(false);
+      setBusy(false);
     }
-  }
+  };
 
   if (state.phase === "loading") {
     return (
@@ -144,51 +126,34 @@ export default function OrderDetailScreen(): ReactNode {
 
   const { order } = state;
   const paid = order.paymentStatus === "PAID";
-
-  // §49/10.4: only PRINT_FAILED offers "Change Printer" -- it fires
-  // RETRY_PRINT, which the state machine only accepts from PRINT_FAILED
-  // (see order-state-machine.ts). PRINT_STATUS_UNKNOWN has no legal
-  // RETRY_PRINT transition, so staff there use "It Failed" first
-  // (RESOLVE_UNKNOWN_FAILED -> PRINT_FAILED), then Change Printer.
-  function renderPrinterPicker(): ReactNode {
-    if (!showPrinterPicker) {
-      return null;
-    }
-    return (
-      <View style={styles.printerPicker}>
-        <Text style={styles.detailLabel}>Choose a printer</Text>
-        {printers.phase === "loading" && <ActivityIndicator />}
-        {printers.phase === "ready" && printers.printers.length === 0 && (
-          <Text style={styles.printingPrinterText}>No printers registered at this shop.</Text>
-        )}
-        {printers.phase === "ready" &&
-          printers.printers.map((printer) => (
-            <Pressable
-              key={printer.id}
-              accessibilityRole="button"
-              disabled={actionBlocked}
-              onPress={() =>
-                void runAction(() => apiClient.shopOrders.changePrinter(order.id, printer.id))
-              }
-              style={[styles.secondaryButton, actionBlocked && styles.buttonDisabled]}
-            >
-              <Text style={styles.secondaryButtonText}>{printer.name}</Text>
-            </Pressable>
-          ))}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setShowPrinterPicker(false)}
-          style={styles.cancelButton}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const priority = order.priority ?? 0;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
-      <Text style={styles.orderNumber}>{order.publicOrderNumber}</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.orderNumber}>{order.publicOrderNumber}</Text>
+        {priority > 0 && (
+          <Pill
+            badge={{
+              label: `${priorityLabel(priority)} priority`,
+              tone: priority >= 20 ? "danger" : "caution",
+            }}
+          />
+        )}
+      </View>
+
+      {isOffline && (
+        <View
+          style={[
+            styles.notice,
+            { backgroundColor: TONES.caution.bg, borderColor: TONES.caution.border },
+          ]}
+        >
+          <Text style={{ color: TONES.caution.fg }}>
+            You are offline. Actions are paused until the connection is back.
+          </Text>
+        </View>
+      )}
 
       <View
         style={[
@@ -205,37 +170,38 @@ export default function OrderDetailScreen(): ReactNode {
       {isInFlight(order.orderStatus) && (
         <View style={styles.printingCard}>
           <View style={styles.printingRow}>
-            <ActivityIndicator size="small" color={tokens.colors.primaryAction} />
+            {/* Nothing is moving while paused: no spinner then. */}
+            {order.orderStatus !== "PAUSED" && (
+              <ActivityIndicator size="small" color={tokens.colors.primaryAction} />
+            )}
             <Text style={styles.printingStatusText}>
               {inFlightLabel(order.orderStatus) ?? "Printing…"}
             </Text>
           </View>
-          <Text style={styles.printingPrinterText}>
+          <Text style={styles.muted}>
             {order.printerName ? `Printer: ${order.printerName}` : "Printer: assigning…"}
           </Text>
         </View>
       )}
 
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Customer</Text>
-        <Text style={styles.detailValue}>{order.customerName}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Document</Text>
-        <Text style={styles.detailValue}>{order.documentFilename}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Configuration</Text>
-        <Text style={styles.detailValue}>{summarizeConfiguration(order.printConfiguration)}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Total</Text>
-        <Text style={styles.detailValue}>{formatOrderTotal(order)}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Status</Text>
-        <Text style={styles.detailValue}>{order.orderStatus}</Text>
-      </View>
+      {order.orderStatus === "PRINT_STATUS_UNKNOWN" && (
+        <View
+          style={[
+            styles.notice,
+            { backgroundColor: TONES.danger.bg, borderColor: TONES.danger.border },
+          ]}
+        >
+          <Text accessibilityRole="alert" style={{ color: TONES.danger.fg }}>
+            We lost track of a print. Check the printer, then resolve the job below.
+          </Text>
+        </View>
+      )}
+
+      <Row label="Customer" value={order.customerName} />
+      <Row label="Document" value={order.documentFilename} />
+      <Row label="Configuration" value={summarizeConfiguration(order.printConfiguration)} />
+      <Row label="Total" value={formatOrderTotal(order)} />
+      <Row label="Status" value={humanizeEnum(order.orderStatus)} />
 
       {actionError !== null && (
         <Text accessibilityRole="alert" style={styles.errorText}>
@@ -243,159 +209,39 @@ export default function OrderDetailScreen(): ReactNode {
         </Text>
       )}
 
-      {order.orderStatus === "WAITING_FOR_SHOP" && !showRejectPicker && (
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={!paid || actionBlocked}
-            onPress={() => void runAction(() => apiClient.shopOrders.accept(order.id))}
-            style={[styles.primaryButton, (!paid || actionBlocked) && styles.buttonDisabled]}
-          >
-            {actionInFlight ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Accept & Print</Text>
-            )}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => setShowRejectPicker(true)}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.secondaryButtonText}>Reject Order</Text>
-          </Pressable>
-        </View>
-      )}
+      <OrderActions
+        order={order}
+        can={can}
+        apiClient={apiClient}
+        run={run}
+        busy={busy}
+        offline={isOffline}
+        printers={printers}
+      />
 
-      {order.orderStatus === "WAITING_FOR_SHOP" && showRejectPicker && (
-        <View style={styles.actions}>
-          <Text style={styles.detailLabel}>Reason for rejecting</Text>
-          {REJECTION_REASONS.map((reason) => (
-            <Pressable
-              key={reason.value}
-              accessibilityRole="button"
-              disabled={actionBlocked}
-              onPress={() =>
-                void runAction(() => apiClient.shopOrders.reject(order.id, reason.value))
-              }
-              style={styles.secondaryButton}
-            >
-              <Text style={styles.secondaryButtonText}>{reason.label}</Text>
-            </Pressable>
-          ))}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setShowRejectPicker(false)}
-            style={styles.cancelButton}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {order.orderStatus === "PRINT_FAILED" && (
-        <View style={styles.actions}>
-          <Text accessibilityRole="alert" style={styles.errorText}>
-            Printing failed. Choose how to proceed.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => void runAction(() => apiClient.shopOrders.retryPrint(order.id))}
-            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
-          >
-            {actionInFlight ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Retry Print</Text>
-            )}
-          </Pressable>
-          {!showPrinterPicker && (
-            <Pressable
-              accessibilityRole="button"
-              disabled={actionBlocked}
-              onPress={() => setShowPrinterPicker(true)}
-              style={styles.secondaryButton}
-            >
-              <Text style={styles.secondaryButtonText}>Change Printer</Text>
-            </Pressable>
-          )}
-          {renderPrinterPicker()}
-        </View>
-      )}
-
-      {/* §47/10.3: PRINT_STATUS_UNKNOWN is its own resolution card, not
-          an error toast -- staff physically checks the printer, then
-          tells the system what actually happened. */}
-      {order.orderStatus === "PRINT_STATUS_UNKNOWN" && (
-        <View style={styles.actions}>
-          <Text accessibilityRole="alert" style={styles.errorText}>
-            We lost contact with the printer mid-job. Check the printer, then confirm what happened.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => void runAction(() => resolveUnknownJob("CONFIRMED_PRINTED"))}
-            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
-          >
-            {actionInFlight ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>It Printed Successfully</Text>
-            )}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => void runAction(() => resolveUnknownJob("RETRY"))}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.secondaryButtonText}>Retry Printing</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => void runAction(() => resolveUnknownJob("MARK_FAILED"))}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.secondaryButtonText}>It Failed</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {order.orderStatus === "PRINTED" && (
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => void runAction(() => apiClient.shopOrders.markReady(order.id))}
-            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
-          >
-            {actionInFlight ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Mark Ready for Collection</Text>
-            )}
-          </Pressable>
-        </View>
-      )}
-
-      {order.orderStatus === "READY_FOR_COLLECTION" && (
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={actionBlocked}
-            onPress={() => void runAction(() => apiClient.shopOrders.complete(order.id))}
-            style={[styles.primaryButton, actionBlocked && styles.buttonDisabled]}
-          >
-            {actionInFlight ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Complete</Text>
-            )}
-          </Pressable>
-        </View>
+      <SectionTitle title="Print jobs" count={order.printJobs.length} />
+      {order.printJobs.length === 0 ? (
+        <Text style={styles.muted}>Jobs are created when the order is accepted.</Text>
+      ) : (
+        order.printJobs.map((job) => (
+          <JobPanel
+            key={job.id}
+            job={job}
+            order={order}
+            can={can}
+            shopId={shopId ?? ""}
+            apiClient={apiClient}
+            open={openJob?.jobId === job.id ? openJob.kind : null}
+            onOpen={(kind) => {
+              setActionError(null);
+              setOpenJob(kind === null ? null : { jobId: job.id, kind });
+            }}
+            run={run}
+            busy={busy}
+            offline={isOffline}
+            printers={printers}
+          />
+        ))
       )}
 
       <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backLink}>
@@ -405,11 +251,23 @@ export default function OrderDetailScreen(): ReactNode {
   );
 }
 
+function Row({ label, value }: { label: string; value: string }): ReactNode {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.muted}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
-  container: { padding: 24, gap: 12 },
+  container: { padding: 20, gap: 12 },
   errorText: { color: tokens.colors.error },
+  muted: { color: MUTED },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   orderNumber: { fontSize: 20, fontWeight: "700" },
+  notice: { borderWidth: 1, borderRadius: tokens.radius.md, padding: 12 },
   paymentBanner: { borderRadius: tokens.radius.md, padding: 16, gap: 4 },
   paymentBannerPaid: { backgroundColor: "#DCFCE7" },
   paymentBannerPending: { backgroundColor: "#FEF3C7" },
@@ -424,36 +282,8 @@ const styles = StyleSheet.create({
   },
   printingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   printingStatusText: { fontWeight: "700", fontSize: 15 },
-  printingPrinterText: { color: "#6B7280" },
   detailRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  detailLabel: { color: "#6B7280" },
   detailValue: { fontWeight: "600", flexShrink: 1, textAlign: "right" },
-  actions: { gap: 10, marginTop: 12 },
-  primaryButton: {
-    backgroundColor: tokens.colors.primaryAction,
-    borderRadius: tokens.radius.md,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  primaryButtonText: { color: "#fff", fontWeight: "700" },
-  buttonDisabled: { opacity: 0.5 },
-  secondaryButton: {
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  secondaryButtonText: { fontWeight: "600" },
-  printerPicker: {
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    padding: 12,
-    gap: 8,
-  },
-  cancelButton: { paddingVertical: 10, alignItems: "center" },
-  cancelButtonText: { color: "#6B7280" },
   backLink: { marginTop: 16, alignItems: "center" },
   backLinkText: { color: tokens.colors.primaryAction, fontWeight: "600" },
 });

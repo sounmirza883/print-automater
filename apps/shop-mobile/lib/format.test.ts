@@ -61,3 +61,17 @@ describe("formatOrderTotal", () => {
     expect(formatOrderTotal({ ...BASE_ORDER, pricingSnapshot: {} })).toBe("--");
   });
 });
+
+describe("summarizeConfiguration with a value this build has no label for", () => {
+  it("still reads as words", () => {
+    const config = {
+      pages: { mode: "all" as const },
+      copies: 1,
+      paperSize: "A4",
+      color: "BLACK_WHITE",
+      sides: "SINGLE",
+      orientation: "PORTRAIT",
+    };
+    expect(summarizeConfiguration(config)).toBe("1 copy, all pages, A4, Black white, Single-sided");
+  });
+});

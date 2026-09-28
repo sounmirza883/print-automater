@@ -1,4 +1,4 @@
-import type { ShopOrderResponse } from "@print-automated/api-client";
+import { humanizeEnum, type ShopOrderResponse } from "@print-automated/api-client";
 
 const PAGE_LABELS: Record<string, string> = {
   BW: "Black & white",
@@ -16,8 +16,9 @@ const PAGE_LABELS: Record<string, string> = {
 export function summarizeConfiguration(config: ShopOrderResponse["printConfiguration"]): string {
   const pages =
     config.pages.mode === "all" ? "all pages" : `pages ${config.pages.from}-${config.pages.to}`;
-  const color = PAGE_LABELS[config.color] ?? config.color;
-  const sides = PAGE_LABELS[config.sides] ?? config.sides;
+  // A value this build has no label for still reads as words, not an enum.
+  const color = PAGE_LABELS[config.color] ?? humanizeEnum(config.color);
+  const sides = PAGE_LABELS[config.sides] ?? humanizeEnum(config.sides);
   return `${config.copies} ${config.copies === 1 ? "copy" : "copies"}, ${pages}, ${config.paperSize}, ${color}, ${sides}`;
 }
 

@@ -2,7 +2,14 @@ import type { ReactNode } from "react";
 import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { tokens } from "@print-automated/design-tokens";
-import type { ShopOrderResponse } from "@print-automated/api-client";
+import {
+  describeBlockedReason,
+  isHeldByLatePrint,
+  priorityLabel,
+  type ShopOrderResponse,
+} from "@print-automated/api-client";
+import { Pills } from "@/components/ui";
+import type { Badge } from "@/lib/job-view";
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { useShopOrders } from "@/lib/use-shop-orders";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
@@ -77,10 +84,31 @@ export default function OrdersScreen(): ReactNode {
   );
 }
 
+/** 23.34: what a counter or floor person should notice on the card without opening it. */
+function orderBadges(order: ShopOrderResponse): Badge[] {
+  const badges: Badge[] = [];
+  const priority = order.priority ?? 0;
+  if (priority > 0) {
+    badges.push({
+      label: `${priorityLabel(priority)} priority`,
+      tone: priority >= 20 ? "danger" : "caution",
+    });
+  }
+  if (order.printJobs.some((job) => isHeldByLatePrint(job.blockedReason))) {
+    badges.push({ label: "Held by late print", tone: "danger" });
+  } else {
+    const blocked = order.printJobs.find((job) => job.blockedReason !== null);
+    const view = blocked !== undefined ? describeBlockedReason(blocked.blockedReason) : null;
+    if (view !== null) badges.push({ label: view.label, tone: view.tone });
+  }
+  return badges;
+}
+
 /** §33's order card. */
 function OrderCard({ order }: { order: ShopOrderResponse }): ReactNode {
   const router = useRouter();
   const paid = order.paymentStatus === "PAID";
+  const badges = orderBadges(order);
 
   return (
     <Pressable
@@ -92,6 +120,7 @@ function OrderCard({ order }: { order: ShopOrderResponse }): ReactNode {
         <Text style={styles.orderNumber}>{order.publicOrderNumber}</Text>
         <Text style={styles.total}>{formatOrderTotal(order)}</Text>
       </View>
+      {badges.length > 0 && <Pills badges={badges} />}
       <Text style={styles.summary}>{summarizeConfiguration(order.printConfiguration)}</Text>
       <View style={styles.cardFooterRow}>
         <Text style={[styles.paymentBadge, paid ? styles.paymentPaid : styles.paymentPending]}>
