@@ -26,6 +26,7 @@ import {
 import { getApi } from "@/lib/api";
 import { formatAge, formatCount, humanizeEnum } from "@/lib/format";
 import { printerStatusTone } from "@/lib/job-status";
+import { useLiveDashboard } from "@/lib/use-live-dashboard";
 import { useResource } from "@/lib/use-resource";
 
 const POLL_MS = 15_000;
@@ -52,6 +53,7 @@ function PrinterDashboardBody(): ReactNode {
     intervalMs: POLL_MS,
     enabled: shopId !== "",
   });
+  useLiveDashboard(shopId === "" ? undefined : shopId, state.reload);
 
   return (
     <>

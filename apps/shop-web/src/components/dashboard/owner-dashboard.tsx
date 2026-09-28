@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import type { OwnerDashboardResponse } from "@print-automated/types";
 import { Permission } from "@print-automated/types";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
+import { StackedStatusBar } from "@/components/dashboard/stacked-status-bar";
 import { useSession } from "@/components/session-provider";
 import {
   BarList,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/dashboard-view";
 import { getApi } from "@/lib/api";
 import { formatCount, formatMoney, humanizeEnum } from "@/lib/format";
+import { useLiveDashboard } from "@/lib/use-live-dashboard";
 import { useResource } from "@/lib/use-resource";
 
 const POLL_MS = 30_000;
@@ -53,6 +55,9 @@ function OwnerDashboardBody(): ReactNode {
     [shopId, preset],
     { intervalMs: POLL_MS, enabled: shopId !== "" },
   );
+  // 27.3: a push on top of the 30s poll above, not instead of it -- a dropped SSE
+  // connection just falls back to today's polling cadence rather than going silent.
+  useLiveDashboard(shopId === "" ? undefined : shopId, state.reload);
 
   return (
     <>
@@ -250,7 +255,10 @@ export function OwnerDashboardView({
           aside={`${formatCount(orders.inPeriod)} total`}
           id="orders-by-group"
         >
-          <BarList ariaLabel={`Orders by group, ${period}`} rows={orderGroupRows(orders.byGroup)} />
+          <StackedStatusBar
+            ariaLabel={`Orders by group, ${period}`}
+            segments={orderGroupRows(orders.byGroup)}
+          />
           {Object.keys(orders.byStatus).length > 0 && (
             <details className="mt-4">
               <summary className="cursor-pointer text-sm font-medium">By exact status</summary>
