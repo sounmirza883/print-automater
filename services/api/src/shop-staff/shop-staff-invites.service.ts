@@ -19,6 +19,7 @@ import type { ListStaffInvitesQueryInput } from "@print-automated/validation";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { hashToken } from "../common/crypto.util.js";
+import { maskEmail } from "../common/mask.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { canonicalAddress } from "./email-address.js";
 import { roleRank } from "./role-rank.js";
@@ -297,9 +298,4 @@ export class ShopStaffInvitesService {
       );
     }
   }
-}
-
-function maskEmail(email: string): string {
-  const [local = "", domain = ""] = email.split("@");
-  return `${local.slice(0, 1)}***@${domain}`;
 }

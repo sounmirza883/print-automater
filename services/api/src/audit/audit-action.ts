@@ -85,6 +85,10 @@ export const AuditAction = {
   // which is per-shop and self-service).
   USER_ROLE_CHANGED: "USER_ROLE_CHANGED",
   USER_STATUS_CHANGED: "USER_STATUS_CHANGED",
+  // 24.1 (QR guest ordering): a guest placed an order from the shop's QR
+  // code. Actor = the shop's SYSTEM user; the guest's name/phone appear
+  // only masked (common/mask.ts).
+  QR_ORDER_CREATED: "QR_ORDER_CREATED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

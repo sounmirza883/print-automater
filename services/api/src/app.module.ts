@@ -39,6 +39,7 @@ import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { ReportsModule } from "./reports/reports.module.js";
 import { NotificationCenterModule } from "./notification-center/notification-center.module.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
+import { PublicOrdersModule } from "./public-orders/public-orders.module.js";
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { ObservabilityModule } from "./observability/observability.module.js";
     DashboardModule,
     ReportsModule,
     NotificationCenterModule,
+    PublicOrdersModule,
   ],
 })
 export class AppModule {}
