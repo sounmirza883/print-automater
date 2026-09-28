@@ -74,6 +74,7 @@ export {
   type AdminBusiness,
   type AdminBusinessDetail,
   type CreateBusinessInput,
+  type AdminUser,
 } from "./resources/admin.resource.js";
 export type {
   Page,

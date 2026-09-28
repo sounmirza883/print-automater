@@ -1,4 +1,10 @@
-import type { Page, PrinterCapabilities, ShopStatus } from "@print-automated/types";
+import type {
+  Page,
+  PrinterCapabilities,
+  ShopStatus,
+  UserRole,
+  UserStatus,
+} from "@print-automated/types";
 import type { HttpClient } from "../http-client.js";
 
 /** 23.7/Workstream A: one row of the platform's business list. */
@@ -34,6 +40,18 @@ export interface CreateBusinessInput {
   capabilities?: PrinterCapabilities;
 }
 
+/** Workstream B: one row of the platform's user list, or one user's
+ * detail (same shape -- there's nothing extra to show per-user here,
+ * unlike a business's staff/order/printer counts). */
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  createdAt: string;
+}
+
 /** 23.7/Workstream A: the platform-wide admin surface (ADMIN role only,
  * enforced server-side). This file grows with each admin-panel
  * workstream -- Task 2 (Workstream B) adds the user-management methods
@@ -58,6 +76,31 @@ export class AdminResource {
 
   updateBusinessStatus(id: string, status: ShopStatus): Promise<AdminBusiness> {
     return this.http.request<AdminBusiness>(`/v1/admin/businesses/${id}/status`, {
+      method: "PATCH",
+      body: { status },
+    });
+  }
+
+  /** Workstream B: every user on the platform. Mirrors `listBusinesses`'
+   * shape -- the backend route (`GET /admin/users`) predates this whole
+   * admin-panel expansion; this is just its first api-client wrapper. */
+  listUsers(params: { limit?: number; offset?: number } = {}): Promise<Page<AdminUser>> {
+    return this.http.request<Page<AdminUser>>("/v1/admin/users", { query: params });
+  }
+
+  getUser(id: string): Promise<AdminUser> {
+    return this.http.request<AdminUser>(`/v1/admin/users/${id}`);
+  }
+
+  updateUserRole(id: string, role: UserRole): Promise<AdminUser> {
+    return this.http.request<AdminUser>(`/v1/admin/users/${id}/role`, {
+      method: "PATCH",
+      body: { role },
+    });
+  }
+
+  updateUserStatus(id: string, status: UserStatus): Promise<AdminUser> {
+    return this.http.request<AdminUser>(`/v1/admin/users/${id}/status`, {
       method: "PATCH",
       body: { status },
     });

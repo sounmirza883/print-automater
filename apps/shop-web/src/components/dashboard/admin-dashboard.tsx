@@ -101,7 +101,12 @@ export function AdminDashboardView({ data }: { data: AdminDashboardResponse }): 
           hint="Manage businesses"
           href="/admin/businesses"
         />
-        <Stat label="Users" value={formatCount(data.users.total)} />
+        <Stat
+          label="Users"
+          value={formatCount(data.users.total)}
+          hint="Manage users"
+          href="/admin/users"
+        />
         <Stat
           label="Orders"
           value={formatCount(data.orders.total)}
