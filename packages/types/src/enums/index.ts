@@ -2,6 +2,7 @@ export { OrderStatus } from "./order-status.js";
 export { PaymentStatus } from "./payment-status.js";
 export { PrintJobStatus } from "./print-job-status.js";
 export { UserRole } from "./user-role.js";
+export { UserStatus } from "./user-status.js";
 export { Permission } from "./permission.js";
 export { ShopStatus } from "./shop-status.js";
 export { PrinterStatus } from "./printer-status.js";

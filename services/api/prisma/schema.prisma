@@ -23,6 +23,14 @@ enum UserRole {
   OPERATOR
   PRINTER_MANAGER
   SUPPLIER
+  // 24.1 (QR guest ordering): added additively, same pattern as 16.1 --
+  // none existed before, every existing row is unaffected. A SYSTEM user
+  // is never a person: it is a shop's synthetic QR-order account
+  // (Shop.qrSystemUserId), created lazily by PublicOrdersService so a QR
+  // order's non-nullable Order.customerId always has a real User behind
+  // it. It holds no permissions, has an unusable password and an
+  // undeliverable address, and is hidden from the admin user views.
+  SYSTEM
 }
 
 enum UserStatus {
@@ -63,6 +71,9 @@ model User {
   inventoryMovements  InventoryMovement[]  @relation("InventoryMovementActor")
   purchaseOrdersCreated  PurchaseOrder[] @relation("PurchaseOrderCreator")
   purchaseOrdersReceived PurchaseOrder[] @relation("PurchaseOrderReceiver")
+  // 24.1: set only on a role SYSTEM user -- the shop it is the QR-order
+  // account of (Shop.qrSystemUserId is the owning side).
+  qrSystemUserOfShop     Shop?           @relation("ShopQrSystemUser")
 
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_name_trgm_idx")
@@ -145,9 +156,18 @@ model Shop {
   // after Phase 17/18 ship the machinery to create more than one.
   qualityCheckEnabled Boolean    @default(false) @map("quality_check_enabled")
   multiItemEnabled    Boolean    @default(false) @map("multi_item_enabled")
+  // 24.1 (QR guest ordering): the shop's synthetic role SYSTEM User that
+  // every QR-placed order's customerId points at (the real guest's name/
+  // phone go on a Customer row via customerRecordId, as for a counter
+  // order). Nullable and lazily created on the shop's first QR request by
+  // PublicOrdersService, so shop creation needs no change and every
+  // existing shop is unaffected. SetNull: removing that user never takes
+  // the shop with it; the next QR request would provision a fresh one.
+  qrSystemUserId      String?    @unique @map("qr_system_user_id")
   createdAt           DateTime   @default(now()) @map("created_at")
   updatedAt           DateTime   @updatedAt @map("updated_at")
 
+  qrSystemUser      User?       @relation("ShopQrSystemUser", fields: [qrSystemUserId], references: [id], onDelete: SetNull)
   staff             ShopStaff[]
   staffInvites      ShopStaffInvite[]
   pricingRules      PricingRule[]
@@ -540,9 +560,14 @@ model Order {
 // COUNTER: staff placed it on a customer's behalf via `POST
 // /shop/orders`. See Order.customerId's own comment for the judgment
 // call on which User backs customerId for a COUNTER order.
+// QR (24.1): an unauthenticated guest placed it by scanning the shop's QR
+// code (`POST /public/shops/:shopId/orders`). customerId is the shop's
+// synthetic SYSTEM user (Shop.qrSystemUserId); the guest is the Customer
+// row at customerRecordId.
 enum OrderCreationSource {
   CUSTOMER_WEB
   COUNTER
+  QR
 }
 
 enum PaymentStatus {

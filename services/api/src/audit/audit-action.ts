@@ -81,6 +81,23 @@ export const AuditAction = {
   // Self-service business signup (definition-of-done.md #1): a prospective
   // business created its own Shop + SHOP_OWNER account through the public API.
   SHOP_REGISTERED: "SHOP_REGISTERED",
+  // Workstream A (admin panel business management): an admin creating a
+  // business, or changing its status, outside that business's own staff.
+  SHOP_CREATED: "SHOP_CREATED",
+  SHOP_STATUS_CHANGED: "SHOP_STATUS_CHANGED",
+  // Workstream B (admin panel user management): an admin changing a
+  // user's platform-wide role or status (distinct from SHOP_STAFF_ROLE_CHANGED,
+  // which is per-shop and self-service).
+  USER_ROLE_CHANGED: "USER_ROLE_CHANGED",
+  USER_STATUS_CHANGED: "USER_STATUS_CHANGED",
+  // 24.1 (QR guest ordering): a guest placed an order from the shop's QR
+  // code. Actor = the shop's SYSTEM user; the guest's name/phone appear
+  // only masked (common/mask.ts).
+  QR_ORDER_CREATED: "QR_ORDER_CREATED",
+  // 24.1: a shop's SYSTEM user was lazily created (and set as
+  // shops.qr_system_user_id) by its first anonymous QR request. Actor null:
+  // no human did this. Resource = the new user; metadata = { shopId }.
+  QR_SYSTEM_USER_PROVISIONED: "QR_SYSTEM_USER_PROVISIONED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

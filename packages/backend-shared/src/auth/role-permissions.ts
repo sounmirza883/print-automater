@@ -43,6 +43,9 @@ import { Permission } from "@print-automated/types";
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   CUSTOMER: [],
   SUPPLIER: [],
+  // 24.1: a shop's synthetic QR-order account (Shop.qrSystemUserId) -- never
+  // a person, never staff, never logs in. It only owns QR documents/orders.
+  SYSTEM: [],
   SHOP_COUNTER: [
     Permission.VIEW_ORDERS,
     Permission.CREATE_ORDERS,

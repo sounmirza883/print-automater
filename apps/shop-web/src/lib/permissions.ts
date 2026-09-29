@@ -40,6 +40,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   OPERATOR: "Operator",
   PRINTER_MANAGER: "Printer manager",
   ADMIN: "Platform admin",
+  SYSTEM: "System (QR orders)",
 };
 
 export function roleLabel(role: UserRole): string {

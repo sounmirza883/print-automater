@@ -287,6 +287,9 @@ export interface ShopOrderResponse {
   pricingSnapshot: unknown;
   paymentStatus: string;
   orderStatus: string;
+  // 24.1: CUSTOMER_WEB, COUNTER or QR -- lets staff tell a QR order awaiting
+  // payment at the counter from any other order in needsAttention.
+  creationSource: OrderCreationSource;
   createdAt: Date;
   // §37: null until a print_job exists (i.e. before SHOP_ACCEPT) --
   // the printing screen has nothing to show a printer name for yet at
@@ -365,17 +368,38 @@ export const GROUP_BY_STATUS: Record<OrderStatus, keyof ShopOrdersGrouped | "hid
  *      (ready/completed/failed) and orders already needing attention never move,
  *      and an order with no blocked job (every single-job order today) is
  *      unchanged. GROUP_BY_STATUS stays total and typed; this only refines it.
+ *   4. (24.1) The one exception to rule 1: a QR order resting in UPLOADED is
+ *      "needsAttention" (see QR_AWAITING_PAYMENT). Every other UPLOADED order
+ *      -- customer-web mid-checkout, a counter order before its immediate
+ *      payment call -- stays hidden exactly as before.
  * Callers pass only the order's NON-superseded jobs (SHOP_ORDER_INCLUDE). */
 export function groupForOrder(
   status: OrderStatus,
   jobs: ReadonlyArray<{ status: string; blockedReason: string | null }>,
+  creationSource: OrderCreationSource,
 ): keyof ShopOrdersGrouped | "hidden" {
+  // 24.1: no payment step exists for a QR order in this scope (the guest has no
+  // account to check out with), so its visibility cannot wait for one -- staff
+  // must see it to take payment at the counter (record-payment accepts UPLOADED).
+  if (status === OrderStatus.UPLOADED && creationSource === OrderCreationSource.QR) {
+    return "needsAttention";
+  }
   const base = GROUP_BY_STATUS[status];
   if (base === "printing" && jobs.some((job) => job.status === "WAITING" && job.blockedReason)) {
     return "needsAttention";
   }
   return base;
 }
+
+/** 24.1: the SQL form of groupForOrder's QR rule -- a guest's QR order that
+ * no one has taken payment for yet. The only non-SHOP_VISIBLE_STATUSES
+ * orders a shop sees; every shop-side read that filters on visibility or on
+ * the needsAttention group ORs this in (whereInGroup, shopVisibleWhere,
+ * the legacy grouped list, the owner dashboard's counts). */
+export const QR_AWAITING_PAYMENT = {
+  orderStatus: OrderStatus.UPLOADED,
+  creationSource: OrderCreationSource.QR,
+} satisfies Prisma.OrderWhereInput;
 
 function statusesInGroup(...groups: Array<keyof ShopOrdersGrouped>): OrderStatus[] {
   return (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter((status) =>
@@ -385,7 +409,8 @@ function statusesInGroup(...groups: Array<keyof ShopOrdersGrouped>): OrderStatus
 
 /** 23.6: the SQL form of `groupForOrder` for one group, so a paged group agrees with the
  * grouped list: an in-production order that has a live job parked WAITING with a reason
- * is stranded, so it belongs to needsAttention rather than printing. */
+ * is stranded, so it belongs to needsAttention rather than printing. 24.1: a QR order
+ * awaiting payment belongs to needsAttention too (groupForOrder rule 4). */
 export function whereInGroup(group: keyof ShopOrdersGrouped): Prisma.OrderWhereInput {
   const stranded: Prisma.OrderWhereInput = {
     printJobs: { some: { supersededAt: null, status: "WAITING", blockedReason: { not: null } } },
@@ -395,6 +420,7 @@ export function whereInGroup(group: keyof ShopOrdersGrouped): Prisma.OrderWhereI
       OR: [
         { orderStatus: { in: statusesInGroup("needsAttention") } },
         { orderStatus: { in: statusesInGroup("printing") }, ...stranded },
+        QR_AWAITING_PAYMENT,
       ],
     };
   }
@@ -411,6 +437,18 @@ export const HISTORY_GROUP_CAP = 200;
 export const SHOP_VISIBLE_STATUSES = (Object.keys(GROUP_BY_STATUS) as OrderStatus[]).filter(
   (status) => GROUP_BY_STATUS[status] !== "hidden",
 );
+
+/** 24.1: every order a shop can see -- SHOP_VISIBLE_STATUSES plus QR orders
+ * awaiting payment -- optionally narrowed to one status (the search filter).
+ * A status filter of UPLOADED therefore finds only QR orders, never a
+ * customer's mid-checkout one. */
+export function shopVisibleWhere(status?: OrderStatus): Prisma.OrderWhereInput {
+  const statuses = status
+    ? SHOP_VISIBLE_STATUSES.filter((visible) => visible === status)
+    : SHOP_VISIBLE_STATUSES;
+  const qr = !status || status === QR_AWAITING_PAYMENT.orderStatus ? [QR_AWAITING_PAYMENT] : [];
+  return { OR: [{ orderStatus: { in: statuses } }, ...qr] };
+}
 
 /** 23.16: the rule version stored in an order's own pricing snapshot, if any. */
 function pricingRuleVersionOf(snapshot: unknown): number | null {
@@ -484,15 +522,7 @@ export class ShopOrdersService {
       throw new ForbiddenException("You do not have access to this shop's orders.");
     }
 
-    const and: Prisma.OrderWhereInput[] = [
-      {
-        orderStatus: {
-          in: query.status
-            ? SHOP_VISIBLE_STATUSES.filter((status) => status === query.status)
-            : SHOP_VISIBLE_STATUSES,
-        },
-      },
-    ];
+    const and: Prisma.OrderWhereInput[] = [shopVisibleWhere(query.status)];
     if (query.paymentStatus) and.push({ paymentStatus: query.paymentStatus });
     if (query.from || query.to) {
       and.push({
@@ -579,7 +609,7 @@ export class ShopOrdersService {
       // 23.6: one flat page, newest first, of one group (or of every visible order).
       const where: Prisma.OrderWhereInput = query.group
         ? whereInGroup(query.group)
-        : { orderStatus: { in: SHOP_VISIBLE_STATUSES } };
+        : shopVisibleWhere();
       const [orders, total] = await Promise.all([
         this.repository.findMany(shopId, where, { take: pagination.take, skip: pagination.skip }),
         this.repository.count(shopId, where),
@@ -598,7 +628,13 @@ export class ShopOrdersService {
     const [live, completed, failed] = await Promise.all([
       this.repository.findMany(
         shopId,
-        { orderStatus: { in: statusesInGroup("needsAttention", "printing", "ready") } },
+        {
+          OR: [
+            { orderStatus: { in: statusesInGroup("needsAttention", "printing", "ready") } },
+            // 24.1: groupForOrder puts these in needsAttention (rule 4).
+            QR_AWAITING_PAYMENT,
+          ],
+        },
         { take: LIVE_QUEUE_CAP },
       ),
       this.repository.findMany(
@@ -621,7 +657,7 @@ export class ShopOrdersService {
       failed: [],
     };
     for (const order of [...live, ...completed, ...failed]) {
-      const group = groupForOrder(order.orderStatus, order.printJobs);
+      const group = groupForOrder(order.orderStatus, order.printJobs, order.creationSource);
       if (group && group !== "hidden") {
         grouped[group].push(this.toResponse(order));
       }
@@ -2040,6 +2076,7 @@ export class ShopOrdersService {
       pricingSnapshot: order.pricingSnapshot,
       paymentStatus: order.paymentStatus,
       orderStatus: order.orderStatus,
+      creationSource: order.creationSource,
       createdAt: order.createdAt,
       printerName: order.printJobs[0]?.printer?.name ?? null,
       qualityCheckStatus: order.qualityCheckStatus,

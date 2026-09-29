@@ -1,7 +1,7 @@
 import { Inject, Logger } from "@nestjs/common";
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import type { Job } from "bullmq";
-import { OrderStatus } from "@prisma/client";
+import { OrderCreationSource, OrderStatus } from "@prisma/client";
 import {
   AppException,
   OrderEvent,
@@ -13,7 +13,8 @@ import type { WorkerEnv } from "@print-automated/config";
 import { WORKER_ENV } from "../config/config.module.js";
 
 /** §108/5.6. One tick: find every order that has sat in
- * `PAYMENT_PENDING` past the configured TTL, and expire each one
+ * `PAYMENT_PENDING` past the configured TTL (24.1: or a QR order still in
+ * `UPLOADED`, awaiting payment at the counter), and expire each one
  * through the shared `OrderStateMachine` -- never a direct status
  * write (the `no-restricted-syntax` lint rule forbids it here same as
  * in services/api). */
@@ -37,7 +38,19 @@ export class OrderExpirationProcessor extends WorkerHost {
   async process(_job: Job): Promise<{ expiredCount: number; consideredCount: number }> {
     const cutoff = new Date(Date.now() - this.env.ORDER_PAYMENT_PENDING_TTL_MINUTES * 60_000);
     const stale = await this.prisma.order.findMany({
-      where: { orderStatus: OrderStatus.PAYMENT_PENDING, updatedAt: { lt: cutoff } },
+      where: {
+        updatedAt: { lt: cutoff },
+        OR: [
+          { orderStatus: OrderStatus.PAYMENT_PENDING },
+          // 24.1: a guest's QR order waits in UPLOADED for staff to take
+          // payment at the counter (it has no checkout of its own). Unclaimed
+          // past the same payment-pending TTL, it is expired like any other
+          // unpaid order -- otherwise anyone who knows a shop id (it is in the
+          // public QR URL) could pile up permanent needsAttention entries.
+          // Only QR: a customer-web or counter order in UPLOADED is untouched.
+          { orderStatus: OrderStatus.UPLOADED, creationSource: OrderCreationSource.QR },
+        ],
+      },
       select: { id: true },
     });
 

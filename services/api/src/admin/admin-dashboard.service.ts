@@ -4,8 +4,23 @@ import { PrismaService } from "@print-automated/backend-shared";
 import { HealthService } from "../health/health.service.js";
 import { AuditAction } from "../audit/audit-action.js";
 import { utcDayStart } from "../dashboard/dashboard.service.js";
+import { RequestCounterService } from "../observability/request-counter.service.js";
+import { REAL_USERS } from "./real-users.js";
 
 const DAY_MS = 86_400_000;
+const FIFTEEN_MIN_MS = 15 * 60_000;
+const RECENT_ORDERS_LIMIT = 20;
+
+/** 23.7: the only connected-device signal already in the schema
+ * (`printers.agentsActive`, re-surfaced here). Deliberately not a Docker
+ * container/replica count -- that would need Docker-socket access from the
+ * API container, an unnecessary new security surface for a "nice to have"
+ * figure. Surfaced verbatim in the UI as a hint on the tile. */
+const INSTANCES_NOTE =
+  "Printer agents connected (paired PrinterAgent rows reporting ACTIVE). " +
+  "This is not a count of API/worker server instances or containers -- " +
+  "that would require Docker-socket access from the API, which this platform " +
+  "deliberately does not grant.";
 
 /** Audit actions an administrator watches for: who can act on the business changed,
  * a device was paired, or configuration changed. */
@@ -16,6 +31,10 @@ const SECURITY_ACTIONS: string[] = [
   AuditAction.PAIRING_CODE_ISSUED,
   AuditAction.PAIRING_CODE_REDEEMED,
   AuditAction.SHOP_SETTINGS_CHANGED,
+  // Workstream B: an admin changing a user's platform-wide role/status is
+  // exactly the kind of event this panel watches for.
+  AuditAction.USER_ROLE_CHANGED,
+  AuditAction.USER_STATUS_CHANGED,
 ];
 
 interface ShopRevenueRow {
@@ -44,11 +63,13 @@ export class AdminDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly health: HealthService,
+    private readonly requestCounter: RequestCounterService,
   ) {}
 
   async get(): Promise<AdminDashboardResponse> {
     const now = new Date();
     const since24h = new Date(now.getTime() - DAY_MS);
+    const since15m = new Date(now.getTime() - FIFTEEN_MIN_MS);
     const [
       readiness,
       shops,
@@ -63,11 +84,15 @@ export class AdminDashboardService {
       failedPayments,
       security,
       revenueByShopRows,
+      recentOrderRows,
+      activeLogins,
     ] = await Promise.all([
       this.health.checkReadiness(),
       this.prisma.shop.groupBy({ by: ["status"], _count: { _all: true } }),
-      this.prisma.user.groupBy({ by: ["role"], _count: { _all: true } }),
-      this.prisma.user.groupBy({ by: ["status"], _count: { _all: true } }),
+      // 24.1: people only -- a shop's synthetic QR-order account (role
+      // SYSTEM) is neither a role bucket nor a status count here.
+      this.prisma.user.groupBy({ by: ["role"], where: REAL_USERS, _count: { _all: true } }),
+      this.prisma.user.groupBy({ by: ["status"], where: REAL_USERS, _count: { _all: true } }),
       this.prisma.order.groupBy({ by: ["orderStatus"], _count: { _all: true } }),
       this.prisma.order.count({ where: { createdAt: { gte: utcDayStart(now) } } }),
       this.prisma.printer.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -121,6 +146,32 @@ export class AdminDashboardService {
         ORDER BY gross_today DESC
         LIMIT 50
       `,
+      // 23.7: last ~20 orders, newest first, platform-wide -- a plain
+      // findMany (this is a bounded row list, not an aggregate, but the
+      // dashboard's own "recent orders" panel is exactly that).
+      this.prisma.order.findMany({
+        take: RECENT_ORDERS_LIMIT,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          publicOrderNumber: true,
+          orderStatus: true,
+          createdAt: true,
+          shop: { select: { name: true } },
+        },
+      }),
+      // 23.7: "active users now" = distinct actorId with a LOGIN audit row
+      // in the last 15 minutes. Reuses the existing audit log; no new
+      // Redis-backed session tracking.
+      this.prisma.auditLog.findMany({
+        where: {
+          action: AuditAction.LOGIN,
+          createdAt: { gte: since15m },
+          actorId: { not: null },
+        },
+        distinct: ["actorId"],
+        select: { actorId: true },
+      }),
     ]);
 
     const businessesByStatus = toRecord(
@@ -159,6 +210,16 @@ export class AdminDashboardService {
       securityEvents24h: { total: sum(byAction), byAction },
       subscriptions: null,
       revenueByShop,
+      recentOrders: recentOrderRows.map((o) => ({
+        id: o.id,
+        publicOrderNumber: o.publicOrderNumber,
+        shopName: o.shop.name,
+        status: o.orderStatus,
+        createdAt: o.createdAt.toISOString(),
+      })),
+      activeUsersNow: activeLogins.length,
+      traffic: this.requestCounter.getStats(),
+      instances: { printerAgentsConnected: agentsActive, note: INSTANCES_NOTE },
     };
   }
 }

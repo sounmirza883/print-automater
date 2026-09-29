@@ -9,6 +9,7 @@ export {
   type RecoveryInput,
 } from "./auth/index.js";
 export { createDocumentSchema, type CreateDocumentInput } from "./documents/index.js";
+export { createPublicOrderSchema, type CreatePublicOrderInput } from "./public-orders/index.js";
 export {
   listShopsQuerySchema,
   type ListShopsQueryInput,
@@ -98,6 +99,14 @@ export {
   type AdminAuditQueryInput,
   activatePlanSchema,
   type ActivatePlanInput,
+  createBusinessSchema,
+  type CreateBusinessInput,
+  updateBusinessStatusSchema,
+  type UpdateBusinessStatusInput,
+  updateUserRoleSchema,
+  type UpdateUserRoleInput,
+  updateUserStatusSchema,
+  type UpdateUserStatusInput,
 } from "./admin/index.js";
 export {
   createCustomerSchema,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import type { OperatingHours, ShopSettings } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
+import { ShopQrCode } from "@/components/admin/shop-qr-code";
 import { CheckField, ErrorBanner, INPUT, TextField } from "@/components/form-kit";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
@@ -81,7 +82,7 @@ function SettingsForm({
   shopId: string;
   reload: () => void;
 }): ReactNode {
-  const { can } = useSession();
+  const { can, business } = useSession();
   const canBusiness = can(Permission.MANAGE_SETTINGS);
   const canAutomation = can(Permission.MANAGE_AUTOMATION);
   const runner = useActionRunner(reload);
@@ -180,6 +181,8 @@ function SettingsForm({
           </p>
         )}
       </Panel>
+
+      <ShopQrCode shopId={shopId} shopName={business?.name} />
 
       <Panel
         title="Automation"
