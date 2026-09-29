@@ -10,7 +10,6 @@ import {
   getPost,
   type PostBlock,
 } from "@/content/blog";
-import { siteConfig } from "@/content/site";
 
 type Params = { slug: string };
 
@@ -90,12 +89,11 @@ export default async function BlogPostPage({ params }: { params: Promise<Params>
           <Prose className="mt-2 text-lg leading-8 [&_h2]:text-2xl">
             {post.body.map(renderBlock)}
           </Prose>
-          <footer className="mt-12 flex flex-col gap-3 border-t border-ink-100 pt-8 sm:flex-row sm:items-center sm:justify-between">
+          <footer className="mt-12 flex flex-col gap-3 border-t border-ink-100 pt-8 sm:flex-row sm:items-center">
             <Button href="/blog" variant="ghost">
               <ArrowLeft aria-hidden="true" className="size-4" />
               All articles
             </Button>
-            <Button href={siteConfig.signUpUrl}>Start free trial</Button>
           </footer>
         </article>
       </Container>

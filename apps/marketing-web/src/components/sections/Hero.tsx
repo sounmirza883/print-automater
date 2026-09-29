@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, Check, Shuffle } from "lucide-react";
+import { BookOpen, Check, Shuffle } from "lucide-react";
 import { BrowserFrame, DashboardMock } from "@/components/preview";
 import { Button, Reveal, Section, SectionHeader } from "@/components/ui";
 import { siteConfig } from "@/content/site";
@@ -31,10 +31,6 @@ export function Hero() {
             lede="Customers order online with live pricing. Each job is routed to the right printer, and rerouted if one goes down. Your staff see the whole queue and stay in control."
           />
           <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-            <Button href={siteConfig.signUpUrl} size="lg" tone="dark">
-              Get started
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Button>
             <Button href={siteConfig.docsUrl} size="lg" variant="secondary" tone="dark">
               <BookOpen className="size-4" aria-hidden="true" />
               View documentation

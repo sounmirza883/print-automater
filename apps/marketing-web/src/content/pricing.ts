@@ -25,7 +25,7 @@ export const plans: Plan[] = [
     name: "Starter",
     tagline: "For a single-counter shop getting its first orders online.",
     monthly: 49,
-    cta: "Start free trial",
+    cta: "Talk to us",
     features: [
       "Up to 2 printers",
       "3 staff users",
@@ -40,7 +40,7 @@ export const plans: Plan[] = [
     tagline: "For busy shops that want the queue to run itself.",
     monthly: 129,
     highlighted: true,
-    cta: "Start free trial",
+    cta: "Talk to us",
     features: [
       "Up to 10 printers",
       "15 staff users",

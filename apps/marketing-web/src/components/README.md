@@ -40,5 +40,7 @@ others `light` / `muted`.
 ## Content
 
 Copy lives in `src/content/*.ts` (typed). `siteConfig` in `content/site.ts` holds `appUrl`
-(http://localhost:3001), `signUpUrl`, `loginUrl`, `docsUrl`. Use those for CTAs; never hard-code URLs.
+and `loginUrl` (both http://localhost:3002, shop-web's staff/admin console — there is no
+public sign-up; shops are provisioned by an admin) and `docsUrl`. Use those for CTAs; never
+hard-code URLs.
 Icons: `lucide-react` (no brand logos there; use text monograms for integrations).

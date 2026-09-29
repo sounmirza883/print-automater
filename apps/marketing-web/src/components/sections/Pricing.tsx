@@ -13,8 +13,10 @@ const cycles: { value: BillingCycle; label: string }[] = [
   { value: "annual", label: "Annual" },
 ];
 
-function planHref(id: string): string {
-  return id === "business" ? `mailto:${siteConfig.contactEmail}` : siteConfig.signUpUrl;
+// There is no self-service sign-up anymore (shops are provisioned by an admin), so every
+// plan's CTA routes to sales rather than a plan-specific trial flow.
+function planHref(): string {
+  return `mailto:${siteConfig.contactEmail}`;
 }
 
 function Cell({ value }: { value: PlanValue }) {
@@ -119,7 +121,7 @@ export function Pricing() {
                 ))}
               </ul>
               <Button
-                href={planHref(plan.id)}
+                href={planHref()}
                 variant={plan.highlighted ? "primary" : "secondary"}
                 fullWidth
                 className="mt-8"

@@ -4,9 +4,8 @@ export const siteConfig = {
   description:
     "Print Automated is a simple operating system for printing businesses. Customers order online, jobs route to the right printer automatically, and authorized staff stay in control.",
   url: "http://localhost:3002",
-  appUrl: "http://localhost:3001",
-  signUpUrl: "http://localhost:3001/signup",
-  loginUrl: "http://localhost:3001/login",
+  appUrl: "http://localhost:3002",
+  loginUrl: "http://localhost:3002/login",
   docsUrl: "/docs",
   contactEmail: "hello@printautomated.example",
   social: {

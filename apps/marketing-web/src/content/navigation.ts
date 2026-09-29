@@ -14,5 +14,4 @@ export const primaryNav: readonly NavLink[] = [
 
 export const headerCtas = {
   login: { label: "Log in", href: siteConfig.loginUrl },
-  primary: { label: "Get started", href: siteConfig.signUpUrl },
 } as const;

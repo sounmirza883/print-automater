@@ -59,9 +59,6 @@ export function SiteHeader() {
           <Button href={headerCtas.login.href} variant="ghost" tone="dark" size="sm">
             {headerCtas.login.label}
           </Button>
-          <Button href={headerCtas.primary.href} size="sm">
-            {headerCtas.primary.label}
-          </Button>
         </div>
         <MobileNav />
       </Container>

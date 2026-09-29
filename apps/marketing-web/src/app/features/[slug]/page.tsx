@@ -6,7 +6,6 @@ import { FinalCta } from "@/components/sections/FinalCta";
 import { FeaturePreview } from "@/components/sections/features/FeaturePreview";
 import { Button, Card, IconTile, Section, SectionHeader } from "@/components/ui";
 import { featurePages, getFeaturePage } from "@/content/feature-pages";
-import { siteConfig } from "@/content/site";
 
 type Params = { slug: string };
 
@@ -45,9 +44,6 @@ export default async function FeaturePage({ params }: { params: Promise<Params> 
         ]}
       >
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button href={siteConfig.signUpUrl} size="lg" tone="dark">
-            Start free trial
-          </Button>
           <Button href="/features" size="lg" variant="secondary" tone="dark">
             All features
           </Button>

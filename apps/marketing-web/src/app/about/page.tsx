@@ -11,7 +11,6 @@ import {
   values,
   type TimelineStatus,
 } from "@/content/company";
-import { siteConfig } from "@/content/site";
 
 export const metadata: Metadata = {
   title: "About",
@@ -131,9 +130,6 @@ export default function AboutPage() {
             Want to see it in your shop?
           </h2>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Button href={siteConfig.signUpUrl} tone="dark">
-              Start free trial
-            </Button>
             <Button href="/careers" variant="secondary" tone="dark">
               Join the team
             </Button>

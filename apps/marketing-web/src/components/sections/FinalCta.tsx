@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react";
 import { Button, Reveal, Section } from "@/components/ui";
 import { siteConfig } from "@/content/site";
 
@@ -21,16 +20,7 @@ export function FinalCta() {
           in an afternoon.
         </p>
         <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-          <Button href={siteConfig.signUpUrl} size="lg" tone="dark">
-            Start free trial
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
-          <Button
-            href={`mailto:${siteConfig.contactEmail}`}
-            size="lg"
-            variant="secondary"
-            tone="dark"
-          >
+          <Button href={`mailto:${siteConfig.contactEmail}`} size="lg" tone="dark">
             Book a demo
           </Button>
         </div>

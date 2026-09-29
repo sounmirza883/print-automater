@@ -113,9 +113,6 @@ export function MobileNav() {
             <Button href={headerCtas.login.href} variant="secondary" tone="dark" fullWidth>
               {headerCtas.login.label}
             </Button>
-            <Button href={headerCtas.primary.href} fullWidth>
-              {headerCtas.primary.label}
-            </Button>
           </div>
         </div>
       ) : null}

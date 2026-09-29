@@ -1,6 +1,5 @@
-import { Badge, Button, IconTile, Reveal, Section, SectionHeader } from "@/components/ui";
+import { Badge, IconTile, Reveal, Section, SectionHeader } from "@/components/ui";
 import { howItWorksSteps } from "@/content/how-it-works";
-import { siteConfig } from "@/content/site";
 
 export function HowItWorks() {
   return (
@@ -38,11 +37,6 @@ export function HowItWorks() {
           </li>
         ))}
       </ol>
-      <div className="mt-12 text-center">
-        <Button href={siteConfig.signUpUrl} size="lg">
-          Start setting up your shop
-        </Button>
-      </div>
     </Section>
   );
 }
