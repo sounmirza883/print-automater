@@ -20,8 +20,8 @@ import {
 } from "@print-automated/types";
 import type { PrintConfiguration } from "@print-automated/types";
 import { createPublicOrderSchema } from "@print-automated/validation";
-import { validatePageSelection } from "@/lib/configure-quote";
-import { formatMoney, summarizeConfiguration } from "@/lib/orders";
+import { validatePageSelection } from "@/lib/page-selection";
+import { formatMoney, summarizeConfiguration } from "@/lib/order-formatting";
 import { createPublicOrder, type PublicOrderResult } from "@/lib/public-order";
 import { runPublicUploadFlow, type PublicUploadState } from "@/lib/public-upload";
 
@@ -126,7 +126,7 @@ function QrOrderWizard({ shopId }: { shopId: string }): ReactNode {
  * `createPublicOrderSchema` (`@print-automated/validation`) the
  * backend runs against these two fields -- not a second, hand-rolled
  * copy of the phone-shape rule that could quietly drift from it, the
- * same "one rule, shared" reasoning `configure-quote.ts`'s own
+ * same "one rule, shared" reasoning `page-selection.ts`'s own
  * `validatePageSelection` already follows for page ranges. A rejection
  * here is worded identically to a server-side one (e.g. "Enter a phone
  * number of 7 to 15 digits."), so it's never a surprise later. */

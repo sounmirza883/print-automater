@@ -16,10 +16,9 @@ export interface PublicOrderPricingSnapshot {
 }
 
 /** The shape of `POST /public/shops/:shopId/orders`'s `OrderResponse`
- * this app actually reads -- a hand-copied subset (same convention as
- * `lib/orders.ts`'s `OrderListItem`), not an import of the backend's
- * own `services/api` type, since customer-web never depends on that
- * package directly. */
+ * this app actually reads -- a hand-copied subset, not an import of
+ * the backend's own `services/api` type, since customer-web never
+ * depends on that package directly. */
 export interface PublicOrderResult {
   id: string;
   publicOrderNumber: string;
