@@ -13,7 +13,7 @@ export const howItWorksSteps: readonly HowItWorksStep[] = [
     id: "create-shop",
     title: "Create your shop and set prices",
     description:
-      "Sign up, name your shop, and enter your price list for paper, sizes, colour and finishing.",
+      "We set up your shop account, then you add your price list for paper, sizes, colour and finishing.",
     detail: "Takes about ten minutes",
     icon: Settings2,
   },

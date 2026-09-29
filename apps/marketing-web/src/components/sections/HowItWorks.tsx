@@ -7,7 +7,7 @@ export function HowItWorks() {
       <SectionHeader
         id="how-it-works"
         eyebrow="How it works"
-        title="From sign-up to first printed order in four steps"
+        title="From onboarding to first printed order in four steps"
         lede="No new hardware and no IT team. If your printers work from a Windows PC today, they work with Print Automated."
       />
       <ol className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
