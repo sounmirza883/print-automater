@@ -219,6 +219,116 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
     expect(notifications).toHaveLength(2);
   });
 
+  describe("fix wave 1: a QR order's customerId is the shop's SYSTEM account -- never emailed", () => {
+    let systemUserId: string;
+    let systemEmail: string;
+    let systemDocumentId: string;
+
+    beforeAll(async () => {
+      // The shape PublicOrdersService provisions: an undeliverable address on a
+      // reserved `.invalid` domain. Emailing it is a guaranteed hard bounce.
+      systemEmail = `qr-orders+${randomUUID()}@system.print-automated.invalid`;
+      const systemUser = await prisma.user.create({
+        data: {
+          role: UserRole.SYSTEM,
+          name: "Order Notifications E2E QR System",
+          email: systemEmail,
+          passwordHash: "irrelevant",
+        },
+      });
+      systemUserId = systemUser.id;
+      const document = await prisma.document.create({
+        data: {
+          ownerUserId: systemUserId,
+          storageKey: `test/order-notifications/${randomUUID()}`,
+          filename: "qr-order-notifications-test.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1,
+          status: DocumentStatus.READY,
+        },
+      });
+      systemDocumentId = document.id;
+    });
+
+    afterAll(async () => {
+      await prisma.printJob.deleteMany({ where: { order: { customerId: systemUserId } } });
+      await prisma.notification.deleteMany({ where: { userId: systemUserId } });
+      await prisma.order.deleteMany({ where: { customerId: systemUserId } });
+      await prisma.document.delete({ where: { id: systemDocumentId } });
+      await prisma.user.delete({ where: { id: systemUserId } });
+    });
+
+    it.each(cases)(
+      "$event on a QR order creates no notification row and enqueues no email",
+      async ({ from, event, seedJobStatus }) => {
+        const order = await prisma.order.create({
+          data: {
+            publicOrderNumber: `TEST-NOTIF-QR-${randomUUID()}`,
+            customerId: systemUserId,
+            shopId,
+            documentId: systemDocumentId,
+            printConfiguration: {},
+            pricingSnapshot: {},
+            orderStatus: from,
+            creationSource: "QR",
+          },
+        });
+        if (seedJobStatus) {
+          await prisma.printJob.create({
+            data: {
+              orderId: order.id,
+              shopId,
+              status: seedJobStatus,
+              idempotencyToken: randomUUID(),
+            },
+          });
+        }
+
+        await stateMachine.transition(order.id, event, { id: null });
+
+        // The transition itself still happened (and was audited as usual).
+        const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+        expect(after.orderStatus).not.toBe(from);
+        // No EMAIL row (it would bounce) and no APP row (nobody ever signs in as it).
+        expect(await prisma.notification.count({ where: { orderId: order.id } })).toBe(0);
+        const jobs = await notificationsQueue.getJobs(["waiting", "completed", "delayed"]);
+        expect(jobs.some((job) => job.data.to === systemEmail)).toBe(false);
+      },
+    );
+
+    it("the required notices (rejection, print failure) are skipped for it too -- there is no inbox to require", async () => {
+      const order = await prisma.order.create({
+        data: {
+          publicOrderNumber: `TEST-NOTIF-QR-${randomUUID()}`,
+          customerId: systemUserId,
+          shopId,
+          documentId: systemDocumentId,
+          printConfiguration: {},
+          pricingSnapshot: {},
+          orderStatus: OrderStatus.WAITING_FOR_SHOP,
+          creationSource: "QR",
+        },
+      });
+      await stateMachine.transition(order.id, OrderEvent.SHOP_REJECT, { id: null });
+      expect(await prisma.notification.count({ where: { orderId: order.id } })).toBe(0);
+    });
+
+    it.each(["CUSTOMER_WEB", "COUNTER"] as const)(
+      "the same transition on a real account's %s order (the control) still notifies by both channels",
+      async (creationSource) => {
+        const orderId = await createOrderIn(OrderStatus.PRINTED);
+        await prisma.order.update({ where: { id: orderId }, data: { creationSource } });
+        await stateMachine.transition(orderId, OrderEvent.MARK_READY, { id: null });
+        const notifications = await prisma.notification.findMany({ where: { orderId } });
+        expect(notifications.map((n) => n.channel).sort()).toEqual(["APP", "EMAIL"]);
+        const email = notifications.find((n) => n.channel === "EMAIL")!;
+        const jobs = await notificationsQueue.getJobs(["waiting", "completed", "delayed"]);
+        const job = jobs.find((j) => j.data.notificationId === email.id);
+        expect(job?.data.to).toBe(customerEmail);
+      },
+    );
+  });
+
   it("events with no §78 mapping (REQUEST_PAYMENT, CANCEL, ...) produce no notification at all", async () => {
     const orderId = await createOrderIn(OrderStatus.UPLOADED);
     await stateMachine.transition(orderId, OrderEvent.REQUEST_PAYMENT, { id: null });

@@ -4,6 +4,7 @@ import type { Queue } from "bullmq";
 import {
   NotificationChannel,
   OrderStatus,
+  UserRole,
   type NotificationType,
   type Prisma,
 } from "@prisma/client";
@@ -429,16 +430,36 @@ export class OrderStateMachine {
         : NOTIFICATION_TYPE_BY_EVENT[event];
 
     let pendingEmail: SendEmailJob | undefined;
+    // Fix wave 1 (24.1 follow-up): a QR order's customerId is the shop's synthetic
+    // SYSTEM account (Shop.qrSystemUserId), whose address is a reserved `.invalid`
+    // domain -- emailing it is a guaranteed hard bounce, and a sustained bounce rate
+    // can get the sending account suspended, taking every REAL customer's and staff
+    // member's email down with it. Nobody ever signs in as it either, so an APP row
+    // would only accumulate unread. So a SYSTEM recipient gets neither channel, the
+    // required notices included (there is no inbox to require). The guest's real
+    // contact details live on the order's Customer record; no SMS channel exists yet.
+    const recipient = notificationType
+      ? await tx.user.findUniqueOrThrow({
+          where: { id: updatedOrder.customerId },
+          select: { email: true, role: true },
+        })
+      : undefined;
     // 22.2 (PRD 76): the shop can switch automatic customer notifications off, or
     // one channel of them. The order transition, its audit row and everything else
     // are unaffected; only the notification rows (and the email they enqueue) are --
     // except the REQUIRED notices (rejection, print failure), which 23.7 exempts.
-    const automation = notificationType
-      ? await readShopAutomation(tx, updatedOrder.shopId)
-      : undefined;
+    const automation =
+      notificationType && recipient && recipient.role !== UserRole.SYSTEM
+        ? await readShopAutomation(tx, updatedOrder.shopId)
+        : undefined;
     const required =
       notificationType !== undefined && REQUIRED_CUSTOMER_NOTICES.has(notificationType);
-    if (notificationType && automation && (automation.automaticNotifications || required)) {
+    if (
+      notificationType &&
+      recipient &&
+      automation &&
+      (automation.automaticNotifications || required)
+    ) {
       const content = buildNotificationContent(notificationType, updatedOrder.publicOrderNumber);
 
       if (automation.notificationChannels.app || required) {
@@ -454,10 +475,6 @@ export class OrderStateMachine {
         });
       }
       if (automation.notificationChannels.email) {
-        const recipient = await tx.user.findUniqueOrThrow({
-          where: { id: updatedOrder.customerId },
-          select: { email: true },
-        });
         const emailNotification = await tx.notification.create({
           data: {
             userId: updatedOrder.customerId,
