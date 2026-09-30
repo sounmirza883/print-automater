@@ -79,6 +79,42 @@ describe("TokenService (integration)", () => {
     );
   });
 
+  it.each(["SUSPENDED", "DELETED"] as const)(
+    "refuses to rotate for a %s account even when its refresh token is still unrevoked (the suspend-vs-refresh race), and ends the session",
+    async (status) => {
+      const user = await prisma.user.create({
+        data: {
+          role: UserRole.SHOP_OWNER,
+          name: `Token Service ${status} User`,
+          email: `token-service-${status.toLowerCase()}-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant-for-this-test",
+        },
+      });
+      try {
+        // Mid-session: a live, unrevoked refresh token...
+        const pair = await tokenService.issueTokenPair({ id: user.id, role: user.role });
+        // ...then an admin suspends the account. The race this guards: a refresh that
+        // minted a fresh token after `revokeAllForUser` already ran, so no revocation
+        // covers it -- modelled here by changing the status WITHOUT revoking anything.
+        await prisma.user.update({ where: { id: user.id }, data: { status } });
+
+        await expect(tokenService.rotateRefreshToken(pair.refreshToken)).rejects.toThrow(
+          InvalidRefreshTokenError,
+        );
+
+        // Nothing new was minted, and the whole family is dead: reactivating the
+        // account later does not bring this session back.
+        const rows = await prisma.refreshToken.findMany({ where: { familyId: pair.familyId } });
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.revokedAt).not.toBeNull();
+        await prisma.user.update({ where: { id: user.id }, data: { status: "ACTIVE" } });
+        await expect(tokenService.rotateRefreshToken(pair.refreshToken)).rejects.toThrow();
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+      }
+    },
+  );
+
   it("revokeFamily revokes every active token in the family and is idempotent", async () => {
     const pair = await tokenService.issueTokenPair(testUser);
 

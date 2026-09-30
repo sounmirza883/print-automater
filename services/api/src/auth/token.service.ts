@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
 import type { ApiEnv } from "@print-automated/config";
-import type { UserRole } from "@prisma/client";
+import { UserStatus, type UserRole } from "@prisma/client";
 import { API_ENV } from "../config/config.module.js";
 import { PrismaService } from "@print-automated/backend-shared";
 import { hashToken } from "../common/crypto.util.js";
@@ -79,16 +79,27 @@ export class TokenService {
       throw new RefreshTokenReuseDetectedError();
     }
 
+    // Fix wave 1: an account that is no longer ACTIVE gets no new tokens. The
+    // admin suspend path revokes every token it can see (revokeAllForUser), but a
+    // refresh racing it can mint a replacement AFTER that ran, which nothing would
+    // ever revoke -- the session would outlive the suspension indefinitely. Reading
+    // the status here refuses that token at its next use, and the family is killed
+    // outright so a later reactivation does not quietly revive this session.
+    const user = await this.getUserForRefresh(payload.sub);
+    if (user.status !== UserStatus.ACTIVE) {
+      await this.revokeFamily(payload.familyId);
+      throw new InvalidRefreshTokenError();
+    }
+
     await this.prisma.refreshToken.update({
       where: { id: existing.id },
       data: { revokedAt: new Date() },
     });
 
-    const role = await this.getUserRole(payload.sub);
     const newRefreshToken = await this.createRefreshToken(payload.sub, payload.familyId);
 
     return {
-      accessToken: this.issueAccessToken({ id: payload.sub, role }),
+      accessToken: this.issueAccessToken({ id: payload.sub, role: user.role }),
       refreshToken: newRefreshToken,
       familyId: payload.familyId,
     };
@@ -145,11 +156,10 @@ export class TokenService {
     return rawToken;
   }
 
-  private async getUserRole(userId: string): Promise<UserRole> {
-    const user = await this.prisma.user.findUniqueOrThrow({
+  private async getUserForRefresh(userId: string): Promise<{ role: UserRole; status: UserStatus }> {
+    return this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { role: true },
+      select: { role: true, status: true },
     });
-    return user.role;
   }
 }

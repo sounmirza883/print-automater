@@ -355,6 +355,23 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       expect(audit?.metadata).toMatchObject({ from: "ACTIVE", to: "SUSPENDED" });
     });
 
+    it("a suspended user's next refresh is refused (401) even with a token no revocation covered -- the suspend-vs-refresh race", async () => {
+      const pair = await tokenService.issueTokenPair(target);
+      const ok = await request(app.getHttpServer())
+        .post("/v1/auth/refresh")
+        .send({ refreshToken: pair.refreshToken });
+      expect(ok.status).toBe(200);
+
+      // The race: a refresh that rotated AFTER the admin's revokeAllForUser ran holds a
+      // fresh, unrevoked token. Modelled by suspending without revoking anything.
+      await prisma.user.update({ where: { id: target.id }, data: { status: "SUSPENDED" } });
+      const refused = await request(app.getHttpServer())
+        .post("/v1/auth/refresh")
+        .send({ refreshToken: ok.body.refreshToken });
+      expect(refused.status).toBe(401);
+      expect(refused.body.error_code).toBeDefined();
+    });
+
     it("setting a user back to ACTIVE does not touch refresh tokens (only suspend/delete revoke)", async () => {
       await tokenService.issueTokenPair(target);
       const res = await request(app.getHttpServer())
