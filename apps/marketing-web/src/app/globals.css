@@ -45,6 +45,20 @@
       transform: translateY(-6px);
     }
   }
+
+  /* Print-head sweep across a busy printer's load bar in the dashboard mock.
+     Animates `translate` (what Tailwind v4's translate-* utilities set), and
+     rests off-bar, so the reduced-motion override below leaves nothing visible. */
+  --animate-sweep: sweep 2.8s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  @keyframes sweep {
+    0% {
+      translate: -100% 0;
+    }
+    65%,
+    100% {
+      translate: 220% 0;
+    }
+  }
 }
 
 html {

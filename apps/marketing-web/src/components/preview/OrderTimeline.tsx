@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { timelineSteps } from "./data";
+import { surface } from "./surface";
 
 export type OrderTimelineProps = {
   order?: string;
@@ -9,7 +10,7 @@ export type OrderTimelineProps = {
 
 export function OrderTimeline({ order = "PA-10482", className }: OrderTimelineProps) {
   return (
-    <div className={cn("rounded-lg border border-ink-100 bg-white p-4", className)}>
+    <div className={cn(surface, "p-4", className)}>
       <p className="text-xs font-medium text-ink-600">
         Order <span className="font-mono text-ink-900">{order}</span>
       </p>

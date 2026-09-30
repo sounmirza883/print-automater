@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { surface } from "./surface";
 
 export type StatCardProps = {
   label: string;
@@ -17,9 +18,9 @@ const trendClass = {
 
 export function StatCard({ label, value, delta, trend = "flat", className }: StatCardProps) {
   return (
-    <div className={cn("rounded-lg border border-ink-100 bg-white p-3 sm:p-4", className)}>
+    <div className={cn(surface, "p-3 sm:p-4", className)}>
       <p className="text-xs font-medium text-ink-600">{label}</p>
-      <p className="mt-1 font-mono text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">
+      <p className="mt-1.5 font-mono text-xl font-semibold tabular-nums tracking-tight text-ink-900 sm:text-2xl">
         {value}
       </p>
       {delta ? <p className={cn("mt-1 text-xs", trendClass[trend])}>{delta}</p> : null}

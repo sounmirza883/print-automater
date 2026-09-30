@@ -1,5 +1,22 @@
+/**
+ * Placeholder data for the marketing dashboard mocks. Everything here is
+ * illustrative. The mock is set at 09:16 on a Friday, so "today" figures are
+ * morning-sized and the weekly chart has no data yet for Saturday or Sunday.
+ */
+
+export const mockTime = "09:16";
+export const mockClock = `Fri ${mockTime}`;
+
 export type JobStatus =
-  "Printing" | "Queued" | "Ready for pickup" | "Awaiting payment" | "Rerouted" | "Failed";
+  | "Needs acceptance"
+  | "Awaiting payment"
+  | "Queued"
+  | "Printing"
+  | "Rerouted"
+  | "Quality check"
+  | "Ready for pickup"
+  | "Collected"
+  | "Failed";
 
 export type JobRow = {
   order: string;
@@ -10,6 +27,7 @@ export type JobRow = {
   status: JobStatus;
 };
 
+/** The five live jobs shown on the Overview screen. */
 export const jobRows: JobRow[] = [
   {
     order: "PA-10482",
@@ -51,6 +69,49 @@ export const jobRows: JobRow[] = [
     printer: "Unassigned",
     status: "Awaiting payment",
   },
+];
+
+/** Today's orders for the Orders screen: the live jobs plus either end of the lifecycle. */
+export const orderRows: JobRow[] = [
+  {
+    order: "PA-10483",
+    customer: "Aisha Rahman",
+    spec: "A4 colour, spiral bound",
+    pages: 64,
+    printer: "Unassigned",
+    status: "Needs acceptance",
+  },
+  ...jobRows,
+  {
+    order: "PA-10477",
+    customer: "Harbour Dental",
+    spec: "A5 appointment cards",
+    pages: 200,
+    printer: "Printer 3",
+    status: "Quality check",
+  },
+  {
+    order: "PA-10476",
+    customer: "Sam Whitlock",
+    spec: "A4 B&W, stapled",
+    pages: 36,
+    printer: "Printer 4",
+    status: "Collected",
+  },
+];
+
+export type OverviewStat = {
+  label: string;
+  value: string;
+  delta: string;
+  trend: "up" | "down" | "flat";
+};
+
+export const overviewStats: OverviewStat[] = [
+  { label: "Orders today", value: "31", delta: "+14% vs last Fri", trend: "up" },
+  { label: "Pages printed", value: "1,240", delta: "+9% vs last Fri", trend: "up" },
+  { label: "In queue", value: "7", delta: "avg wait 4 min", trend: "flat" },
+  { label: "Revenue", value: "$264", delta: "+6% vs last Fri", trend: "up" },
 ];
 
 export type PrinterState = "Printing" | "Idle" | "Offline" | "Low paper";
@@ -145,15 +206,19 @@ export const stockRows: StockRow[] = [
   },
 ];
 
-export const weeklyPages = [
+/** Pages printed per day this week. Friday is today (so far); the weekend has not happened yet. */
+export const weeklyPages: { label: string; value: number | null }[] = [
   { label: "Mon", value: 1840 },
   { label: "Tue", value: 2210 },
   { label: "Wed", value: 1960 },
   { label: "Thu", value: 2680 },
-  { label: "Fri", value: 3120 },
-  { label: "Sat", value: 1490 },
-  { label: "Sun", value: 620 },
+  { label: "Fri", value: 1240 },
+  { label: "Sat", value: null },
+  { label: "Sun", value: null },
 ];
+
+export const weeklyPagesLabel =
+  "Pages printed per day this week: Monday 1,840, Tuesday 2,210, Wednesday 1,960, Thursday 2,680, and 1,240 so far today, Friday";
 
 export const timelineSteps: {
   label: string;
