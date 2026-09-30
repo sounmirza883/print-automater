@@ -175,7 +175,13 @@ services:
     image: ${API_IMAGE:-print-automated-api:latest}
     restart: unless-stopped
     ports:
-      - "${API_HOST_PORT:-3000}:3000"
+      # Loopback only by default, same reasoning as SHOP_WEB_BIND_ADDRESS below: this stack
+      # has no TLS proxy of its own, and TRUST_PROXY_HOPS below assumes exactly one hop (the
+      # host's TLS reverse proxy) sits in front of this container. Publishing the API on every
+      # interface would let a caller reach it directly, skip that hop, and forge
+      # X-Forwarded-For to dodge every per-IP rate limit (login, public QR ordering,
+      # activation). Set API_BIND_ADDRESS=0.0.0.0 only if something else terminates TLS for it.
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_HOST_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
