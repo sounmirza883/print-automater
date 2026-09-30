@@ -28,6 +28,23 @@ as separate line items (the closest new-PRD line, #28, is addressed on its own t
       printers, products, orders — is built and proven; only the first step, a business bringing
       itself into existence, has no API.
 
+      > **Amendment (2026-09-30, fix wave 1 after the admin-panel/QR-ordering review):** the
+          > product decision is **admin-only onboarding — no public self-service signup**. A
+          > self-service `POST /shops/register` was briefly added (`c0d8d64`, `03064d5`) and has
+          > been **removed** deliberately, along with its `registerShopSchema`. The one way a
+          > business now comes into existence is `POST /admin/businesses` (platform ADMIN only),
+          > which in one transaction creates the shop, its named owner's `SHOP_OWNER` account
+          > (no password — the admin never knows it), their active owner membership and a
+          > single-use invitation code emailed to them; the owner sets their own password with
+          > that code (`POST /shop/staff-invites/activate`) and is signed in. The owner then sets
+          > real prices themselves — until they do, every order is refused with
+          > `SHOP_PRICING_NOT_CONFIGURED`. Proven end to end through the real API in
+          > `admin.e2e-spec.ts` ("the full journey": create → activate → no-pricing 409 → owner
+          > prices → a QR order is accepted). **Still open until the UI lands:** shop-web's
+          > create-business form must send the owner, and shop-web needs the "Set up your
+          > account" page that calls the activation endpoint — this box is ticked once a real
+          > browser can walk that path.
+
 - [x] **An owner can create users.**
       Staff invite API (16.4, `64eba07`): an owner or manager invites by email with a role,
       the invitee accepts and becomes `ShopStaff`. `shop-staff-invites.e2e-spec.ts` and
@@ -233,6 +250,10 @@ could plausibly own it) — not a previously-known one carried forward, and not 
 defers. Closing it means adding a self-service business-signup endpoint (and deciding what becomes
 of it afterward — an approval step, a trial period, billing — none of which the new PRD specifies in
 enough detail to build against yet).
+
+> **Amendment (2026-09-30):** decided the other way — onboarding is admin-only, and self-service
+> signup was removed on purpose. The API half is done (see item #1's own amendment); the item stays
+> open only until shop-web's owner-activation page ships.
 
 Every other line traces to a commit and a test file, and several — automatic allocation, page
 limits, paper-availability gating, the notification centre, the full new authorization matrix — are
