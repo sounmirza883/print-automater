@@ -59,7 +59,10 @@ export interface CreateBusinessInput {
   latitude?: number;
   longitude?: number;
   phone?: string;
-  capabilities?: PrinterCapabilities;
+  /** Fix wave 1: now REQUIRED -- every order is checked against what the business can
+   * print, and nothing lets a business declare it later, so a business created without it
+   * could never take an order. */
+  capabilities: PrinterCapabilities;
   /** Fix wave 1 (required): who will run the business. The API creates their SHOP_OWNER
    * account and emails them a code to set their OWN password -- there is deliberately no
    * password here. An email that already has an account is refused with 409

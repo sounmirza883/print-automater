@@ -3,6 +3,7 @@ import { createBusinessSchema } from "./create-business.schema.js";
 const valid = () => ({
   name: "Corner Copies",
   address: "12 Mall Road",
+  capabilities: { color: true, duplex: false, a4: true, a3: false },
   owner: { name: "Ayesha Siddiqui", email: "Ayesha@Example.com", phone: "+92 300 1234567" },
 });
 
@@ -17,6 +18,12 @@ describe("createBusinessSchema (fix wave 1: admin-created businesses get a real 
     const { owner, ...withoutOwner } = valid();
     void owner;
     expect(createBusinessSchema.safeParse(withoutOwner).success).toBe(false);
+  });
+
+  it("requires what the business can print: with none declared, every order would be refused and nothing could ever set it later", () => {
+    const { capabilities, ...withoutCapabilities } = valid();
+    void capabilities;
+    expect(createBusinessSchema.safeParse(withoutCapabilities).success).toBe(false);
   });
 
   it("requires the owner's name and a valid email; phone is optional", () => {

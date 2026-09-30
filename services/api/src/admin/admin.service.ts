@@ -168,7 +168,9 @@ export class AdminService {
    *   - a pending SHOP_OWNER invitation carrying a single-use code
    *     (ShopStaffInvitesService's narrow admin-onboarding exception).
    * After commit, the owner is emailed that code; with it they choose their own password
-   * (`POST /shop/staff-invites/activate`) and are signed in. No PricingRule is invented:
+   * (`POST /shop/staff-invites/activate`) and are signed in. `capabilities` is required
+   * (every order is checked against it, and no route lets a business set it later -- an
+   * undeclared shop could never take an order). No PricingRule is invented:
    * the owner sets real prices, and until then orders are refused with 409
    * SHOP_PRICING_NOT_CONFIGURED (`hasPricingRule` on the detail tells the admin).
    * An owner email that already has an account is refused (409 OWNER_EMAIL_IN_USE):
@@ -198,7 +200,8 @@ export class AdminService {
               latitude: input.latitude ?? null,
               longitude: input.longitude ?? null,
               phone: input.phone ?? null,
-              capabilities: input.capabilities ?? undefined,
+              // Required (see createBusinessSchema): every order is checked against it.
+              capabilities: input.capabilities,
             },
           });
           const owner = await tx.user.create({

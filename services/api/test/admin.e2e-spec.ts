@@ -718,6 +718,20 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       expect(await prisma.shop.count({ where: { name: withoutOwner.name } })).toBe(0);
     });
 
+    it("what the business can print is required too (400): undeclared, it could never take an order", async () => {
+      const { capabilities: omitted, ...withoutCapabilities } = businessBody("No Capabilities");
+      void omitted;
+      const res = await request(app.getHttpServer())
+        .post("/v1/admin/businesses")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send(withoutCapabilities);
+      expect(res.status).toBe(400);
+      expect(await prisma.shop.count({ where: { name: withoutCapabilities.name } })).toBe(0);
+      expect(await prisma.user.count({ where: { email: withoutCapabilities.owner.email } })).toBe(
+        0,
+      );
+    });
+
     it("creates the shop, the owner's SHOP_OWNER account (no password yet), an ACTIVE owner membership and a pending SHOP_OWNER invitation, and emails the owner a code -- audited", async () => {
       const { res, body } = await createBusiness("Owned");
       expect(res.status).toBe(201);

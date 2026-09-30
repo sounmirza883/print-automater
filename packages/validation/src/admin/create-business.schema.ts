@@ -23,7 +23,12 @@ export const createBusinessSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   phone: z.string().min(1).max(50).optional(),
-  capabilities: printerCapabilitiesSchema.optional(),
+  // Fix wave 1: required, as the removed self-service signup already required it. Every
+  // order (QR, counter, web) is checked against these (orders.service's shopCanFulfil),
+  // a business with none declared can fulfil nothing, and nothing lets a business set
+  // them later -- so an optional value here created businesses that could never take a
+  // single order. Stated once, by the admin who onboards the business.
+  capabilities: printerCapabilitiesSchema,
   owner: registerSchema.pick({ name: true, email: true, phone: true }),
 });
 

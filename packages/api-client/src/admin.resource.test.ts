@@ -50,9 +50,11 @@ describe("AdminResource business onboarding (fix wave 1)", () => {
         body: { id: "b1", name: "Corner Copies", address: "1", status: "CLOSED", owner },
       }),
       async (client, seen) => {
+        const capabilities = { color: true, duplex: false, a4: true, a3: false };
         const created = await client.admin.createBusiness({
           name: "Corner Copies",
           address: "1",
+          capabilities,
           owner: { name: "Ayesha", email: "ayesha@example.com" },
         });
         expect(created.owner).toEqual(owner);
@@ -63,6 +65,7 @@ describe("AdminResource business onboarding (fix wave 1)", () => {
             body: {
               name: "Corner Copies",
               address: "1",
+              capabilities,
               owner: { name: "Ayesha", email: "ayesha@example.com" },
             },
           },
