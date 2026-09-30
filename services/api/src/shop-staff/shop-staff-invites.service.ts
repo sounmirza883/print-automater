@@ -265,8 +265,16 @@ export class ShopStaffInvitesService {
     // outside the transaction so the rows below stay locked only briefly.
     const passwordHash = await this.passwords.hash(input.password);
     await this.prisma.$transaction(async (tx) => {
+      // Matched on the token hash too: an admin re-issuing the code between the read above
+      // and this claim re-tokens the same row, and the voided code must lose.
       const claimed = await tx.shopStaffInvite.updateMany({
-        where: { id: invite.id, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+        where: {
+          id: invite.id,
+          tokenHash: invite.tokenHash,
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+        },
         data: { acceptedAt: new Date() },
       });
       // The password may only replace the "not set yet" marker -- never a real one, even if
