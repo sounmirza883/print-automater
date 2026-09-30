@@ -28,6 +28,33 @@ export function configureApp(
 ): void {
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
 
+  // Fix wave 1: req.ip keys every per-IP rate limit, and the QR guest wizard now
+  // calls the public ordering routes straight from the browser -- so behind a
+  // reverse proxy, req.ip must be the real client, not the proxy (otherwise every
+  // guest on every shop shares one bucket). Express believes exactly this many
+  // right-most X-Forwarded-For entries and no more (see TRUST_PROXY_HOPS in
+  // packages/config): 0 = none, for `pnpm dev`/direct exposure; the production
+  // compose stack (one TLS reverse proxy on the host) sets 1. Never `true`: a
+  // hop trusted that isn't really there lets a client choose its own IP.
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
+
+  // CORS lives here (it used to be main.ts-only) so every e2e suite exercises the
+  // same cross-origin behaviour production has. A browser calls this API directly
+  // from each CORS_ALLOWED_ORIGINS entry -- customer-web's public QR ordering
+  // flow above all. No route relies on cookies (auth is a bearer header, and the
+  // public routes take none), so credentials are irrelevant to those callers;
+  // `credentials: true` is kept as it always was, and is only ever granted to an
+  // allowlisted origin, never `*`. Retry-After (a 429's wait) and X-Request-Id
+  // (quoted in support requests) are exposed so browser code can read them.
+  const corsOrigins = env.CORS_ALLOWED_ORIGINS.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: corsOrigins.length > 0 ? corsOrigins : false,
+    credentials: true,
+    exposedHeaders: ["Retry-After", "X-Request-Id"],
+  });
+
   app.use(helmet());
 
   // Attaches req.id + a child req.log bound to it on every request, so

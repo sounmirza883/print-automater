@@ -44,6 +44,15 @@ COPY --from=pruner /app/tsconfig.base.json ./tsconfig.base.json
 # for a build with no explicit override, e.g. `docker compose build`.
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+# Fix wave 1: customer-web's PUBLIC origin, inlined at build time into every
+# business's guest-ordering QR code (components/admin/shop-qr-code.tsx) -- codes
+# that get printed and posted at real shop counters. Same ARG/ENV shape as
+# NEXT_PUBLIC_API_BASE_URL above, but deliberately with NO localhost default: a
+# production image built without it must not quietly encode http://localhost:3001
+# (every printed code would need reprinting). Unset, it arrives as an empty
+# string, which shop-web treats as missing. Every compose file passes it.
+ARG NEXT_PUBLIC_CUSTOMER_WEB_URL
+ENV NEXT_PUBLIC_CUSTOMER_WEB_URL=${NEXT_PUBLIC_CUSTOMER_WEB_URL}
 RUN pnpm turbo run build --filter=@print-automated/shop-web
 
 # next.config.ts's `output: "standalone"` traces the real require/
@@ -74,6 +83,10 @@ ENV PORT=3002
 # override still boot; a real deploy overrides it per environment.
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+# Mirrored into the runtime image too, so anything that reads it server-side at
+# request time sees the same value the client bundle was built with.
+ARG NEXT_PUBLIC_CUSTOMER_WEB_URL
+ENV NEXT_PUBLIC_CUSTOMER_WEB_URL=${NEXT_PUBLIC_CUSTOMER_WEB_URL}
 EXPOSE 3002
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:3002/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

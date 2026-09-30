@@ -1,3 +1,5 @@
+import { UNREACHABLE_MESSAGE, publicApiUrl, publicErrorMessage } from "./public-api";
+
 export type PublicUploadState =
   | { phase: "idle" }
   | { phase: "creating" }
@@ -52,8 +54,7 @@ export const defaultPublicUploadDeps: PublicUploadDeps = {
 /** A real XHR PUT to the presigned URL -- unauthenticated by design,
  * exactly like the authenticated flow's own upload: the presigned
  * URL's signature and short TTL are the security boundary, not a
- * bearer token, and this call never goes through this app's own
- * `/api/public/shops/*` proxy at all. */
+ * bearer token. It goes to object storage, not to the API. */
 function uploadWithProgressXhr(
   url: string,
   file: File,
@@ -85,18 +86,33 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** The guest-ordering equivalent of `runUploadFlow`: create -> presigned
- * PUT (with progress) -> confirm -> poll to a settled status, pointed at
- * `/api/public/shops/:shopId/documents*` instead of the authenticated
- * `/api/documents*`. A 409 on the very first call (a shop that doesn't
- * exist, isn't OPEN, or a malformed id) surfaces here as a plain
- * `"error"` state carrying the backend's own message -- there is no
+ * PUT (with progress) -> confirm -> poll to a settled status, against the
+ * API's own `/v1/public/shops/:shopId/documents*` (called straight from
+ * the browser, see `public-api.ts`). A 409 on the very first call (a shop
+ * that doesn't exist, isn't OPEN, or a malformed id) surfaces here as a
+ * plain `"error"` state carrying the backend's own message -- there is no
  * separate "is this shop even open" check anywhere before this, since
- * there's no public single-shop lookup route to make one against. */
+ * there's no public single-shop lookup route to make one against. A call
+ * that gets no answer at all (offline, or refused by CORS) also ends in
+ * an `"error"` state rather than leaving the wizard stuck mid-step. */
 export async function runPublicUploadFlow(
   shopId: string,
   file: File,
   onState: (state: PublicUploadState) => void,
   deps: PublicUploadDeps = defaultPublicUploadDeps,
+): Promise<void> {
+  try {
+    await uploadAndSettle(shopId, file, onState, deps);
+  } catch {
+    onState({ phase: "error", message: UNREACHABLE_MESSAGE });
+  }
+}
+
+async function uploadAndSettle(
+  shopId: string,
+  file: File,
+  onState: (state: PublicUploadState) => void,
+  deps: PublicUploadDeps,
 ): Promise<void> {
   if (!(ALLOWED_PUBLIC_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
     onState({
@@ -107,11 +123,14 @@ export async function runPublicUploadFlow(
   }
 
   onState({ phase: "creating" });
-  const createResponse = await deps.fetchImpl(`/api/public/shops/${shopId}/documents`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename: file.name, mimeType: file.type, sizeBytes: file.size }),
-  });
+  const createResponse = await deps.fetchImpl(
+    publicApiUrl(`/v1/public/shops/${shopId}/documents`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name, mimeType: file.type, sizeBytes: file.size }),
+    },
+  );
   if (!createResponse.ok) {
     onState({ phase: "error", message: await errorMessage(createResponse) });
     return;
@@ -131,7 +150,7 @@ export async function runPublicUploadFlow(
 
   onState({ phase: "confirming" });
   const confirmResponse = await deps.fetchImpl(
-    `/api/public/shops/${shopId}/documents/${documentId}/upload`,
+    publicApiUrl(`/v1/public/shops/${shopId}/documents/${documentId}/upload`),
     { method: "POST" },
   );
   if (!confirmResponse.ok) {
@@ -151,7 +170,9 @@ async function pollUntilSettled(
 ): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const response = await deps.fetchImpl(`/api/public/shops/${shopId}/documents/${documentId}`);
+    const response = await deps.fetchImpl(
+      publicApiUrl(`/v1/public/shops/${shopId}/documents/${documentId}`),
+    );
     if (!response.ok) {
       onState({ phase: "error", message: await errorMessage(response) });
       return;
@@ -183,9 +204,6 @@ async function pollUntilSettled(
   });
 }
 
-async function errorMessage(response: Response): Promise<string> {
-  const body = (await response.json().catch(() => undefined)) as { message?: unknown } | undefined;
-  return typeof body?.message === "string"
-    ? body.message
-    : "Something went wrong. Please try again.";
+function errorMessage(response: Response): Promise<string> {
+  return publicErrorMessage(response, "Something went wrong. Please try again.");
 }

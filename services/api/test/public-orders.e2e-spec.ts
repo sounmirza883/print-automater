@@ -110,7 +110,11 @@ describe("Public QR ordering (24.1, e2e)", () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>();
-    configureApp(app, app.get<ApiEnv>(API_ENV));
+    // Fix wave 1: the production topology -- the guest's browser calls this API
+    // directly, through ONE TLS reverse proxy that appends the real client address
+    // to X-Forwarded-For. A request with no such header (every other test here) is
+    // keyed by the socket address exactly as before.
+    configureApp(app, { ...app.get<ApiEnv>(API_ENV), TRUST_PROXY_HOPS: 1 });
     await app.init();
 
     prisma = app.get(PrismaService);
@@ -570,6 +574,91 @@ describe("Public QR ordering (24.1, e2e)", () => {
       // All three share the single `invalid` per-shop key.
       expect(keys).toHaveLength(1);
       expect(keys[0]).toMatch(/:invalid$/);
+    });
+
+    /** What the proxy in front of the API appends for a guest at `clientIp`. */
+    const viaProxy = (clientIp: string, clientSupplied?: string) => ({
+      "X-Forwarded-For": clientSupplied ? `${clientSupplied}, ${clientIp}` : clientIp,
+    });
+
+    it("two guests at different IPs get independent buckets: one exhausting its budget never locks out the other", async () => {
+      // The fix-wave-1 regression: while customer-web proxied these calls
+      // server-to-server, every guest on every shop arrived as ONE IP, so ~20 junk
+      // POSTs locked a shop's QR ordering for everyone for an hour.
+      const shopId = randomUUID();
+      const guestA = "203.0.113.10";
+      const guestB = "203.0.113.20";
+      for (let attempt = 1; attempt <= perIpAndShop; attempt++) {
+        const res = await request(app.getHttpServer())
+          .post(`/v1/public/shops/${shopId}/orders`)
+          .set(viaProxy(guestA))
+          .send({});
+        expect(res.status).toBe(400);
+      }
+      const aOver = await request(app.getHttpServer())
+        .post(`/v1/public/shops/${shopId}/orders`)
+        .set(viaProxy(guestA))
+        .send({});
+      expect(aOver.status).toBe(429);
+
+      // Same shop, same moment, different guest: still inside its own budget.
+      const b = await request(app.getHttpServer())
+        .post(`/v1/public/shops/${shopId}/orders`)
+        .set(viaProxy(guestB))
+        .send({});
+      expect(b.status).toBe(400);
+
+      // One per-IP key and one per-IP+shop key per guest, never a shared one.
+      const keys = await redis.keys("ratelimit:PublicOrdersController:createOrder:*");
+      for (const ip of [guestA, guestB]) {
+        expect(keys).toContain(`ratelimit:PublicOrdersController:createOrder:ip:${ip}`);
+        expect(keys).toContain(
+          `ratelimit:PublicOrdersController:createOrder:ip-shop:${ip}:${shopId}`,
+        );
+      }
+    });
+
+    it("a guest cannot move to a fresh bucket by writing its own X-Forwarded-For entries", async () => {
+      const shopId = randomUUID();
+      const guest = "203.0.113.30";
+      for (let attempt = 1; attempt <= perIpAndShop; attempt++) {
+        const res = await request(app.getHttpServer())
+          .post(`/v1/public/shops/${shopId}/orders`)
+          .set(viaProxy(guest, `10.0.0.${attempt}`))
+          .send({});
+        expect(res.status).toBe(400);
+      }
+      // Only the right-most entry -- the one the trusted proxy appended -- counts.
+      const spoofed = await request(app.getHttpServer())
+        .post(`/v1/public/shops/${shopId}/orders`)
+        .set(viaProxy(guest, "198.51.100.99"))
+        .send({});
+      expect(spoofed.status).toBe(429);
+    });
+
+    it("the preflight a browser sends before a cross-origin JSON order POST is answered for customer-web's origin", async () => {
+      const origin = app
+        .get<ApiEnv>(API_ENV)
+        .CORS_ALLOWED_ORIGINS.split(",")
+        .map((o) => o.trim())
+        .find(Boolean)!;
+      const preflight = await request(app.getHttpServer())
+        .options(`/v1/public/shops/${randomUUID()}/orders`)
+        .set("Origin", origin)
+        .set("Access-Control-Request-Method", "POST")
+        .set("Access-Control-Request-Headers", "content-type,idempotency-key");
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers["access-control-allow-origin"]).toBe(origin);
+      expect(preflight.headers["access-control-allow-methods"]).toContain("POST");
+      expect(preflight.headers["access-control-allow-headers"]).toContain("idempotency-key");
+
+      // And the real (non-credentialed) GET the wizard polls with is readable cross-origin.
+      const poll = await request(app.getHttpServer())
+        .get(`/v1/public/shops/${openShop.id}/documents/${randomUUID()}`)
+        .set("Origin", origin)
+        .set(viaProxy("203.0.113.40"));
+      expect(poll.status).toBe(404);
+      expect(poll.headers["access-control-allow-origin"]).toBe(origin);
     });
 
     it("the document routes are rate limited too", async () => {

@@ -1,4 +1,6 @@
+import type { ShopOrderResponse } from "@print-automated/api-client";
 import type { OrderStatus } from "@print-automated/types";
+import type { Badge } from "./job-view.js";
 
 // §37/9.14: "in flight" = accepted through actively printing. The Phase
 // 18 job-derived statuses (PREPARING, ASSIGNED, PAUSED) sit inside that
@@ -69,4 +71,17 @@ export function isInFlight(status: string): boolean {
 
 export function inFlightLabel(status: string): string | null {
   return isKnown(status) ? IN_FLIGHT_LABELS[status] : null;
+}
+
+/** 24.1 + fix wave 1: a guest's QR order has no payment step of its own -- it rests in
+ * UPLOADED (shown to staff only for QR orders, under Needs Attention) until someone takes
+ * payment at the counter and records it, which availableOrderActions (shared with shop-web,
+ * 23.30) offers for exactly these orders. The same label shop-web shows, so the card and
+ * the detail screen say why the order is waiting. */
+export function qrAwaitingPaymentBadge(
+  order: Pick<ShopOrderResponse, "orderStatus" | "creationSource">,
+): Badge | null {
+  return order.orderStatus === "UPLOADED" && order.creationSource === "QR"
+    ? { label: "QR — awaiting payment", tone: "caution" }
+    : null;
 }

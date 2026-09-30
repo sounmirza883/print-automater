@@ -55,9 +55,12 @@ function toRecord<K extends string>(
   return out;
 }
 
-/** 23.2 (PRD 42): platform-wide aggregates for the ADMIN dashboard. Like the rest of
+/** 23.2 (PRD 42): platform-wide figures for the ADMIN dashboard. Like the rest of
  * the admin module it is deliberately NOT tenant-scoped (the controller's
- * `@Roles(ADMIN)` is the gate); every figure is a COUNT/SUM, never a row list. */
+ * `@Roles(ADMIN)` is the gate). Mostly COUNT/SUM aggregates, plus two small,
+ * hard-capped row lists: `revenueByShop` (27.6, top 50 businesses by today's
+ * gross) and `recentOrders` (23.7, the newest 20 orders platform-wide). Never
+ * an unbounded list -- anything longer belongs on a paginated admin route. */
 @Injectable()
 export class AdminDashboardService {
   constructor(

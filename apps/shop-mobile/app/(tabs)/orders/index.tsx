@@ -10,6 +10,7 @@ import {
 } from "@print-automated/api-client";
 import { Pills } from "@/components/ui";
 import type { Badge } from "@/lib/job-view";
+import { qrAwaitingPaymentBadge } from "@/lib/order-status";
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { useShopOrders } from "@/lib/use-shop-orders";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
@@ -87,6 +88,8 @@ export default function OrdersScreen(): ReactNode {
 /** 23.34: what a counter or floor person should notice on the card without opening it. */
 function orderBadges(order: ShopOrderResponse): Badge[] {
   const badges: Badge[] = [];
+  const qr = qrAwaitingPaymentBadge(order);
+  if (qr !== null) badges.push(qr);
   const priority = order.priority ?? 0;
   if (priority > 0) {
     badges.push({

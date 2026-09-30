@@ -6,6 +6,8 @@ export {
   SHOP_STAFF_ASSIGNABLE_ROLES,
   acceptStaffInviteSchema,
   type AcceptStaffInviteInput,
+  activateStaffInviteSchema,
+  type ActivateStaffInviteInput,
 } from "./add-shop-staff.schema.js";
 export {
   listShopStaffQuerySchema,

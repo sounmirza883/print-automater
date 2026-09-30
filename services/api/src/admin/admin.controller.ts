@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
@@ -15,6 +28,7 @@ import { UpdateUserRoleDto } from "./dto/update-user-role.dto.js";
 import { UpdateUserStatusDto } from "./dto/update-user-status.dto.js";
 import {
   AdminService,
+  type AdminBusinessCreatedResponse,
   type AdminBusinessResponse,
   type AdminBusinessDetailResponse,
   type AdminUserResponse,
@@ -51,18 +65,30 @@ export class AdminController {
     return this.adminService.listBusinesses(query);
   }
 
-  /** 23.7/Workstream A (PRD §106's admin-assisted onboarding fallback). */
+  /** 23.7/Workstream A (PRD §106's admin-assisted onboarding) -- since fix wave 1 the only
+   * way a business is created, together with its named owner's account and invitation. */
   @Post("businesses")
   createBusiness(
     @Req() req: RequestWithUser,
     @Body() dto: CreateBusinessDto,
-  ): Promise<AdminBusinessResponse> {
+  ): Promise<AdminBusinessCreatedResponse> {
     return this.adminService.createBusiness(req.user!.id, dto);
   }
 
   @Get("businesses/:id")
   getBusiness(@Param("id") id: string): Promise<AdminBusinessDetailResponse> {
     return this.adminService.getBusiness(id);
+  }
+
+  /** Fix wave 1: email the owner a fresh activation code (the old one stops working) while
+   * they still have not set a password. 202, like every other invitation send. */
+  @Post("businesses/:id/owner-invite")
+  @HttpCode(HttpStatus.ACCEPTED)
+  reissueOwnerInvite(
+    @Req() req: RequestWithUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<{ result: "PROCESSED" }> {
+    return this.adminService.reissueOwnerInvite(req.user!.id, id);
   }
 
   @Patch("businesses/:id/status")

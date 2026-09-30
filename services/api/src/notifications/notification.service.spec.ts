@@ -1,4 +1,30 @@
-import { sanitizeShopNameForEmail } from "./notification.service.js";
+import type { Queue } from "bullmq";
+import type { SendEmailJob } from "@print-automated/backend-shared";
+import { NotificationService, sanitizeShopNameForEmail } from "./notification.service.js";
+
+describe("NotificationService.sendOwnerActivationInvite (fix wave 1)", () => {
+  it("emails the new owner their single-use code with set-your-password wording, and keeps no copy in Redis", async () => {
+    const add = jest.fn().mockResolvedValue(undefined);
+    const service = new NotificationService({ add } as unknown as Queue<SendEmailJob>);
+
+    await service.sendOwnerActivationInvite(
+      "owner@example.com",
+      "Corner Copies\r\nBcc: x@y.z",
+      "the-raw-code",
+    );
+
+    expect(add).toHaveBeenCalledTimes(1);
+    const [name, job, options] = add.mock.calls[0] as [string, SendEmailJob, unknown];
+    expect(name).toBe("send-email");
+    expect(job.to).toBe("owner@example.com");
+    expect(job.text).toContain("the-raw-code");
+    expect(job.text).toContain("Corner Copies Bcc: x@y.z");
+    expect(job.text).toContain("set your password");
+    expect(job.text).toContain("7 days");
+    expect(job.subject).not.toMatch(/[\r\n]/);
+    expect(options).toEqual({ removeOnComplete: true, removeOnFail: true });
+  });
+});
 
 describe("sanitizeShopNameForEmail (23.18)", () => {
   it("strips control characters, newlines, URLs and markup, and caps the length", () => {

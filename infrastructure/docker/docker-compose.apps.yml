@@ -28,6 +28,9 @@ services:
       LOG_LEVEL: info
       PORT: 3000
       CORS_ALLOWED_ORIGINS: http://localhost:3001
+      # No proxy in front here: the browser reaches the published port directly,
+      # so no X-Forwarded-For entry is believed (see docker-compose.prod.yml).
+      TRUST_PROXY_HOPS: 0
       PLATFORM_FEE_MINOR: 2000
       DATABASE_URL: postgresql://print_automated:print_automated_dev@postgres:5432/print_automated?connection_limit=20&pool_timeout=30
       REDIS_URL: redis://redis:6379
@@ -102,9 +105,12 @@ services:
       dockerfile: infrastructure/docker/shop-web.Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+        # customer-web's public origin (the `web` service above), baked into QR codes.
+        NEXT_PUBLIC_CUSTOMER_WEB_URL: http://localhost:3001
     ports:
       - "${SHOP_WEB_HOST_PORT:-3002}:3002"
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_CUSTOMER_WEB_URL: http://localhost:3001
     depends_on:
       - api

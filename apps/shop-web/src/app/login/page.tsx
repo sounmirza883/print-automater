@@ -129,12 +129,20 @@ function LoginForm(): ReactNode {
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="text-sm text-muted">
-          Invited to a business?{" "}
-          <Link href="/accept-invite" className="font-medium text-accent underline">
-            Accept your invitation
-          </Link>
-        </p>
+        <div className="flex flex-col gap-2 text-sm text-muted">
+          <p>
+            New business owner with a code from us?{" "}
+            <Link href="/set-up-account" className="font-medium text-accent underline">
+              Set up your account
+            </Link>
+          </p>
+          <p>
+            Invited to a business?{" "}
+            <Link href="/accept-invite" className="font-medium text-accent underline">
+              Accept your invitation
+            </Link>
+          </p>
+        </div>
       </section>
     </main>
   );

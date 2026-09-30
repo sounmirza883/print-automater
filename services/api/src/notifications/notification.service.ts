@@ -52,6 +52,33 @@ The code expires in 7 days. If you were not expecting this, ignore this email.`,
       { removeOnComplete: true, removeOnFail: true },
     );
   }
+
+  /** Fix wave 1: sent when a platform admin creates a business and names its owner. The
+   * owner's account already exists but has no password (PASSWORD_NOT_SET); this code is
+   * how they prove the mailbox and choose one (POST /shop/staff-invites/activate). Same
+   * sanitising and same no-copy-in-Redis handling as a staff invitation. */
+  async sendOwnerActivationInvite(
+    email: string,
+    shopName: string,
+    rawToken: string,
+  ): Promise<void> {
+    const name = sanitizeShopNameForEmail(shopName);
+    await this.notificationsQueue.add(
+      "send-email",
+      {
+        to: email,
+        subject: "Your business is ready on Print Automated",
+        text: `A Print Automated administrator has set up a business with you as its owner.
+
+Business name: "${name}"
+
+To set your password and sign in, open the Print Automated back office, choose "Set up your account", and enter your email address with this code: ${rawToken}
+
+The code expires in 7 days. If you were not expecting this, ignore this email.`,
+      },
+      { removeOnComplete: true, removeOnFail: true },
+    );
+  }
 }
 
 const SHOP_NAME_MAX = 60;

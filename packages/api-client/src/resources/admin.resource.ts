@@ -31,6 +31,26 @@ export interface AdminBusinessDetail extends AdminBusiness {
     orders: number;
     printers: number;
   };
+  /** Fix wave 1: false until the business has saved a price list. Until then EVERY order
+   * to it (QR, counter, web) is refused with 409 SHOP_PRICING_NOT_CONFIGURED -- so its QR
+   * code should not be handed out yet. */
+  hasPricingRule: boolean;
+  /** Fix wave 1: the business's owner (null only for a business created before admin
+   * onboarding named one). `activationPending`: they have not yet set their password with
+   * the emailed code -- `reissueOwnerInvite` sends a fresh one. */
+  owner: (AdminBusinessOwner & { activationPending: boolean }) | null;
+}
+
+/** Fix wave 1: the person an admin names as a new business's owner. */
+export interface AdminBusinessOwner {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** `createBusiness`'s answer: the new business plus its owner's (not yet activated) account. */
+export interface AdminBusinessCreated extends AdminBusiness {
+  owner: AdminBusinessOwner;
 }
 
 export interface CreateBusinessInput {
@@ -39,7 +59,19 @@ export interface CreateBusinessInput {
   latitude?: number;
   longitude?: number;
   phone?: string;
-  capabilities?: PrinterCapabilities;
+  /** Fix wave 1: now REQUIRED -- every order is checked against what the business can
+   * print, and nothing lets a business declare it later, so a business created without it
+   * could never take an order. */
+  capabilities: PrinterCapabilities;
+  /** Fix wave 1 (required): who will run the business. The API creates their SHOP_OWNER
+   * account and emails them a code to set their OWN password -- there is deliberately no
+   * password here. An email that already has an account is refused with 409
+   * OWNER_EMAIL_IN_USE. */
+  owner: {
+    name: string;
+    email: string;
+    phone?: string;
+  };
 }
 
 /** Workstream B: one row of the platform's user list, or one user's
@@ -73,10 +105,18 @@ export class AdminResource {
     return this.http.request<AdminBusinessDetail>(`/v1/admin/businesses/${id}`);
   }
 
-  createBusiness(input: CreateBusinessInput): Promise<AdminBusiness> {
-    return this.http.request<AdminBusiness>("/v1/admin/businesses", {
+  createBusiness(input: CreateBusinessInput): Promise<AdminBusinessCreated> {
+    return this.http.request<AdminBusinessCreated>("/v1/admin/businesses", {
       method: "POST",
       body: input,
+    });
+  }
+
+  /** Fix wave 1: email the owner a fresh activation code (the previous one stops working).
+   * 409 OWNER_ALREADY_ACTIVE once they have set a password. */
+  reissueOwnerInvite(id: string): Promise<{ result: "PROCESSED" }> {
+    return this.http.request<{ result: "PROCESSED" }>(`/v1/admin/businesses/${id}/owner-invite`, {
+      method: "POST",
     });
   }
 

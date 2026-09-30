@@ -10,6 +10,7 @@ import { OrderDialogs, type DialogState } from "@/components/orders/action-dialo
 import {
   JobCard,
   OrderActionBar,
+  QrAwaitingPaymentPill,
   type JobActionKind,
   type OrderActionKind,
 } from "@/components/orders/action-bars";
@@ -130,6 +131,7 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
                 <Pill tone={paymentStatusTone(current.paymentStatus)}>
                   Payment: {humanizeEnum(current.paymentStatus)}
                 </Pill>
+                <QrAwaitingPaymentPill order={current} />
                 {current.qualityCheckStatus !== null &&
                   current.qualityCheckStatus !== "NOT_REQUIRED" && (
                     <Pill tone={current.qualityCheckStatus === "PASSED" ? "good" : "caution"}>

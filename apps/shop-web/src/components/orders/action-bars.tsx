@@ -6,6 +6,7 @@ import { Button, Pill } from "@/components/ui";
 import { formatDateTime, formatMoney, humanizeEnum, priorityLabel } from "@/lib/format";
 import { jobStatusTone } from "@/lib/job-status";
 import { availableJobActions, availableOrderActions } from "@/lib/order-actions";
+import { QR_AWAITING_PAYMENT_LABEL, isQrAwaitingPayment } from "@/lib/orders-view";
 
 export type OrderActionKind =
   | "accept"
@@ -49,16 +50,29 @@ const JOB_LABELS: Record<JobActionKind, string> = {
   resolveUnknown: "Resolve",
 };
 
+/** 24.1 + fix wave 1: marks a guest's QR order waiting for payment at the counter, in
+ * the order list and on the order itself; renders nothing for any other order. */
+export function QrAwaitingPaymentPill({
+  order,
+}: {
+  order: Pick<ShopOrderResponse, "orderStatus" | "creationSource">;
+}): ReactNode {
+  return isQrAwaitingPayment(order) ? (
+    <Pill tone="caution">{QR_AWAITING_PAYMENT_LABEL}</Pill>
+  ) : null;
+}
+
 /** The order-level buttons this role may use in this state. Pure and
  * presentational: the parent owns the requests and passes `busy` so every
- * button disables while any action is in flight. */
+ * button disables while any action is in flight. `creationSource` is part of
+ * the state (fix wave 1): a QR order in UPLOADED is offered "Record payment". */
 export function OrderActionBar({
   order,
   can,
   busy,
   onAction,
 }: {
-  order: Pick<ShopOrderResponse, "orderStatus">;
+  order: Pick<ShopOrderResponse, "orderStatus" | "creationSource">;
   can: (permission: Permission) => boolean;
   busy: boolean;
   onAction: (kind: OrderActionKind) => void;

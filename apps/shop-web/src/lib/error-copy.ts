@@ -98,6 +98,10 @@ const COPY: Record<string, string> = {
     "That invitation was already accepted or cancelled. The list has been refreshed.",
   CANNOT_REMOVE_LAST_OWNER:
     "A business must always have an owner. Make someone else an owner before removing or changing this person.",
+  OWNER_EMAIL_IN_USE:
+    "That email address already has an account, so it cannot be used for a new business's owner. Enter a different email address for the owner.",
+  OWNER_ALREADY_ACTIVE:
+    "The owner has already set their password, so there is no code to resend. They can sign in normally.",
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
   UPSTREAM_UNREACHABLE: "The service is unreachable right now. Try again in a moment.",
   CROSS_ORIGIN_BLOCKED: "That request was blocked for safety. Reload the page and try again.",
@@ -119,6 +123,7 @@ const STALE_STATE_CODES = new Set([
   "RULE_VERSION_CONFLICT",
   "RULE_ORDER_MISMATCH",
   "SHOP_STAFF_INVITE_NOT_PENDING",
+  "OWNER_ALREADY_ACTIVE",
 ]);
 
 function coded(error: unknown): CodedError {

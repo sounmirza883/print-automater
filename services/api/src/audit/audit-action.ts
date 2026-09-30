@@ -78,12 +78,19 @@ export const AuditAction = {
   PRINTER_RULES_REORDERED: "PRINTER_RULES_REORDERED",
   // 26.2: a platform admin activating or extending a business's plan.
   SHOP_PLAN_ACTIVATED: "SHOP_PLAN_ACTIVATED",
-  // Self-service business signup (definition-of-done.md #1): a prospective
-  // business created its own Shop + SHOP_OWNER account through the public API.
+  // HISTORICAL ONLY: written by the public self-service signup
+  // (`POST /shops/register`), which fix wave 1 removed -- onboarding is
+  // admin-only now (SHOP_CREATED). Kept so existing audit rows still name a
+  // known action; nothing writes it any more.
   SHOP_REGISTERED: "SHOP_REGISTERED",
   // Workstream A (admin panel business management): an admin creating a
-  // business, or changing its status, outside that business's own staff.
+  // business (fix wave 1: together with its owner's account and invitation --
+  // metadata.ownerUserId), or changing its status, outside that business's
+  // own staff.
   SHOP_CREATED: "SHOP_CREATED",
+  // Fix wave 1: the owner of an admin-created business chose their password
+  // with the emailed code (actor = that owner; metadata = { shopId }).
+  ACCOUNT_ACTIVATED: "ACCOUNT_ACTIVATED",
   SHOP_STATUS_CHANGED: "SHOP_STATUS_CHANGED",
   // Workstream B (admin panel user management): an admin changing a
   // user's platform-wide role or status (distinct from SHOP_STAFF_ROLE_CHANGED,
