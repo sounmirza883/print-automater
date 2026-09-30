@@ -46,7 +46,11 @@ export const CLOSED_WITHOUT_COMPLETION: OrderStatus[] = [
  *    not "any order": a document can be referenced by more than one order, and this
  *    sweep must never delete one still needed by an order that is still live.
  *    `some: {}` is required alongside it -- `every` is vacuously true for a document
- *    with zero orders, which is class 2's business, not this one's.
+ *    with zero orders, which is class 2's business, not this one's. It must ALSO
+ *    check `orderItems` the same way (re-review fix): a document can be some OTHER
+ *    order's item document without ever being that order's own `orders` relation
+ *    entry, so checking only `orders` let a document belonging to one closed order
+ *    slip through deletion while a second, still-live order referenced it as an item.
  *
  * 2. ABANDONED QR UPLOADS (fix wave 1): a document owned by a shop's SYSTEM
  *    (QR-order) account that no order or order item references at all, created more
@@ -83,6 +87,7 @@ export class DocumentRetentionProcessor extends WorkerHost {
         where: {
           status: DocumentStatus.READY,
           orders: { some: {}, every: closedPastWindow },
+          orderItems: { every: { order: closedPastWindow } },
         },
         select: { id: true },
       }),

@@ -892,6 +892,30 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       expect((await activate(body.owner.email, code)).status).toBe(200);
     });
 
+    it("re-review fix: plus-tag variants of the same mailbox cannot grief the real owner's activation (no canonical-mailbox cap survives)", async () => {
+      const { body } = await createBusiness("Griefing Target");
+      const code = latestCodeFor(body.owner.email);
+      const [local, domain] = body.owner.email.split("@");
+
+      // Each variant canonicalises (strips the +tag) to the SAME mailbox as the real owner
+      // address, but is a DIFFERENT raw string -- so it buys a fresh IP+email bucket from the
+      // route's own RateLimitGuard every time, the way an attacker would exploit a separate
+      // canonical-mailbox-keyed cap if one still existed. Comfortably more than the old
+      // per-mailbox cap of 10/hour.
+      for (let i = 0; i < 15; i += 1) {
+        const variant = `${local}+${i}@${domain}`;
+        const attempt = await activate(variant, code);
+        // Wrong address for this invitation (the invite is keyed on the un-tagged address):
+        // refused with the same uniform 404, never 429.
+        expect(attempt.status).toBe(404);
+      }
+
+      // The real owner, using their own untouched IP+email bucket and the still-valid code,
+      // is unaffected by any of the above.
+      const activated = await activate(body.owner.email, code);
+      expect(activated.status).toBe(200);
+    });
+
     it("an owner email that already has an account is refused (409 OWNER_EMAIL_IN_USE) and nothing is created", async () => {
       const taken = (await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).email;
       const { res, body } = await createBusiness("Taken Email", {

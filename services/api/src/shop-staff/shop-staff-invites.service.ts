@@ -240,7 +240,6 @@ export class ShopStaffInvitesService {
     password: string;
   }): Promise<ActivatedAccount> {
     const email = input.email.trim().toLowerCase();
-    await this.enforceRateLimit(`invite-activate:${canonicalAddress(email)}`, 10);
     const [user, invite] = await Promise.all([
       this.prisma.user.findUnique({
         where: { email },

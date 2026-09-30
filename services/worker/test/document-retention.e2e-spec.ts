@@ -315,6 +315,57 @@ describe("Document retention sweep (11.5, e2e)", () => {
 
       await expectKept(documentId, storageKey);
     });
+
+    it("re-review fix: a closed order's own document, ALSO referenced as an order-item on a separate still-live order, is kept", async () => {
+      const { documentId, storageKey } = await createReadyDocument();
+      // Its own order is closed and well past the window...
+      await createOrder(documentId, OrderStatus.EXPIRED, null, { updatedAgoDays: 999 });
+      // ...but it is also an item on a completely different order that is still live.
+      const liveOrderId = await createOrder(
+        (await createReadyDocument()).documentId,
+        OrderStatus.WAITING_FOR_SHOP,
+        null,
+      );
+      await prisma.orderItem.create({
+        data: {
+          orderId: liveOrderId,
+          documentId,
+          printConfiguration: {},
+          quantity: 1,
+          itemType: "PRINT",
+          sequence: 2,
+        },
+      });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+
+    it("control: the same shape, but the order-item's order is ALSO closed past the window -- still deleted", async () => {
+      const { documentId, storageKey } = await createReadyDocument();
+      await createOrder(documentId, OrderStatus.EXPIRED, null, { updatedAgoDays: 999 });
+      const otherOrderId = await createOrder(
+        (await createReadyDocument()).documentId,
+        OrderStatus.CANCELLED,
+        null,
+        { updatedAgoDays: 999 },
+      );
+      await prisma.orderItem.create({
+        data: {
+          orderId: otherOrderId,
+          documentId,
+          printConfiguration: {},
+          quantity: 1,
+          itemType: "PRINT",
+          sequence: 2,
+        },
+      });
+
+      await processor.process(fakeJob);
+
+      await expectDeleted(documentId, storageKey);
+    });
   });
 
   describe(`fix wave 1: anonymous QR uploads no order ever used (grace ${ORPHANED_QR_DOCUMENT_GRACE_HOURS}h)`, () => {

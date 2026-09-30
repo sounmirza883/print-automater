@@ -73,7 +73,13 @@ export class ShopStaffInvitesController {
  * JwtAuthGuard (unlike `accept` above): the caller is the owner of an admin-created business
  * whose account has no password yet, so there is nothing to sign in with. Authorised by the
  * emailed code plus the invited address instead (see activateInvitedAccount), and rate limited
- * per IP+address like login, with a per-address cap in the service as well. */
+ * per IP+address like login -- the ONLY cap here. A second, mailbox-only cap was tried and
+ * removed (re-review finding): `canonicalAddress` collapses plus-tags/Gmail dots, so it keys
+ * on the real mailbox while this IP+address guard keys on the raw address, meaning an attacker
+ * rotating `owner+1@…`, `owner+2@…`, ... gets a fresh IP+address bucket every time while every
+ * attempt still lands in the SAME canonical bucket -- letting an attacker permanently lock the
+ * legitimate owner out of activating their own account, which the 256-bit token itself makes
+ * unnecessary as a brute-force defence. */
 @Controller("shop/staff-invites")
 export class ShopStaffInviteActivationController {
   constructor(private readonly invitesService: ShopStaffInvitesService) {}
