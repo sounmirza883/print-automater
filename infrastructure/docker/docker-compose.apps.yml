@@ -105,9 +105,12 @@ services:
       dockerfile: infrastructure/docker/shop-web.Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+        # customer-web's public origin (the `web` service above), baked into QR codes.
+        NEXT_PUBLIC_CUSTOMER_WEB_URL: http://localhost:3001
     ports:
       - "${SHOP_WEB_HOST_PORT:-3002}:3002"
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_CUSTOMER_WEB_URL: http://localhost:3001
     depends_on:
       - api

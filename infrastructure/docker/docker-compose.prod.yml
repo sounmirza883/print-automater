@@ -325,6 +325,9 @@ services:
       dockerfile: infrastructure/docker/shop-web.Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
+        # Fix wave 1: customer-web's public origin, baked into the QR codes businesses
+        # print and post at their counters. Required, no default (see .env.prod.example).
+        NEXT_PUBLIC_CUSTOMER_WEB_URL: ${NEXT_PUBLIC_CUSTOMER_WEB_URL:?Set NEXT_PUBLIC_CUSTOMER_WEB_URL in .env.prod}
     image: ${SHOP_WEB_IMAGE:-print-automated-shop-web:latest}
     restart: unless-stopped
     ports:
@@ -335,6 +338,7 @@ services:
       - "${SHOP_WEB_BIND_ADDRESS:-127.0.0.1}:${SHOP_WEB_HOST_PORT:-3002}:3002"
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env.prod}
+      NEXT_PUBLIC_CUSTOMER_WEB_URL: ${NEXT_PUBLIC_CUSTOMER_WEB_URL:?Set NEXT_PUBLIC_CUSTOMER_WEB_URL in .env.prod}
     depends_on:
       # The api image's own HEALTHCHECK (GET /v1/health): wait until it answers.
       api:
