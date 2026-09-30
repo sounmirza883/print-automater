@@ -11,7 +11,10 @@ import {
   StorageService,
 } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
-import { DocumentRetentionProcessor } from "../src/document-retention/document-retention.processor.js";
+import {
+  DocumentRetentionProcessor,
+  ORPHANED_QR_DOCUMENT_GRACE_HOURS,
+} from "../src/document-retention/document-retention.processor.js";
 
 /** §66/§67/11.5, e2e: "a completed order past its window has its
  * document securely deleted while the order record remains fully
@@ -26,6 +29,8 @@ describe("Document retention sweep (11.5, e2e)", () => {
   let documentDeletion: DocumentDeletionService;
   let processor: DocumentRetentionProcessor;
   let customerId: string;
+  /** A shop's synthetic QR-order account (24.1): owns every QR guest's upload. */
+  let systemUserId: string;
   const fakeJob = {} as Job;
   const documentIds: string[] = [];
   const orderIds: string[] = [];
@@ -47,19 +52,32 @@ describe("Document retention sweep (11.5, e2e)", () => {
       },
     });
     customerId = customer.id;
+
+    const systemUser = await prisma.user.create({
+      data: {
+        role: UserRole.SYSTEM,
+        name: "Document Retention E2E QR System",
+        email: `qr-orders+${randomUUID()}@system.print-automated.invalid`,
+        passwordHash: "irrelevant",
+      },
+    });
+    systemUserId = systemUser.id;
   });
 
   afterAll(async () => {
+    await prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } });
     await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
     await prisma.document.deleteMany({ where: { id: { in: documentIds } } });
     if (sharedShopId) {
       await prisma.shop.delete({ where: { id: sharedShopId.id } });
     }
-    await prisma.user.delete({ where: { id: customerId } });
+    await prisma.user.deleteMany({ where: { id: { in: [customerId, systemUserId] } } });
     await app.close();
   }, 20_000);
 
-  async function createReadyDocument(): Promise<{ documentId: string; storageKey: string }> {
+  async function createReadyDocument(
+    options: { ownerUserId?: string; createdAgoHours?: number } = {},
+  ): Promise<{ documentId: string; storageKey: string }> {
     const documentId = randomUUID();
     const storageKey = storage.documentKey(documentId);
     await storage.putObjectBuffer(
@@ -70,7 +88,7 @@ describe("Document retention sweep (11.5, e2e)", () => {
     await prisma.document.create({
       data: {
         id: documentId,
-        ownerUserId: customerId,
+        ownerUserId: options.ownerUserId ?? customerId,
         storageKey,
         filename: "retention-test.pdf",
         mimeType: "application/pdf",
@@ -80,21 +98,64 @@ describe("Document retention sweep (11.5, e2e)", () => {
         iv: Buffer.from("dummy-iv"),
         authTag: Buffer.from("dummy-tag"),
         encryptionVersion: 1,
+        ...(options.createdAgoHours === undefined
+          ? {}
+          : { createdAt: new Date(Date.now() - options.createdAgoHours * 3_600_000) }),
       },
     });
     documentIds.push(documentId);
     return { documentId, storageKey };
   }
 
+  /** A public (QR) upload that was created and PUT to its presigned quarantine URL but
+   * never confirmed -- the storage-abuse shape: bytes stored, no order ever follows. */
+  async function createUnconfirmedQrUpload(
+    createdAgoHours: number,
+  ): Promise<{ documentId: string; storageKey: string }> {
+    const documentId = randomUUID();
+    const storageKey = storage.quarantineKey(documentId);
+    await storage.putObjectBuffer(storageKey, Buffer.from("raw guest bytes"), "application/pdf");
+    await prisma.document.create({
+      data: {
+        id: documentId,
+        ownerUserId: systemUserId,
+        storageKey,
+        filename: "never-ordered.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+        status: DocumentStatus.PENDING_UPLOAD,
+        createdAt: new Date(Date.now() - createdAgoHours * 3_600_000),
+      },
+    });
+    documentIds.push(documentId);
+    return { documentId, storageKey };
+  }
+
+  async function expectDeleted(documentId: string, storageKey: string): Promise<void> {
+    await expect(storage.objectExists(storageKey)).resolves.toBe(false);
+    const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(doc.status).toBe(DocumentStatus.DELETED);
+    expect(doc.storageKey).toBeNull();
+    expect(doc.encryptedDek).toBeNull();
+  }
+
+  async function expectKept(documentId: string, storageKey: string): Promise<void> {
+    await expect(storage.objectExists(storageKey)).resolves.toBe(true);
+    const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(doc.status).not.toBe(DocumentStatus.DELETED);
+    expect(doc.storageKey).toBe(storageKey);
+  }
+
   async function createOrder(
     documentId: string,
     orderStatus: OrderStatus,
     completedAgoDays: number | null,
+    options: { updatedAgoDays?: number; customerId?: string } = {},
   ): Promise<string> {
     const order = await prisma.order.create({
       data: {
         publicOrderNumber: `TEST-RETENTION-${randomUUID()}`,
-        customerId,
+        customerId: options.customerId ?? customerId,
         shopId: (await ensureShop()).id,
         documentId,
         printConfiguration: {},
@@ -105,6 +166,12 @@ describe("Document retention sweep (11.5, e2e)", () => {
       },
     });
     orderIds.push(order.id);
+    if (options.updatedAgoDays !== undefined) {
+      // updated_at is the order's last write -- for a terminal order, when it closed.
+      // Raw SQL: Prisma's @updatedAt would stamp "now" over a value passed through it.
+      const updatedAt = new Date(Date.now() - options.updatedAgoDays * 86_400_000);
+      await prisma.$executeRaw`UPDATE orders SET updated_at = ${updatedAt} WHERE id = ${order.id}`;
+    }
     return order.id;
   }
 
@@ -181,5 +248,153 @@ describe("Document retention sweep (11.5, e2e)", () => {
     await expect(documentDeletion.deleteDocumentStorage(documentId)).resolves.toBeUndefined();
     const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     expect(doc.status).toBe(DocumentStatus.DELETED);
+  });
+
+  describe("fix wave 1: orders that closed WITHOUT completing (EXPIRED, CANCELLED, SHOP_REJECTED, PAYMENT_FAILED)", () => {
+    it.each([
+      OrderStatus.EXPIRED,
+      OrderStatus.CANCELLED,
+      OrderStatus.SHOP_REJECTED,
+      OrderStatus.PAYMENT_FAILED,
+    ])("a document whose only order is %s past the retention window is deleted", async (status) => {
+      const { documentId, storageKey } = await createReadyDocument();
+      await createOrder(documentId, status, null, { updatedAgoDays: 999 });
+
+      await processor.process(fakeJob);
+
+      await expectDeleted(documentId, storageKey);
+    });
+
+    it("an unclaimed QR order that EXPIRED past the window loses its guest's document (the order record stays)", async () => {
+      const { documentId, storageKey } = await createReadyDocument({ ownerUserId: systemUserId });
+      const orderId = await createOrder(documentId, OrderStatus.EXPIRED, null, {
+        updatedAgoDays: 999,
+        customerId: systemUserId,
+      });
+
+      await processor.process(fakeJob);
+
+      await expectDeleted(documentId, storageKey);
+      await expect(prisma.order.findUnique({ where: { id: orderId } })).resolves.not.toBeNull();
+    });
+
+    it("one that closed inside the retention window is kept", async () => {
+      const { documentId, storageKey } = await createReadyDocument();
+      await createOrder(documentId, OrderStatus.EXPIRED, null, { updatedAgoDays: 1 });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+
+    it("a document shared by a COMPLETED and an EXPIRED order, both past the window, is deleted", async () => {
+      const { documentId, storageKey } = await createReadyDocument();
+      await createOrder(documentId, OrderStatus.COMPLETED, 999);
+      await createOrder(documentId, OrderStatus.EXPIRED, null, { updatedAgoDays: 999 });
+
+      await processor.process(fakeJob);
+
+      await expectDeleted(documentId, storageKey);
+    });
+
+    it("but never while any order on it is still live, however old the closed one is", async () => {
+      const { documentId, storageKey } = await createReadyDocument();
+      await createOrder(documentId, OrderStatus.CANCELLED, null, { updatedAgoDays: 999 });
+      await createOrder(documentId, OrderStatus.WAITING_FOR_SHOP, null, { updatedAgoDays: 999 });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+
+    it("a stuck but non-terminal order (PRINT_FAILED) is never treated as closed, however old", async () => {
+      const { documentId, storageKey } = await createReadyDocument();
+      await createOrder(documentId, OrderStatus.PRINT_FAILED, null, { updatedAgoDays: 999 });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+  });
+
+  describe(`fix wave 1: anonymous QR uploads no order ever used (grace ${ORPHANED_QR_DOCUMENT_GRACE_HOURS}h)`, () => {
+    it("a processed QR upload with no order, older than the grace period, is deleted", async () => {
+      const { documentId, storageKey } = await createReadyDocument({
+        ownerUserId: systemUserId,
+        createdAgoHours: ORPHANED_QR_DOCUMENT_GRACE_HOURS + 1,
+      });
+
+      await processor.process(fakeJob);
+
+      await expectDeleted(documentId, storageKey);
+    });
+
+    it("an upload that was PUT but never even confirmed has its quarantine object deleted too", async () => {
+      const { documentId, storageKey } = await createUnconfirmedQrUpload(
+        ORPHANED_QR_DOCUMENT_GRACE_HOURS + 1,
+      );
+
+      await processor.process(fakeJob);
+
+      await expectDeleted(documentId, storageKey);
+    });
+
+    it("one still inside the grace period (a guest mid-order) is kept", async () => {
+      const { documentId, storageKey } = await createReadyDocument({
+        ownerUserId: systemUserId,
+        createdAgoHours: ORPHANED_QR_DOCUMENT_GRACE_HOURS - 1,
+      });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+
+    it("an old QR upload that DID become an order is left to the order-based rules", async () => {
+      const { documentId, storageKey } = await createReadyDocument({
+        ownerUserId: systemUserId,
+        createdAgoHours: ORPHANED_QR_DOCUMENT_GRACE_HOURS + 1,
+      });
+      await createOrder(documentId, OrderStatus.UPLOADED, null, { customerId: systemUserId });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+
+    it("an old QR upload used only as another order's item document is not an orphan", async () => {
+      const { documentId, storageKey } = await createReadyDocument({
+        ownerUserId: systemUserId,
+        createdAgoHours: ORPHANED_QR_DOCUMENT_GRACE_HOURS + 1,
+      });
+      const main = await createReadyDocument({ ownerUserId: systemUserId });
+      const orderId = await createOrder(main.documentId, OrderStatus.WAITING_FOR_SHOP, null, {
+        customerId: systemUserId,
+      });
+      await prisma.orderItem.create({
+        data: {
+          orderId,
+          documentId,
+          printConfiguration: {},
+          quantity: 1,
+          itemType: "PRINT",
+          sequence: 2,
+        },
+      });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
+
+    it("an old order-less upload owned by a real account is out of this sweep's scope (kept)", async () => {
+      const { documentId, storageKey } = await createReadyDocument({
+        createdAgoHours: ORPHANED_QR_DOCUMENT_GRACE_HOURS * 100,
+      });
+
+      await processor.process(fakeJob);
+
+      await expectKept(documentId, storageKey);
+    });
   });
 });
