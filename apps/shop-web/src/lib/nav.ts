@@ -124,6 +124,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
     anyOf: [],
     blurb: "Platform-wide health, businesses and security events.",
   },
+  {
+    id: "admin-businesses",
+    label: "Businesses",
+    href: "/admin/businesses",
+    scope: "platform",
+    anyOf: [],
+    blurb: "Every business on the platform: create one, view detail, change status.",
+  },
+  {
+    id: "admin-users",
+    label: "Users",
+    href: "/admin/users",
+    scope: "platform",
+    anyOf: [],
+    blurb: "Every user on the platform: view detail, change role or status.",
+  },
 ];
 
 export interface NavContext {

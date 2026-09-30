@@ -25,6 +25,12 @@ const NAV_ICONS: Record<string, string> = {
   settings: "M4 6h10m4 0h2M4 12h4m4 0h8M4 18h12m4 0h0M14 4v4M8 10v4m8 2v4",
   notifications: "M6 9a6 6 0 1 1 12 0c0 5 2 6.500 2 6.500H4S6 14 6 9Zm4 10a2 2 0 0 0 4 0",
   admin: "M12 3l8 3v6c0 5-3.400 8-8 9-4.600-1-8-4-8-9V6l8-3Zm-3 9 2 2 4-4",
+  // Reuse "suppliers"/"staff"'s existing shapes for visual consistency with
+  // the business-scoped nav rather than drawing new one-off icons for these
+  // two platform-scoped equivalents.
+  "admin-businesses":
+    "M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM7 19a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm11 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
+  "admin-users": "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 8c0-4.4 3.6-8 8-8s8 3.6 8 8",
 };
 
 function NavIcon({ id }: { id: string }): ReactNode {
