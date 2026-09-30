@@ -1,4 +1,5 @@
 import type { PrintConfiguration } from "@print-automated/types";
+import { UNREACHABLE_MESSAGE, publicApiUrl, publicErrorMessage } from "./public-api";
 
 export interface PublicOrderQuoteLineItem {
   label: string;
@@ -44,7 +45,9 @@ export interface PublicOrderResult {
  * step: a guest has no account to hold a payment session under, so
  * this order's `pricingSnapshot` is the first (and only) price the
  * guest ever sees -- shown on the confirmation screen this resolves
- * to, not before. */
+ * to, not before. Sent straight to the API's own public route from the
+ * browser (see `public-api.ts`); the `Idempotency-Key` header crosses
+ * origins under the API's CORS config like any other request header. */
 export async function createPublicOrder(
   shopId: string,
   name: string,
@@ -54,18 +57,18 @@ export async function createPublicOrder(
   idempotencyKey: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PublicOrderResult> {
-  const response = await fetchImpl(`/api/public/shops/${shopId}/orders`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ name, phone, documentId, printConfiguration }),
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(publicApiUrl(`/v1/public/shops/${shopId}/orders`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ name, phone, documentId, printConfiguration }),
+    });
+  } catch {
+    throw new Error(UNREACHABLE_MESSAGE);
+  }
   if (!response.ok) {
-    throw new Error(await errorMessage(response, "Could not place this order."));
+    throw new Error(await publicErrorMessage(response, "Could not place this order."));
   }
   return (await response.json()) as PublicOrderResult;
-}
-
-async function errorMessage(response: Response, fallback: string): Promise<string> {
-  const body = (await response.json().catch(() => undefined)) as { message?: unknown } | undefined;
-  return typeof body?.message === "string" ? body.message : fallback;
 }
