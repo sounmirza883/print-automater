@@ -52,6 +52,20 @@ describe("loadEnv", () => {
     expect(err.message).toContain("DATABASE_URL");
   });
 
+  it("TRUST_PROXY_HOPS defaults to 0 (trust no X-Forwarded-For) and accepts a whole hop count", () => {
+    expect(loadEnv(apiEnvSchema, VALID_API_ENV).TRUST_PROXY_HOPS).toBe(0);
+    expect(
+      loadEnv(apiEnvSchema, { ...VALID_API_ENV, TRUST_PROXY_HOPS: "1" }).TRUST_PROXY_HOPS,
+    ).toBe(1);
+    // Never a blanket "true" (every hop trusted = a client picks its own IP), a
+    // negative, or a fraction: fail fast at boot instead.
+    for (const bad of ["true", "-1", "1.5", "loopback"]) {
+      expect(() => loadEnv(apiEnvSchema, { ...VALID_API_ENV, TRUST_PROXY_HOPS: bad })).toThrow(
+        EnvValidationError,
+      );
+    }
+  });
+
   it("cross-field validates KMS_PROVIDER: local requires KMS_LOCAL_MASTER_KEY", () => {
     const { KMS_LOCAL_MASTER_KEY, ...withoutLocalKey } = VALID_API_ENV;
     void KMS_LOCAL_MASTER_KEY;

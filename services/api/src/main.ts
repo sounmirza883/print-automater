@@ -33,15 +33,9 @@ async function bootstrap(): Promise<void> {
   // module-init time; reuse that instead of parsing process.env again.
   const env = app.get<ApiEnv>(API_ENV);
 
+  // Includes CORS and trust-proxy (fix wave 1 moved both into configureApp so the
+  // e2e suites exercise them too).
   configureApp(app, env);
-
-  const corsOrigins = env.CORS_ALLOWED_ORIGINS.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : false,
-    credentials: true,
-  });
 
   app.enableShutdownHooks();
 

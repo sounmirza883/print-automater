@@ -17,6 +17,21 @@ export const apiEnvSchema = baseEnvSchema
     // enough to forge an agent token, or vice versa.
     JWT_AGENT_SECRET: z.string().min(32),
     CORS_ALLOWED_ORIGINS: z.string().min(1),
+    // Fix wave 1: how many reverse-proxy hops sit in front of this API, i.e. how
+    // many right-most X-Forwarded-For entries Express may believe when deciding
+    // req.ip -- which keys every per-IP rate limit (the public QR ordering routes
+    // above all, where the browser now calls this API directly). Exactly the
+    // topology's hop count, never "trust everything": a trusted hop that is not
+    // really there lets a client write its own IP into X-Forwarded-For and pick
+    // its own rate-limit bucket. 0 (the default) believes no header at all --
+    // right for `pnpm dev` and for anything exposed with no proxy in front; the
+    // production compose stack (one TLS reverse proxy on the host) sets 1.
+    TRUST_PROXY_HOPS: z
+      .string()
+      .regex(/^\d+$/, "must be a whole number of proxy hops (0 = trust none)")
+      .transform(Number)
+      .pipe(z.number().int().min(0).max(10))
+      .default("0"),
     // S19's formula names a platform fee as its own term, applied on
     // top of every shop's own pricing -- platform-wide, not a shop
     // property, hence a plain config value rather than a DB table.

@@ -181,6 +181,14 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 3000
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS in .env.prod}
+      # How many reverse-proxy hops front this API (fix wave 1): req.ip -- which keys
+      # every per-IP rate limit, including the public QR ordering routes customer-web's
+      # browser calls directly -- is read from exactly that many right-most
+      # X-Forwarded-For entries. 1 = the host's TLS reverse proxy described above (a
+      # browser on an https customer-web cannot call a plain-http API at all, so a real
+      # deployment always has one). Raise it only for each extra proxy/CDN hop in front
+      # of that one; see .env.prod.example for what a wrong value costs either way.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       PLATFORM_FEE_MINOR: ${PLATFORM_FEE_MINOR:-2000}
       DATABASE_URL: postgresql://${POSTGRES_USER:-print_automated}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-print_automated}?connection_limit=20&pool_timeout=30
       REDIS_URL: redis://redis:6379
