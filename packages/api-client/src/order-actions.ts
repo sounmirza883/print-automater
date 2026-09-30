@@ -45,8 +45,17 @@ export interface OrderActions {
   invoice: boolean;
 }
 
+/** 24.1: a guest's QR order has no payment step of its own -- it rests in UPLOADED until
+ * staff take payment at the counter (the API's record-payment accepts UPLOADED and moves it
+ * on to WAITING_FOR_SHOP). Without this it would offer no action at all and simply expire.
+ * Limited to QR orders: any other UPLOADED order is a web order mid-checkout (or a counter
+ * order being built), which staff never see and must not be offered payment for. */
+function awaitsCounterPayment(order: Pick<ShopOrderResponse, "orderStatus" | "creationSource">) {
+  return order.orderStatus === "UPLOADED" && order.creationSource === "QR";
+}
+
 export function availableOrderActions(
-  order: Pick<ShopOrderResponse, "orderStatus">,
+  order: Pick<ShopOrderResponse, "orderStatus" | "creationSource">,
   can: Can,
 ): OrderActions {
   const edit = can(Permission.EDIT_ORDERS);
@@ -54,7 +63,7 @@ export function availableOrderActions(
   return {
     accept: edit && status === "WAITING_FOR_SHOP",
     reject: edit && status === "WAITING_FOR_SHOP",
-    recordPayment: edit && status === "PAYMENT_PENDING",
+    recordPayment: edit && (status === "PAYMENT_PENDING" || awaitsCounterPayment(order)),
     retry: edit && status === "PRINT_FAILED",
     changePrinter: edit && status === "PRINT_FAILED",
     qualityCheck: can(Permission.QUALITY_CHECK) && status === "QUALITY_CHECK",
