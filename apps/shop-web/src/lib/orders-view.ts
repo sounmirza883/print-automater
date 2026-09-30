@@ -204,6 +204,20 @@ export function orderStatusTone(status: string): Tone {
   }
 }
 
+/** 24.1 + fix wave 1: a guest's QR order has no payment step of its own -- it rests in
+ * UPLOADED (which the API shows staff only for QR orders, in needs attention) until
+ * someone takes payment at the counter and records it. "Uploaded" alone reads like an
+ * order still mid-checkout, so such an order also carries this label. Same rule as
+ * availableOrderActions' own QR case in @print-automated/api-client, which offers
+ * "Record payment" for exactly these orders. */
+export const QR_AWAITING_PAYMENT_LABEL = "QR — awaiting payment";
+
+export function isQrAwaitingPayment(
+  order: Pick<ShopOrderResponse, "orderStatus" | "creationSource">,
+): boolean {
+  return order.orderStatus === "UPLOADED" && order.creationSource === "QR";
+}
+
 export function paymentStatusTone(status: string): Tone {
   switch (status) {
     case "PAID":

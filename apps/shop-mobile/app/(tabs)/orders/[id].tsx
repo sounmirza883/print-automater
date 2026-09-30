@@ -10,7 +10,7 @@ import { useShopAuth } from "@/providers/shop-auth-provider";
 import { formatOrderTotal, summarizeConfiguration } from "@/lib/format";
 import { errorMessage } from "@/lib/job-actions";
 import { usePrinters } from "@/lib/use-printers";
-import { inFlightLabel, isInFlight } from "@/lib/order-status";
+import { inFlightLabel, isInFlight, qrAwaitingPaymentBadge } from "@/lib/order-status";
 import { useIsOffline } from "@/lib/use-is-offline";
 
 type LoadState =
@@ -127,6 +127,7 @@ export default function OrderDetailScreen(): ReactNode {
   const { order } = state;
   const paid = order.paymentStatus === "PAID";
   const priority = order.priority ?? 0;
+  const qrAwaitingPayment = qrAwaitingPaymentBadge(order);
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
@@ -140,6 +141,7 @@ export default function OrderDetailScreen(): ReactNode {
             }}
           />
         )}
+        {qrAwaitingPayment !== null && <Pill badge={qrAwaitingPayment} />}
       </View>
 
       {isOffline && (

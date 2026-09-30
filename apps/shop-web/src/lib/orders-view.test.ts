@@ -1,7 +1,8 @@
-import type { ShopOrderResponse } from "@print-automated/api-client";
+import { availableOrderActions, type ShopOrderResponse } from "@print-automated/api-client";
 import {
   blockedReasonsOf,
   configurationSummary,
+  isQrAwaitingPayment,
   isSearching,
   parseOrdersQuery,
   searchParamsFor,
@@ -95,5 +96,20 @@ describe("configurationSummary", () => {
       }),
     ).toBe("A4 · Black white · Double · 2 copies");
     expect(configurationSummary(null as never)).toBe("");
+  });
+});
+
+describe("isQrAwaitingPayment (fix wave 1)", () => {
+  it("labels exactly the non-PAYMENT_PENDING orders the shared rules offer Record payment for", () => {
+    const everything = () => true;
+    for (const orderStatus of ["UPLOADED", "WAITING_FOR_SHOP", "PRINTING", "EXPIRED"] as const) {
+      for (const creationSource of ["CUSTOMER_WEB", "COUNTER", "QR", undefined] as const) {
+        const order = { orderStatus, creationSource };
+        expect(isQrAwaitingPayment(order)).toBe(
+          availableOrderActions(order, everything).recordPayment,
+        );
+      }
+    }
+    expect(isQrAwaitingPayment({ orderStatus: "UPLOADED", creationSource: "QR" })).toBe(true);
   });
 });

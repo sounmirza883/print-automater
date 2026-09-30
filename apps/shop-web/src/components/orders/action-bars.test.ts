@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { UserRole, type Permission } from "@print-automated/types";
 import type { ShopOrderJobSummary } from "@print-automated/api-client";
-import { JobCard, OrderActionBar } from "@/components/orders/action-bars";
+import { JobCard, OrderActionBar, QrAwaitingPaymentPill } from "@/components/orders/action-bars";
 import { serverPermissionsFor } from "@/components/test-role-permissions";
 
 const canAs = (role: UserRole) => {
@@ -12,16 +12,26 @@ const canAs = (role: UserRole) => {
 
 const noop = () => undefined;
 
-function bar(role: UserRole, orderStatus: string, busy = false): string {
+function bar(
+  role: UserRole,
+  orderStatus: string,
+  busy = false,
+  creationSource: "CUSTOMER_WEB" | "COUNTER" | "QR" = "CUSTOMER_WEB",
+): string {
   return renderToStaticMarkup(
     createElement(OrderActionBar, {
-      order: { orderStatus } as never,
+      order: { orderStatus, creationSource } as never,
       can: canAs(role),
       busy,
       onAction: noop,
     }),
   );
 }
+
+const pill = (orderStatus: string, creationSource?: "CUSTOMER_WEB" | "COUNTER" | "QR") =>
+  renderToStaticMarkup(
+    createElement(QrAwaitingPaymentPill, { order: { orderStatus, creationSource } as never }),
+  );
 
 function job(over: Partial<ShopOrderJobSummary> = {}): ShopOrderJobSummary {
   return {
@@ -72,6 +82,32 @@ describe("OrderActionBar (permission gating, rendered)", () => {
     const buttons = html.match(/<button[^>]*>/g) ?? [];
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.every((tag) => tag.includes("disabled"))).toBe(true);
+  });
+
+  it("offers Record payment on a guest's QR order waiting in UPLOADED (fix wave 1)", () => {
+    expect(bar(UserRole.SHOP_COUNTER, "UPLOADED", false, "QR")).toContain("Record payment");
+    expect(bar(UserRole.SHOP_OWNER, "UPLOADED", false, "QR")).toContain("Record payment");
+    // Any other UPLOADED order is mid-checkout on the web (or a counter order being built).
+    expect(bar(UserRole.SHOP_COUNTER, "UPLOADED", false, "CUSTOMER_WEB")).not.toContain(
+      "Record payment",
+    );
+    expect(bar(UserRole.SHOP_COUNTER, "UPLOADED", false, "COUNTER")).not.toContain(
+      "Record payment",
+    );
+    // Still gated on EDIT_ORDERS like every other order-level edit.
+    expect(bar(UserRole.OPERATOR, "UPLOADED", false, "QR")).not.toContain("Record payment");
+    // The existing PAYMENT_PENDING case is unchanged.
+    expect(bar(UserRole.SHOP_COUNTER, "PAYMENT_PENDING")).toContain("Record payment");
+  });
+});
+
+describe("QrAwaitingPaymentPill (fix wave 1)", () => {
+  it("labels exactly a QR order resting in UPLOADED", () => {
+    expect(pill("UPLOADED", "QR")).toContain("QR — awaiting payment");
+    expect(pill("UPLOADED", "CUSTOMER_WEB")).toBe("");
+    expect(pill("UPLOADED")).toBe("");
+    // Once payment is recorded the order moves on, and the label goes with it.
+    expect(pill("WAITING_FOR_SHOP", "QR")).toBe("");
   });
 });
 

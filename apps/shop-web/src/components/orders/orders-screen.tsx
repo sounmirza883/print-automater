@@ -6,6 +6,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import type { ShopOrderResponse } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
 import { BlockedNote } from "@/components/blocked-note";
+import { QrAwaitingPaymentPill } from "@/components/orders/action-bars";
 import { OperatorPicker } from "@/components/orders/operator-picker";
 import { RequirePermission } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
@@ -415,6 +416,7 @@ function OrderRow({ order, emphasis }: { order: ShopOrderResponse; emphasis: boo
         <Pill tone={paymentStatusTone(order.paymentStatus)}>
           Payment: {humanizeEnum(order.paymentStatus)}
         </Pill>
+        <QrAwaitingPaymentPill order={order} />
         {order.printJobs.some((job) => job.blockedReason === "MANUAL_APPROVAL_REQUIRED") && (
           <Pill tone="danger">Held by late print</Pill>
         )}
