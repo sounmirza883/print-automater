@@ -38,6 +38,8 @@ describe("errorMessageFor", () => {
     ["RULE_ORDER_MISMATCH", /reorder again/],
     ["RULE_PRINTER_INVALID", /does not belong/],
     ["CANNOT_REMOVE_LAST_OWNER", /must always have an owner/],
+    ["OWNER_EMAIL_IN_USE", /already has an account.*different email address/],
+    ["OWNER_ALREADY_ACTIVE", /already set their password.*sign in normally/],
   ])("gives %s its own precise copy", (code, pattern) => {
     expect(errorMessageFor(apiError(409, code))).toMatch(pattern);
   });
@@ -108,5 +110,7 @@ describe("interpretActionFailure", () => {
     ]) {
       expect(isStaleStateError(apiError(409, code))).toBe(true);
     }
+    // Fix wave 1: the owner activated meanwhile -- reload so the page shows them as active.
+    expect(isStaleStateError(apiError(409, "OWNER_ALREADY_ACTIVE"))).toBe(true);
   });
 });

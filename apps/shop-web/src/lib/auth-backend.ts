@@ -25,6 +25,9 @@ const NOT_A_MEMBER =
 const INVITE_INVALID =
   "This invitation code does not work for this account. It may have expired or already been used, or the invitation went to a different email address.";
 
+const ACTIVATION_INVALID =
+  "This code does not work with this email address. It may have expired, already been used, or been replaced by a newer code. Use the code from the most recent email, or ask your Print Automated administrator to send a new one. If you have already set your password, sign in instead.";
+
 /** Calls the API's login endpoint and converts its JSON token pair into
  * this app's own httpOnly cookies; only `{ user }` reaches the browser.
  *
@@ -98,6 +101,63 @@ export async function proxyAcceptInviteAndEstablishSession(input: {
   return NextResponse.json({
     user: result.user,
     shopId: typeof joined.shopId === "string" ? joined.shopId : null,
+  });
+}
+
+/** Fix wave 1: the owner of an admin-created business sets their password with the
+ * emailed code and lands in the console signed in, in ONE step. Unlike the two flows
+ * above there is nothing to sign in with first (the account has no password yet): the
+ * API's public, rate-limited `POST /shop/staff-invites/activate` checks the code and the
+ * address, sets the password and answers with a session, which becomes this app's
+ * cookies exactly as a login's does. Every refusal of the code reads the same (the API
+ * deliberately gives one 404 for a wrong code, a wrong address, an expired or used code,
+ * or an account that already has a password), so this page cannot be used to learn which
+ * part was wrong. */
+export async function proxyActivateAndEstablishSession(input: {
+  email: string;
+  token: string;
+  password: string;
+}): Promise<NextResponse> {
+  let activated: Response;
+  try {
+    activated = await fetch(`${webEnv.NEXT_PUBLIC_API_BASE_URL}/v1/shop/staff-invites/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return jsonError(502, "UPSTREAM_UNREACHABLE", "The service is unreachable right now.");
+  }
+  if (!activated.ok) {
+    if (activated.status === 429) {
+      return jsonError(429, "RATE_LIMITED", "Too many attempts. Wait a while and try again.");
+    }
+    if (activated.status >= 500) {
+      return jsonError(502, "UPSTREAM_UNREACHABLE", "The service is unreachable right now.");
+    }
+    if (activated.status === 400) {
+      // The route validated with the same schema first, so this is rare; the API's own
+      // words say which field.
+      const payload = (await activated.json().catch(() => ({}))) as { message?: unknown };
+      return jsonError(
+        400,
+        "VALIDATION_FAILED",
+        typeof payload.message === "string" ? payload.message : "Check the details and try again.",
+      );
+    }
+    return jsonError(404, "ACTIVATION_INVALID", ACTIVATION_INVALID);
+  }
+  const result = (await activated.json()) as AuthResultPayload & { shopId?: unknown };
+  // The account was created as a business owner, so this admits it; it runs anyway so
+  // the admission rule lives in one place.
+  const refused = await refuseUnlessAdmitted(result);
+  if (refused !== null) {
+    return refused;
+  }
+  await establishSession(result);
+  return NextResponse.json({
+    user: result.user,
+    shopId: typeof result.shopId === "string" ? result.shopId : null,
   });
 }
 

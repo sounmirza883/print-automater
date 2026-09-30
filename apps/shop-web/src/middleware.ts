@@ -9,8 +9,9 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/cookie-names";
  * it matters: the API's own guards on every real request.
  *
  * `/login`, `/accept-invite` (an invitee cannot sign in until they have
- * accepted), `/api/*` and static assets are excluded by the matcher; the
- * API routes answer 401 themselves. */
+ * accepted), `/set-up-account` (fix wave 1: a new business owner has no
+ * password until they use their emailed code there), `/api/*` and static
+ * assets are excluded by the matcher; the API routes answer 401 themselves. */
 export function middleware(request: NextRequest): NextResponse {
   const hasSession =
     request.cookies.has(ACCESS_TOKEN_COOKIE) || request.cookies.has(REFRESH_TOKEN_COOKIE);
@@ -26,5 +27,5 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/((?!api/|_next/|login|accept-invite|favicon.ico).*)"],
+  matcher: ["/((?!api/|_next/|login|accept-invite|set-up-account|favicon.ico).*)"],
 };
