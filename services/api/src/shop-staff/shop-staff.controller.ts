@@ -13,7 +13,7 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { UserRole } from "@prisma/client";
 import { Permission, type Page } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
@@ -27,15 +27,19 @@ import { AddShopStaffDto } from "./dto/add-shop-staff.dto.js";
 import { ListShopStaffQueryDto } from "./dto/list-shop-staff-query.dto.js";
 import {
   AcceptStaffInviteDto,
+  ActivateStaffInviteDto,
   ListStaffInvitesQueryDto,
   StaffDirectoryQueryDto,
 } from "./dto/staff-invite.dto.js";
 import { ShopStaffInviteShopResolver } from "./shop-staff-invite-shop.resolver.js";
 import {
   ShopStaffInvitesService,
+  type ActivatedAccount,
   type StaffInviteListItem,
   type StaffInviteProcessed,
 } from "./shop-staff-invites.service.js";
+import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
+import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
 import { ChangeShopStaffRoleDto } from "./dto/change-shop-staff-role.dto.js";
 import { ShopStaffShopResolver } from "./shop-staff-shop.resolver.js";
 import {
@@ -63,6 +67,33 @@ export class ShopStaffInvitesController {
   ): Promise<{ shopId: string; role: UserRole }> {
     return this.invitesService.acceptInvite(req.user!.id, dto.token);
   }
+}
+
+/** Fix wave 1: `POST /shop/staff-invites/activate` -- deliberately its own controller with NO
+ * JwtAuthGuard (unlike `accept` above): the caller is the owner of an admin-created business
+ * whose account has no password yet, so there is nothing to sign in with. Authorised by the
+ * emailed code plus the invited address instead (see activateInvitedAccount), and rate limited
+ * per IP+address like login, with a per-address cap in the service as well. */
+@Controller("shop/staff-invites")
+export class ShopStaffInviteActivationController {
+  constructor(private readonly invitesService: ShopStaffInvitesService) {}
+
+  @Post("activate")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RateLimitGuard)
+  @RateLimit({
+    limit: 10,
+    windowMs: 15 * 60_000,
+    keyGenerator: (req) => `${req.ip ?? "unknown"}:${bodyEmail(req)}`,
+  })
+  activate(@Body() dto: ActivateStaffInviteDto): Promise<ActivatedAccount> {
+    return this.invitesService.activateInvitedAccount(dto);
+  }
+}
+
+function bodyEmail(request: Request): string {
+  const email = (request.body as { email?: unknown } | undefined)?.email;
+  return typeof email === "string" ? email.trim().toLowerCase().slice(0, 254) : "unknown";
 }
 
 /** 23.22: `GET /shop/staff/me` -- the signed-in person plus the businesses they are an ACTIVE

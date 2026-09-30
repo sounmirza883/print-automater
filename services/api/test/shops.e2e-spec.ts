@@ -136,4 +136,33 @@ describe("Shop discovery (4.3, e2e)", () => {
     const res = await request(app.getHttpServer()).get("/v1/shops").query({ paper: "TABLOID" });
     expect(res.status).toBe(400);
   });
+
+  it("fix wave 1: there is no public self-service business signup -- POST /shops/register is gone (404), and creates nothing", async () => {
+    const name = `Discovery E2E Would-Be Signup ${runId}`;
+    const res = await request(app.getHttpServer())
+      .post("/v1/shops/register")
+      .send({
+        shop: {
+          name,
+          address: "5 Test Street",
+          capabilities: { color: true, duplex: true, a4: true, a3: false },
+        },
+        owner: {
+          name: "Self Signup",
+          email: `self-signup-${runId}@print-automated.dev`,
+          password: "a-real-password",
+        },
+        pricing: {
+          currency: "PKR",
+          pricePerPageMinor: 1000,
+          colorSurchargePerPageMinor: 0,
+          minimumChargeMinor: 0,
+        },
+      });
+    expect(res.status).toBe(404);
+    expect(await prisma.shop.count({ where: { name } })).toBe(0);
+    expect(
+      await prisma.user.count({ where: { email: `self-signup-${runId}@print-automated.dev` } }),
+    ).toBe(0);
+  });
 });

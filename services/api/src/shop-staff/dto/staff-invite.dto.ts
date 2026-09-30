@@ -1,10 +1,12 @@
 import { createZodDto } from "nestjs-zod";
 import {
   acceptStaffInviteSchema,
+  activateStaffInviteSchema,
   listStaffInvitesQuerySchema,
   staffDirectoryQuerySchema,
 } from "@print-automated/validation";
 
 export class AcceptStaffInviteDto extends createZodDto(acceptStaffInviteSchema) {}
+export class ActivateStaffInviteDto extends createZodDto(activateStaffInviteSchema) {}
 export class ListStaffInvitesQueryDto extends createZodDto(listStaffInvitesQuerySchema) {}
 export class StaffDirectoryQueryDto extends createZodDto(staffDirectoryQuerySchema) {}

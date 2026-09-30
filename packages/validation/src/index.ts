@@ -10,12 +10,7 @@ export {
 } from "./auth/index.js";
 export { createDocumentSchema, type CreateDocumentInput } from "./documents/index.js";
 export { createPublicOrderSchema, type CreatePublicOrderInput } from "./public-orders/index.js";
-export {
-  listShopsQuerySchema,
-  type ListShopsQueryInput,
-  registerShopSchema,
-  type RegisterShopInput,
-} from "./shops/index.js";
+export { listShopsQuerySchema, type ListShopsQueryInput } from "./shops/index.js";
 export {
   printConfigurationSchema,
   type PrintConfigurationInput,
@@ -85,6 +80,8 @@ export {
   SHOP_STAFF_ASSIGNABLE_ROLES,
   acceptStaffInviteSchema,
   type AcceptStaffInviteInput,
+  activateStaffInviteSchema,
+  type ActivateStaffInviteInput,
   staffDirectoryQuerySchema,
   type StaffDirectoryQueryInput,
   listStaffInvitesQuerySchema,

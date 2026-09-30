@@ -2,15 +2,25 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
-import { ShopStaffStatus, ShopStatus, UserRole } from "@prisma/client";
-import { PrismaService, AuditService } from "@print-automated/backend-shared";
+import type Redis from "ioredis";
+import { DocumentStatus, ShopStaffStatus, ShopStatus, UserRole } from "@prisma/client";
+import { PrismaService, AuditService, REDIS_CLIENT } from "@print-automated/backend-shared";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
+import { PASSWORD_NOT_SET } from "../src/auth/password.service.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { AuditAction } from "../src/audit/audit-action.js";
+import { NotificationService } from "../src/notifications/notification.service.js";
+
+/** What the owner of a newly created business receives (captured, never really sent). */
+interface OwnerMail {
+  email: string;
+  shopName: string;
+  token: string;
+}
 
 /** §4.7/§42/16.5: an ADMIN can see across every business/user/audit
  * entry on the platform; nobody else -- not even a SHOP_OWNER -- can
@@ -30,11 +40,39 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
 
   const shopIds: string[] = [];
   const userIds: string[] = [];
+  const ownerMails: OwnerMail[] = [];
+
+  /** Fix wave 1: the body every admin-created business now needs -- its intended owner. */
+  function businessBody(label: string, overrides: Record<string, unknown> = {}) {
+    return {
+      name: `Admin E2E ${label} ${randomUUID()}`,
+      address: "1 Onboarding Road",
+      capabilities: { color: true, duplex: true, a4: true, a3: false },
+      owner: {
+        name: `Owner of ${label}`,
+        email: `admin-e2e-new-owner-${randomUUID()}@print-automated.dev`,
+        phone: "+92 300 0000000",
+      },
+      ...overrides,
+    };
+  }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      // Captures each emailed code instead of queueing a real email.
+      .overrideProvider(NotificationService)
+      .useValue({
+        sendOwnerActivationInvite: async (email: string, shopName: string, token: string) => {
+          ownerMails.push({ email, shopName, token });
+        },
+        sendStaffInvite: async () => undefined,
+        sendPasswordRecovery: async () => undefined,
+      })
+      .compile();
     app = moduleRef.createNestApplication<NestExpressApplication>();
-    configureApp(app, app.get<ApiEnv>(API_ENV));
+    // One trusted proxy hop, so this suite's public (QR) calls can carry their own
+    // client IP and never share a rate-limit bucket with public-orders.e2e-spec.ts.
+    configureApp(app, { ...app.get<ApiEnv>(API_ENV), TRUST_PROXY_HOPS: 1 });
     await app.init();
 
     prisma = app.get(PrismaService);
@@ -92,9 +130,26 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
     await prisma.auditLog.deleteMany({
       where: { resourceType: { in: ["admin-e2e-test", "admin-e2e-login-test"] } },
     });
-    await prisma.shopStaff.deleteMany({ where: { userId: owner.id } });
-    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    // Everything an admin-created business may have gained during the fix-wave-1 journey.
+    const shops = await prisma.shop.findMany({
+      where: { id: { in: shopIds } },
+      select: { qrSystemUserId: true },
+    });
+    const systemUserIds = shops.flatMap((s) => (s.qrSystemUserId ? [s.qrSystemUserId] : []));
+    const staff = await prisma.shopStaff.findMany({
+      where: { shopId: { in: shopIds } },
+      select: { userId: true },
+    });
+    await prisma.order.deleteMany({ where: { shopId: { in: shopIds } } });
+    await prisma.document.deleteMany({ where: { ownerUserId: { in: systemUserIds } } });
+    await prisma.pricingRule.deleteMany({ where: { shopId: { in: shopIds } } });
+    await prisma.shopStaff.deleteMany({
+      where: { OR: [{ userId: owner.id }, { shopId: { in: shopIds } }] },
+    });
     await prisma.shop.deleteMany({ where: { id: { in: shopIds } } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [...userIds, ...systemUserIds, ...staff.map((s) => s.userId)] } },
+    });
     await app.close();
   });
 
@@ -147,6 +202,7 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       .post("/v1/admin/businesses")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
+        ...businessBody("Created Shop"),
         name,
         address: "123 Created St",
         // A client-supplied id/status must never win: the create schema
@@ -175,7 +231,8 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
       id: createdId,
       name,
       status: ShopStatus.CLOSED,
-      counts: { staff: 0, orders: 0, printers: 0 },
+      // Fix wave 1: never an empty shell any more -- its named owner is its first member.
+      counts: { staff: 1, orders: 0, printers: 0 },
     });
 
     const statusRes = await request(app.getHttpServer())
@@ -599,6 +656,344 @@ describe("Platform admin API (§4.7/§42, 16.5, e2e)", () => {
 
       const reread = await prisma.user.findUnique({ where: { id: systemUser.id } });
       expect(reread).toMatchObject({ role: UserRole.SYSTEM, status: "ACTIVE" });
+    });
+  });
+
+  describe("fix wave 1: an admin-created business gets a real owner who can activate it and operate it", () => {
+    /** This suite's own client IP on the public QR routes (see TRUST_PROXY_HOPS above). */
+    const GUEST_IP = "198.51.100.77";
+    const GUEST = { "X-Forwarded-For": GUEST_IP };
+
+    beforeAll(async () => {
+      // Only this suite's own buckets: the hour-long windows outlive a single run.
+      const redis = app.get<Redis>(REDIS_CLIENT);
+      const keys = await redis.keys(`ratelimit:PublicOrdersController:*${GUEST_IP}*`);
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    });
+    const CONFIG = {
+      pages: { mode: "all" as const },
+      copies: 1,
+      paperSize: "A4",
+      color: "BW",
+      sides: "SINGLE",
+      orientation: "PORTRAIT",
+    };
+
+    async function createBusiness(label: string, overrides: Record<string, unknown> = {}) {
+      const body = businessBody(label, overrides) as ReturnType<typeof businessBody> & {
+        owner: { name: string; email: string; phone?: string };
+      };
+      const res = await request(app.getHttpServer())
+        .post("/v1/admin/businesses")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send(body);
+      if (res.status === 201) {
+        shopIds.push(res.body.id as string);
+      }
+      return { res, body };
+    }
+
+    function latestCodeFor(email: string): string {
+      const mail = ownerMails.filter((m) => m.email === email).at(-1);
+      expect(mail).toBeDefined();
+      return mail!.token;
+    }
+
+    function activate(email: string, token: string, password = "owner-chosen-password") {
+      return request(app.getHttpServer())
+        .post("/v1/shop/staff-invites/activate")
+        .send({ email, token, password });
+    }
+
+    it("owner details are required (400), and nothing is created without them", async () => {
+      const { owner: omitted, ...withoutOwner } = businessBody("No Owner");
+      void omitted;
+      const res = await request(app.getHttpServer())
+        .post("/v1/admin/businesses")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send(withoutOwner);
+      expect(res.status).toBe(400);
+      expect(await prisma.shop.count({ where: { name: withoutOwner.name } })).toBe(0);
+    });
+
+    it("creates the shop, the owner's SHOP_OWNER account (no password yet), an ACTIVE owner membership and a pending SHOP_OWNER invitation, and emails the owner a code -- audited", async () => {
+      const { res, body } = await createBusiness("Owned");
+      expect(res.status).toBe(201);
+      const shopId = res.body.id as string;
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: body.owner.email } });
+      expect(user).toMatchObject({
+        role: UserRole.SHOP_OWNER,
+        status: "ACTIVE",
+        name: body.owner.name,
+        phone: body.owner.phone,
+        passwordHash: PASSWORD_NOT_SET,
+      });
+      expect(res.body.owner).toEqual({
+        id: user.id,
+        name: body.owner.name,
+        email: body.owner.email,
+      });
+
+      const membership = await prisma.shopStaff.findUniqueOrThrow({
+        where: { shopId_userId: { shopId, userId: user.id } },
+      });
+      expect(membership).toMatchObject({ role: UserRole.SHOP_OWNER, status: "ACTIVE" });
+
+      const invite = await prisma.shopStaffInvite.findUniqueOrThrow({
+        where: { shopId_email: { shopId, email: body.owner.email } },
+      });
+      expect(invite).toMatchObject({
+        role: UserRole.SHOP_OWNER,
+        invitedBy: admin.id,
+        acceptedAt: null,
+        revokedAt: null,
+      });
+      expect(invite.expiresAt.getTime()).toBeGreaterThan(Date.now());
+
+      const code = latestCodeFor(body.owner.email);
+      expect(ownerMails.at(-1)).toMatchObject({ email: body.owner.email, shopName: body.name });
+      expect(invite.tokenHash).not.toBe(code); // only the hash is ever stored
+
+      const created = await prisma.auditLog.findFirstOrThrow({
+        where: { action: AuditAction.SHOP_CREATED, resourceId: shopId },
+      });
+      expect(created.actorId).toBe(admin.id);
+      expect(created.metadata).toMatchObject({ ownerUserId: user.id });
+      const invited = await prisma.auditLog.findFirstOrThrow({
+        where: { action: AuditAction.SHOP_STAFF_INVITED, resourceId: shopId },
+      });
+      expect(invited.actorId).toBe(admin.id);
+      expect(JSON.stringify(invited.metadata)).not.toContain(body.owner.email);
+
+      const detail = await request(app.getHttpServer())
+        .get(`/v1/admin/businesses/${shopId}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body).toMatchObject({
+        hasPricingRule: false,
+        owner: {
+          id: user.id,
+          name: body.owner.name,
+          email: body.owner.email,
+          activationPending: true,
+        },
+        counts: { staff: 1 },
+      });
+    });
+
+    it("the owner cannot sign in before activating (401, like any wrong password)", async () => {
+      const { res, body } = await createBusiness("Not Yet Active");
+      expect(res.status).toBe(201);
+      for (const password of ["anything-at-all", PASSWORD_NOT_SET]) {
+        const login = await request(app.getHttpServer())
+          .post("/v1/auth/login")
+          .send({ email: body.owner.email, password });
+        expect(login.status).toBe(401);
+      }
+    });
+
+    it("activation: the emailed code plus the invited address set the owner's OWN password, start a session and open the business to them; the code then stops working", async () => {
+      const { res, body } = await createBusiness("Activates");
+      const shopId = res.body.id as string;
+      const code = latestCodeFor(body.owner.email);
+
+      // The address is matched the way sign-in matches it (trimmed, case-insensitive).
+      const activated = await activate(` ${body.owner.email.toUpperCase()}`, code);
+      expect(activated.status).toBe(200);
+      expect(activated.body).toMatchObject({
+        user: { email: body.owner.email, role: UserRole.SHOP_OWNER },
+        shopId,
+        role: UserRole.SHOP_OWNER,
+        accessToken: expect.any(String),
+        refreshToken: expect.any(String),
+      });
+
+      const me = await request(app.getHttpServer())
+        .get("/v1/shop/staff/me")
+        .set("Authorization", `Bearer ${activated.body.accessToken}`);
+      expect(me.status).toBe(200);
+      expect(me.body.shops).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: shopId, role: "SHOP_OWNER" })]),
+      );
+
+      const login = await request(app.getHttpServer())
+        .post("/v1/auth/login")
+        .send({ email: body.owner.email, password: "owner-chosen-password" });
+      expect(login.status).toBe(200);
+
+      const invite = await prisma.shopStaffInvite.findUniqueOrThrow({
+        where: { shopId_email: { shopId, email: body.owner.email } },
+      });
+      expect(invite.acceptedAt).not.toBeNull();
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: body.owner.email } });
+      expect(
+        await prisma.auditLog.count({
+          where: { action: AuditAction.SHOP_STAFF_INVITE_ACCEPTED, actorId: user.id },
+        }),
+      ).toBe(1);
+
+      // Single use: replaying it cannot reset the password it just set.
+      expect((await activate(body.owner.email, code, "attacker-chosen-password")).status).toBe(404);
+      const stillMine = await request(app.getHttpServer())
+        .post("/v1/auth/login")
+        .send({ email: body.owner.email, password: "owner-chosen-password" });
+      expect(stillMine.status).toBe(200);
+
+      const detail = await request(app.getHttpServer())
+        .get(`/v1/admin/businesses/${shopId}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(detail.body.owner.activationPending).toBe(false);
+    });
+
+    it("activation refuses with one uniform 404: a wrong code, the right code for another address, and any account that already has a password", async () => {
+      const { body } = await createBusiness("Refusals");
+      const code = latestCodeFor(body.owner.email);
+
+      expect((await activate(body.owner.email, "x".repeat(43))).status).toBe(404);
+
+      // A real invitation (as a manager would send one) to an account that HAS a
+      // password: activation is not a password reset, whoever holds the code.
+      const rawToken = `admin-e2e-${randomUUID()}-${randomUUID()}`;
+      const { hashToken } = await import("../src/common/crypto.util.js");
+      await prisma.shopStaffInvite.create({
+        data: {
+          shopId: shopA.id,
+          email: (await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).email,
+          role: UserRole.SHOP_MANAGER,
+          tokenHash: hashToken(rawToken),
+          invitedBy: owner.id,
+          expiresAt: new Date(Date.now() + 86_400_000),
+        },
+      });
+      const ownerRow = await prisma.user.findUniqueOrThrow({ where: { id: owner.id } });
+      expect((await activate(ownerRow.email, rawToken)).status).toBe(404);
+      expect((await activate(ownerRow.email, code)).status).toBe(404);
+      const unchanged = await prisma.user.findUniqueOrThrow({ where: { id: owner.id } });
+      expect(unchanged.passwordHash).toBe(ownerRow.passwordHash);
+
+      // None of that burned the genuine code.
+      expect((await activate(body.owner.email, code)).status).toBe(200);
+    });
+
+    it("an owner email that already has an account is refused (409 OWNER_EMAIL_IN_USE) and nothing is created", async () => {
+      const taken = (await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).email;
+      const { res, body } = await createBusiness("Taken Email", {
+        owner: { name: "Somebody", email: taken.toUpperCase() },
+      });
+      expect(res.status).toBe(409);
+      expect(res.body.error_code).toBe("OWNER_EMAIL_IN_USE");
+      expect(await prisma.shop.count({ where: { name: body.name } })).toBe(0);
+    });
+
+    it("the full journey: until its activated owner sets prices, the business refuses QR orders (409 SHOP_PRICING_NOT_CONFIGURED); after, it takes them", async () => {
+      const { res, body } = await createBusiness("Journey");
+      const shopId = res.body.id as string;
+      const session = await activate(body.owner.email, latestCodeFor(body.owner.email));
+      expect(session.status).toBe(200);
+      const ownerAuth = { Authorization: `Bearer ${session.body.accessToken}` };
+
+      const opened = await request(app.getHttpServer())
+        .patch(`/v1/admin/businesses/${shopId}/status`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ status: ShopStatus.OPEN });
+      expect(opened.status).toBe(200);
+
+      async function qrOrder(): Promise<request.Response> {
+        const bytes = Buffer.from("%PDF-1.7\nadmin e2e journey\n%%EOF");
+        const created = await request(app.getHttpServer())
+          .post(`/v1/public/shops/${shopId}/documents`)
+          .set(GUEST)
+          .send({ filename: "journey.pdf", mimeType: "application/pdf", sizeBytes: bytes.length });
+        expect(created.status).toBe(201);
+        const put = await fetch(created.body.uploadUrl, {
+          method: "PUT",
+          body: bytes,
+          headers: { "Content-Type": "application/pdf" },
+        });
+        expect(put.ok).toBe(true);
+        const confirmed = await request(app.getHttpServer())
+          .post(`/v1/public/shops/${shopId}/documents/${created.body.documentId}/upload`)
+          .set(GUEST);
+        expect(confirmed.status).toBe(200);
+        // READY by hand: the worker's scan pipeline is out of scope here.
+        await prisma.document.update({
+          where: { id: created.body.documentId },
+          data: { status: DocumentStatus.READY, pageCount: 2 },
+        });
+        return request(app.getHttpServer())
+          .post(`/v1/public/shops/${shopId}/orders`)
+          .set(GUEST)
+          .send({
+            name: "Journey Guest",
+            phone: "03001234567",
+            documentId: created.body.documentId,
+            printConfiguration: CONFIG,
+          });
+      }
+
+      const refused = await qrOrder();
+      expect(refused.status).toBe(409);
+      expect(refused.body.error_code).toBe("SHOP_PRICING_NOT_CONFIGURED");
+      const before = await request(app.getHttpServer())
+        .get(`/v1/admin/businesses/${shopId}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(before.body.hasPricingRule).toBe(false);
+
+      const priced = await request(app.getHttpServer())
+        .post("/v1/shop/pricing-rules")
+        .set(ownerAuth)
+        .send({
+          shopId,
+          currency: "PKR",
+          pricePerPageMinor: 1000,
+          colorSurchargePerPageMinor: 500,
+          minimumChargeMinor: 1000,
+        });
+      expect(priced.status).toBe(201);
+      const after = await request(app.getHttpServer())
+        .get(`/v1/admin/businesses/${shopId}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(after.body.hasPricingRule).toBe(true);
+
+      const placed = await qrOrder();
+      expect(placed.status).toBe(201);
+      expect(placed.body).toMatchObject({ creationSource: "QR", orderStatus: "UPLOADED" });
+    });
+
+    it("an admin can re-issue the owner's code while they have not activated (the old code stops working), and never after", async () => {
+      const { res, body } = await createBusiness("Reissue");
+      const shopId = res.body.id as string;
+      const first = latestCodeFor(body.owner.email);
+
+      const reissued = await request(app.getHttpServer())
+        .post(`/v1/admin/businesses/${shopId}/owner-invite`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(reissued.status).toBe(202);
+      const second = latestCodeFor(body.owner.email);
+      expect(second).not.toBe(first);
+
+      expect((await activate(body.owner.email, first)).status).toBe(404);
+      expect((await activate(body.owner.email, second)).status).toBe(200);
+
+      const again = await request(app.getHttpServer())
+        .post(`/v1/admin/businesses/${shopId}/owner-invite`)
+        .set("Authorization", `Bearer ${adminToken}`);
+      expect(again.status).toBe(409);
+      expect(again.body.error_code).toBe("OWNER_ALREADY_ACTIVE");
+
+      expect(
+        await prisma.auditLog.count({
+          where: { action: AuditAction.SHOP_STAFF_INVITED, resourceId: shopId },
+        }),
+      ).toBe(2);
+
+      const notAdmin = await request(app.getHttpServer())
+        .post(`/v1/admin/businesses/${shopId}/owner-invite`)
+        .set("Authorization", `Bearer ${ownerToken}`);
+      expect(notAdmin.status).toBe(403);
     });
   });
 });

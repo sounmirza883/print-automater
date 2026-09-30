@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { UserRole } from "@print-automated/types";
+import { registerSchema } from "../auth/register.schema.js";
 
 /** §54/16.4: only the shop-facing roles are assignable via this
  * endpoint -- CUSTOMER, ADMIN and SUPPLIER are never a `ShopStaff.role`
@@ -45,3 +46,16 @@ export const acceptStaffInviteSchema = z.object({
 });
 
 export type AcceptStaffInviteInput = z.infer<typeof acceptStaffInviteSchema>;
+
+/** Fix wave 1: `POST /shop/staff-invites/activate` (unauthenticated). The owner of an
+ * admin-created business has an account with no password yet; the emailed invitation
+ * code (proof of the mailbox) plus the invited address lets them choose one. Same
+ * email normalisation and password rules as account sign-up (`registerSchema`), same
+ * token shape as accepting an invitation. */
+export const activateStaffInviteSchema = z.object({
+  email: registerSchema.shape.email,
+  token: acceptStaffInviteSchema.shape.token,
+  password: registerSchema.shape.password,
+});
+
+export type ActivateStaffInviteInput = z.infer<typeof activateStaffInviteSchema>;
