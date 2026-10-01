@@ -60,7 +60,12 @@ export type {
   PrinterRuleInput,
 } from "./resources/settings.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
-export { PlanResource } from "./resources/plan.resource.js";
+export {
+  PlanResource,
+  type CreatePlanDefinitionBody,
+  type UpdatePlanDefinitionBody,
+  type PlanDefinitionListResult,
+} from "./resources/plan.resource.js";
 export {
   ReportsResource,
   type ReportName,
