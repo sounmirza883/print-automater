@@ -100,6 +100,21 @@ describe("Shop Plan (26, e2e)", () => {
     expect(audit!.actorId).toEqual(expect.any(String));
   });
 
+  it("the shop's own GET /v1/shop/plan never reveals the plan's platform-wide subscriber count", async () => {
+    const asAdmin = await http().get(`/v1/admin/businesses/${fx.shop.id}/plan`).set(admin());
+    expect(asAdmin.status).toBe(200);
+    // At least this business is assigned (the previous test activated it) -- a real,
+    // non-zero platform-wide count an ADMIN is allowed to see.
+    expect(asAdmin.body.plan.subscriberCount).toBeGreaterThanOrEqual(1);
+
+    const asStaff = await http().get(`/v1/shop/plan?shopId=${fx.shop.id}`).set(owner());
+    expect(asStaff.status).toBe(200);
+    expect(asStaff.body.plan.id).toBe(asAdmin.body.plan.id);
+    // Same plan, but this business's own staff never see how many OTHER
+    // businesses on the platform share it.
+    expect(asStaff.body.plan.subscriberCount).toBe(0);
+  });
+
   it("admin activate on an EXPIRED plan starts the new period from now, not from the stale expiry", async () => {
     await setExpiresAt(new Date(Date.now() - 86_400_000)); // expired yesterday
     const res = await http()

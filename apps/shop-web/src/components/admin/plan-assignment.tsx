@@ -111,7 +111,15 @@ export function PlanAssignment({
   }
 
   const options = choices.map((plan) => ({ value: plan.id, label: planOptionLabel(plan) }));
-  const canCancel = current?.active === true;
+  // A named plan can be unassigned whether it's still active or already lapsed --
+  // the backend's cancel() handles both (an already-expired expiry is left where
+  // it is, never pushed forward). Gating this on `active` alone stranded a lapsed
+  // business: the only path left was "Activate", which hands it a brand-new paid
+  // period just to detach the old plan, and a plan with any lapsed subscriber
+  // could never be deleted (DELETE refuses while subscriberCount > 0).
+  const hasAssignedPlan = current?.plan != null;
+  const canCancel = hasAssignedPlan;
+  const planIsLapsed = hasAssignedPlan && current?.active === false;
 
   const picker =
     choices.length === 0 ? (
@@ -165,7 +173,7 @@ export function PlanAssignment({
             setConfirmingCancel(true);
           }}
         >
-          Cancel plan
+          {planIsLapsed ? "Remove plan" : "Cancel plan"}
         </Button>
       )}
     </div>
@@ -196,8 +204,8 @@ export function PlanAssignment({
       )}
       {confirmingCancel && (
         <FormDialog
-          title={`Cancel ${shopName}'s plan`}
-          submitLabel="Cancel plan"
+          title={planIsLapsed ? `Remove ${shopName}'s plan` : `Cancel ${shopName}'s plan`}
+          submitLabel={planIsLapsed ? "Remove plan" : "Cancel plan"}
           submitTone="danger"
           busy={cancelRunner.busy}
           error={cancelRunner.error}
@@ -205,9 +213,19 @@ export function PlanAssignment({
           onSubmit={cancelPlan}
         >
           <p>
-            The plan ends now, not on its expiry date. {shopName} cannot print until a plan is
-            activated again; its staff can still sign in and everything else keeps working. The
-            business and its history are not deleted.
+            {planIsLapsed ? (
+              <>
+                This plan already ended. Removing the assignment frees {shopName} to be deleted or
+                moved onto a different plan later -- it does not change when printing stopped, and
+                the business and its history are not deleted.
+              </>
+            ) : (
+              <>
+                The plan ends now, not on its expiry date. {shopName} cannot print until a plan is
+                activated again; its staff can still sign in and everything else keeps working. The
+                business and its history are not deleted.
+              </>
+            )}
           </p>
         </FormDialog>
       )}

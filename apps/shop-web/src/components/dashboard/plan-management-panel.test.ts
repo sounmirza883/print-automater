@@ -64,7 +64,7 @@ describe("PlanTable (plan management on the Platform dashboard)", () => {
     expect(html).not.toMatch(/type="number"/);
   });
 
-  it("offers Cancel plan only while the plan is active", () => {
+  it("offers Cancel plan while active, and Remove plan once it's lapsed (both unassign it)", () => {
     const active = render([{ business: business("shop-1", "A"), plan: assignment() }]);
     expect(active).toContain("Cancel plan");
 
@@ -72,6 +72,8 @@ describe("PlanTable (plan management on the Platform dashboard)", () => {
       { business: business("shop-1", "A"), plan: assignment({ active: false }) },
     ]);
     expect(expired).toContain("Expired");
+    // Still assigned, so still unassignable -- as "Remove", since it already ended.
+    expect(expired).toContain("Remove plan");
     expect(expired).not.toContain("Cancel plan");
   });
 

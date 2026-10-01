@@ -40,6 +40,21 @@ function toResponse(row: {
   };
 }
 
+/** `subscriberCount` is platform-wide aggregate data (how many OTHER businesses,
+ * across the whole platform, are on this plan) -- real for an ADMIN, but not this
+ * shop's business to know about every other shop's subscriber counts. `getStatus`
+ * is reachable by every shop-staff role (SHOP_COUNTER, OPERATOR, PRINTER_MANAGER
+ * included -- `isActiveStaff` only checks membership, not a specific permission),
+ * and `PlanBanner` polls it every 5 minutes, so this would otherwise leak to
+ * anyone with a login at any shop via plain devtools. Zero it rather than
+ * reshaping `ShopPlanResponse.plan`'s type for one field. */
+function toStaffResponse(response: ShopPlanResponse): ShopPlanResponse {
+  if (response.plan === null) {
+    return response;
+  }
+  return { ...response, plan: { ...response.plan, subscriberCount: 0 } };
+}
+
 /** 26.2 (Phase 26): whether a business's plan is active gates the print pipeline
  * only -- login, dashboards and every non-print route are unaffected. There is no
  * stored status column: activate/renew only ever moves `expiresAt` forward (cancel
@@ -66,7 +81,7 @@ export class ShopPlanService {
     if (!(await this.shopMembership.isActiveStaff(shopId, userId))) {
       throw new ForbiddenException("You do not have access to this business's plan.");
     }
-    return this.getStatusForAdmin(shopId);
+    return toStaffResponse(await this.getStatusForAdmin(shopId));
   }
 
   /** No membership check: `/admin/*` sees across every business, not one --

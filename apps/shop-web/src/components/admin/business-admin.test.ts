@@ -115,10 +115,13 @@ describe("PlanPanelBody (plan management: this business's own plan)", () => {
     expect(html).toContain("Cancel plan");
   });
 
-  it("reads an expired plan as ended, with nothing to cancel", () => {
+  it("reads an expired plan as ended, offering to remove it (not re-cancel it)", () => {
     const html = render(current({ active: false }));
     expect(html).toContain("Expired");
     expect(html).toContain("Ended");
+    // Still has a named plan assigned -- removable so the plan can later be
+    // deleted, but "Cancel" would be a lie for a plan that already ended.
+    expect(html).toContain("Remove plan");
     expect(html).not.toContain("Cancel plan");
   });
 
