@@ -1,22 +1,33 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import type { AdminBusinessResponse, ShopPlanResponse } from "@print-automated/types";
+import type {
+  AdminBusinessResponse,
+  PlanDefinitionResponse,
+  ShopPlanResponse,
+} from "@print-automated/types";
+import { PlanAssignment, PlanStatusCell } from "@/components/admin/plan-assignment";
 import { ResourceBoundary } from "@/components/resource-boundary";
-import { DataTable, Pill } from "@/components/ui";
-import { getApi, describeError } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { DataTable } from "@/components/ui";
+import { getApi } from "@/lib/api";
+import { humanizeEnum } from "@/lib/format";
 import { useResource } from "@/lib/use-resource";
 
 const PAGE_SIZE = 50;
-const DEFAULT_DAYS = 30;
 
-interface Row {
+export interface PlanRow {
   business: AdminBusinessResponse;
+  /** null when this business's plan status could not be loaded. */
   plan: ShopPlanResponse | null;
 }
 
-async function loadRows(): Promise<Row[]> {
+interface PanelData {
+  rows: PlanRow[];
+  plans: PlanDefinitionResponse[];
+}
+
+async function loadRows(): Promise<PlanRow[]> {
   const result = await getApi().admin.listBusinesses({ limit: PAGE_SIZE });
   return Promise.all(
     result.items.map(async (business) => {
@@ -28,121 +39,92 @@ async function loadRows(): Promise<Row[]> {
   );
 }
 
-function PlanCell({ plan }: { plan: ShopPlanResponse | null }): ReactNode {
-  if (plan === null) {
-    return <span className="text-muted">Unavailable</span>;
-  }
-  if (!plan.active) {
-    return <Pill tone="danger">Expired</Pill>;
-  }
-  return (
-    <span>
-      <Pill tone="good">Active</Pill>{" "}
-      {plan.expiresAt !== null && (
-        <span className="text-muted">until {formatDate(plan.expiresAt)}</span>
-      )}
-    </span>
-  );
+async function loadPanel(): Promise<PanelData> {
+  const [rows, definitions] = await Promise.all([loadRows(), getApi().plan.listDefinitions()]);
+  return { rows, plans: definitions.items };
 }
 
-function ActivateRow({
-  row,
-  onActivated,
-}: {
-  row: Row;
-  onActivated: (plan: ShopPlanResponse) => void;
-}): ReactNode {
-  const { business } = row;
-  const [days, setDays] = useState(DEFAULT_DAYS);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function activate(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      onActivated(await getApi().plan.adminActivate(business.id, days));
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <tr>
-      <td className="px-4 py-2 font-medium">{business.name}</td>
-      <td className="px-4 py-2 text-muted">{business.status}</td>
-      <td className="px-4 py-2">
-        <PlanCell plan={row.plan} />
-      </td>
-      <td className="px-4 py-2">
-        <div className="flex items-center gap-2">
-          <label className="sr-only" htmlFor={`plan-days-${business.id}`}>
-            Days to add for {business.name}
-          </label>
-          <input
-            id={`plan-days-${business.id}`}
-            type="number"
-            min={1}
-            max={3650}
-            value={days}
-            onChange={(event) => setDays(Number(event.target.value))}
-            className="w-20 rounded-md border border-line bg-panel px-2 py-1.5 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => void activate()}
-            disabled={busy}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-transparent bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {busy ? "Saving…" : "Activate / renew"}
-          </button>
-        </div>
-        {error !== null && (
-          <p className="mt-1 text-xs text-danger-fg" role="alert">
-            {describeError(error)}
-          </p>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-/** 26.6: replaces the dashboard's own static "no subscription model yet"
- * placeholder with the real thing -- a platform admin activates or renews
- * each business's plan by adding days to it (no payment gateway; this is a
- * manual admin action, per the feature's own scope). Plan status is fetched
- * per row after the business list loads, since `/admin/businesses` itself
- * doesn't carry plan data. `overrides` reflects a just-completed
- * activate/renew immediately, without waiting for a full reload. */
+/** 26.6, then plan management: a platform admin assigns, renews, changes or
+ * cancels each business's plan by picking one of the named plans defined on
+ * the Plans page (no payment gateway; this is a manual admin action). Plan
+ * status is fetched per row after the business list loads, since
+ * `/admin/businesses` itself doesn't carry plan data. `overrides` reflects a
+ * just-completed change immediately, without waiting for a full reload. */
 export function PlanManagementPanel(): ReactNode {
-  const state = useResource(loadRows, []);
+  const state = useResource(loadPanel, []);
   const [overrides, setOverrides] = useState<Record<string, ShopPlanResponse>>({});
 
   return (
     <ResourceBoundary state={state} what="businesses and plans">
-      {(rows) => {
-        if (rows.length === 0) {
-          return <p className="text-muted">No businesses yet.</p>;
-        }
-        return (
-          <DataTable
-            caption="Businesses and their plan status"
-            head={["Business", "Status", "Plan", "Action"]}
-          >
-            {rows.map((row) => (
-              <ActivateRow
-                key={row.business.id}
-                row={{ ...row, plan: overrides[row.business.id] ?? row.plan }}
-                onActivated={(plan) =>
-                  setOverrides((prev) => ({ ...prev, [row.business.id]: plan }))
-                }
-              />
-            ))}
-          </DataTable>
-        );
-      }}
+      {(data) => (
+        <PlanTable
+          rows={data.rows.map((row) => ({
+            ...row,
+            plan: overrides[row.business.id] ?? row.plan,
+          }))}
+          plans={data.plans}
+          onPlanChanged={(businessId, plan) =>
+            setOverrides((prev) => ({ ...prev, [businessId]: plan }))
+          }
+        />
+      )}
     </ResourceBoundary>
+  );
+}
+
+/** The table itself, separate from loading so it renders from plain props. */
+export function PlanTable({
+  rows,
+  plans,
+  onPlanChanged,
+}: {
+  rows: readonly PlanRow[];
+  plans: readonly PlanDefinitionResponse[];
+  onPlanChanged: (businessId: string, plan: ShopPlanResponse) => void;
+}): ReactNode {
+  if (rows.length === 0) {
+    return <p className="text-muted">No businesses yet.</p>;
+  }
+  return (
+    <div className="grid gap-3">
+      <p className="text-sm text-muted">
+        Names, prices and billing periods are set on the{" "}
+        <Link href="/admin/plans" className="underline underline-offset-2">
+          Plans
+        </Link>{" "}
+        page.
+      </p>
+      <DataTable
+        caption="Businesses and their plans"
+        head={["Business", "Status", "Plan", "Action"]}
+      >
+        {rows.map((row) => (
+          <tr key={row.business.id}>
+            <td className="px-4 py-2 font-medium">
+              <Link
+                href={`/admin/businesses/${row.business.id}`}
+                className="underline underline-offset-2"
+              >
+                {row.business.name}
+              </Link>
+            </td>
+            <td className="px-4 py-2 text-muted">{humanizeEnum(row.business.status)}</td>
+            <td className="px-4 py-2">
+              <PlanStatusCell plan={row.plan} />
+            </td>
+            <td className="px-4 py-2">
+              <PlanAssignment
+                compact
+                shopId={row.business.id}
+                shopName={row.business.name}
+                current={row.plan}
+                plans={plans}
+                onChanged={(plan) => onPlanChanged(row.business.id, plan)}
+              />
+            </td>
+          </tr>
+        ))}
+      </DataTable>
+    </div>
   );
 }

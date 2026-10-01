@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import type { AdminBusinessDetail } from "@print-automated/api-client";
-import type { ShopStatus } from "@print-automated/types";
+import type { PlanDefinitionResponse, ShopPlanResponse, ShopStatus } from "@print-automated/types";
 import { SelectField } from "@/components/form-kit";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { ResourceBoundary } from "@/components/resource-boundary";
@@ -20,8 +20,10 @@ import {
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatCount, formatDate, humanizeEnum } from "@/lib/format";
+import { assignedPlanName, planPriceLabel } from "@/lib/plan-view";
 import { useResource } from "@/lib/use-resource";
 import { STATUS_OPTIONS, STATUS_TONE } from "./businesses-screen";
+import { PlanAssignment, PlanStatePill } from "./plan-assignment";
 import { ShopQrCode } from "./shop-qr-code";
 
 /** Workstream A (23.7): one business's detail -- counts of what's
@@ -156,6 +158,112 @@ export function OwnerPanel({
   );
 }
 
+/** Plan management: this business's own plan, and the change / renew / cancel
+ * controls for it -- the same `PlanAssignment` the Platform dashboard's plan
+ * table uses, so the two never disagree. Loaded separately from the business
+ * itself (`/admin/businesses/:id` carries no plan data). A just-saved plan is
+ * shown at once and wins until a newer load replaces it. */
+function BusinessPlanPanel({
+  businessId,
+  businessName,
+}: {
+  businessId: string;
+  businessName: string;
+}): ReactNode {
+  const state = useResource(async () => {
+    const [current, definitions] = await Promise.all([
+      getApi().plan.adminGet(businessId),
+      getApi().plan.listDefinitions(),
+    ]);
+    return { current, plans: definitions.items };
+  }, [businessId]);
+  const [saved, setSaved] = useState<{ plan: ShopPlanResponse; at: number } | null>(null);
+
+  return (
+    <Panel
+      title="Plan"
+      id="plan"
+      aside={
+        <Link href="/admin/plans" className="underline underline-offset-2">
+          Manage plans
+        </Link>
+      }
+    >
+      <ResourceBoundary state={state} what="this business's plan">
+        {(data) => (
+          <PlanPanelBody
+            businessId={businessId}
+            businessName={businessName}
+            current={
+              saved !== null && saved.at > (state.lastUpdated ?? 0) ? saved.plan : data.current
+            }
+            plans={data.plans}
+            onChanged={(plan) => setSaved({ plan, at: Date.now() })}
+          />
+        )}
+      </ResourceBoundary>
+    </Panel>
+  );
+}
+
+export function PlanPanelBody({
+  businessId,
+  businessName,
+  current,
+  plans,
+  onChanged,
+}: {
+  businessId: string;
+  businessName: string;
+  current: ShopPlanResponse;
+  plans: readonly PlanDefinitionResponse[];
+  onChanged: (plan: ShopPlanResponse) => void;
+}): ReactNode {
+  const assigned = current.plan;
+  return (
+    <div className="grid gap-4 text-sm">
+      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <dt className="text-xs font-medium tracking-wide text-muted uppercase">Plan</dt>
+          <dd className="flex flex-wrap items-center gap-2">
+            {assignedPlanName(current)}
+            {assigned?.archived && <Pill>Archived</Pill>}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium tracking-wide text-muted uppercase">Price</dt>
+          <dd className="num">{assigned === null ? "Not set" : planPriceLabel(assigned)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium tracking-wide text-muted uppercase">Status</dt>
+          <dd>
+            <PlanStatePill plan={current} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium tracking-wide text-muted uppercase">
+            {current.active ? "Active until" : current.expiresAt === null ? "Expiry" : "Ended"}
+          </dt>
+          <dd>{current.expiresAt === null ? "Never activated" : formatDate(current.expiresAt)}</dd>
+        </div>
+      </dl>
+      {assigned?.archived && (
+        <p className="text-xs text-muted">
+          This plan is archived: the business keeps it until you change or cancel it, but it cannot
+          be chosen again, so renewing means moving the business to another plan.
+        </p>
+      )}
+      <PlanAssignment
+        shopId={businessId}
+        shopName={businessName}
+        current={current}
+        plans={plans}
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
 function BusinessBody({
   data,
   onChanged,
@@ -219,6 +327,8 @@ function BusinessBody({
       </Panel>
 
       <OwnerPanel businessId={data.id} owner={data.owner} onChanged={onChanged} />
+
+      <BusinessPlanPanel businessId={data.id} businessName={data.name} />
 
       {/* Fix wave 1: until the business has a price list, EVERY order to it is refused
           (409 SHOP_PRICING_NOT_CONFIGURED), so the code is withheld rather than handed
