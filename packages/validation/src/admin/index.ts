@@ -5,6 +5,12 @@ export {
   type AdminAuditQueryInput,
 } from "./list-query.schema.js";
 export { activatePlanSchema, type ActivatePlanInput } from "./activate-plan.schema.js";
+export {
+  createPlanDefinitionSchema,
+  type CreatePlanDefinitionInput,
+  updatePlanDefinitionSchema,
+  type UpdatePlanDefinitionInput,
+} from "./plan-definition.schema.js";
 export { createBusinessSchema, type CreateBusinessInput } from "./create-business.schema.js";
 export {
   updateBusinessStatusSchema,

@@ -1,11 +1,13 @@
 import { z } from "zod";
 
-/** 26.4: `POST /admin/businesses/:shopId/plan/activate`. Extends (or starts) a
- * shop's plan by this many days from the later of now or its current expiry --
- * renewing early adds to what's left rather than discarding it (ShopPlanService).
- * Capped at 3650 (10 years): a typo should not silently grant a decade. */
+/** 26.4, extended for plan definitions: `POST /admin/businesses/:shopId/plan/activate`.
+ * Assigns (or re-assigns, to renew) a named plan to a business -- the days to extend
+ * by come from that plan's own `billingPeriodDays`, not a client-supplied number,
+ * so "activate" and "renew" are the same call: pick the same plan again to renew,
+ * pick a different one to change plans. Extends (or starts) from the LATER of now
+ * or the current expiry, same semantics `ShopPlanService.activate` already had. */
 export const activatePlanSchema = z.object({
-  days: z.number().int().min(1).max(3650),
+  planDefinitionId: z.string().uuid(),
 });
 
 export type ActivatePlanInput = z.infer<typeof activatePlanSchema>;

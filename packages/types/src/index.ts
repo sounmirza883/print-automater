@@ -71,5 +71,5 @@ export type {
   NotificationTarget,
   NotificationItem,
 } from "./notifications.js";
-export type { ShopPlanResponse } from "./shop-plan.js";
+export type { ShopPlanResponse, PlanDefinitionResponse } from "./shop-plan.js";
 export type { AdminBusinessResponse, AdminListResult } from "./admin.js";
