@@ -76,8 +76,19 @@ export const AuditAction = {
   PRINTER_RULE_UPDATED: "PRINTER_RULE_UPDATED",
   PRINTER_RULE_DELETED: "PRINTER_RULE_DELETED",
   PRINTER_RULES_REORDERED: "PRINTER_RULES_REORDERED",
-  // 26.2: a platform admin activating or extending a business's plan.
+  // 26.2: a platform admin activating or extending a business's plan. Plan
+  // management: metadata names the plan assigned and its price/period at that
+  // moment (planDefinitionId, planName, priceMinor, currency, days) plus the
+  // previous plan and expiry.
   SHOP_PLAN_ACTIVATED: "SHOP_PLAN_ACTIVATED",
+  // Plan management: an admin clearing a business's plan assignment and expiring
+  // it immediately (resource = the shop; metadata = previous plan and expiry).
+  SHOP_PLAN_CANCELLED: "SHOP_PLAN_CANCELLED",
+  // Plan management: the platform-wide plan definitions themselves
+  // (resource = the plan definition; metadata = before/after of what changed).
+  PLAN_DEFINITION_CREATED: "PLAN_DEFINITION_CREATED",
+  PLAN_DEFINITION_UPDATED: "PLAN_DEFINITION_UPDATED",
+  PLAN_DEFINITION_DELETED: "PLAN_DEFINITION_DELETED",
   // HISTORICAL ONLY: written by the public self-service signup
   // (`POST /shops/register`), which fix wave 1 removed -- onboarding is
   // admin-only now (SHOP_CREATED). Kept so existing audit rows still name a

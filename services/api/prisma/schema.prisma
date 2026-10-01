@@ -1546,17 +1546,53 @@ model ShopSettings {
 // PROVISIONING value changes. `activatedByUserId` is a bare id like
 // `ShopStaffInvite.invitedBy` / `AuditLog.actorId` -- no FK, so an admin account
 // being removed later never blocks reading plan history.
+//
+// Plan management: `planDefinitionId` is the named, priced plan this business is
+// on. Nullable -- a business only ever activated the old way (a raw day count,
+// before plan definitions existed), never assigned one, or whose plan an admin
+// cancelled has none, and reads as `plan: null`, never a crash. The FK is
+// RESTRICT, not SET NULL: PlanDefinitionService refuses deleting a plan anyone
+// is assigned to (409 PLAN_DEFINITION_IN_USE), and RESTRICT makes the database
+// refuse it too, so a delete racing a concurrent assign can never silently
+// strip that business's assignment.
 model ShopPlan {
   shopId           String    @id @map("shop_id")
   expiresAt        DateTime? @map("expires_at")
   activatedAt      DateTime? @map("activated_at")
   activatedByUserId String?  @map("activated_by_user_id")
+  planDefinitionId String?   @map("plan_definition_id")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  planDefinition PlanDefinition? @relation(fields: [planDefinitionId], references: [id], onDelete: Restrict)
 
+  @@index([planDefinitionId])
   @@map("shop_plans")
+}
+
+// Plan management: a platform-wide, nameable plan tier (name, price, currency,
+// billing period) an admin defines once and assigns to any number of businesses
+// via ShopPlan.planDefinitionId. `priceMinor` is integer minor units, the same
+// money convention as PricingRule.pricePerPageMinor. Activating/renewing a
+// business extends its expiry by THIS plan's `billingPeriodDays` -- never a
+// client-supplied number. `archived` retires a plan from new assignment without
+// touching the businesses already on it; a hard delete is only allowed once no
+// business is assigned to it (see ShopPlan's RESTRICT FK).
+model PlanDefinition {
+  id                String   @id @default(uuid())
+  name              String   @unique
+  priceMinor        Int      @map("price_minor")
+  currency          String
+  billingPeriodDays Int      @map("billing_period_days")
+  description       String?
+  archived          Boolean  @default(false)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
+
+  shopPlans ShopPlan[]
+
+  @@map("plan_definitions")
 }
 
 enum PrinterRuleAction {
