@@ -140,6 +140,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     anyOf: [],
     blurb: "Every user on the platform: view detail, change role or status.",
   },
+  {
+    id: "admin-plans",
+    label: "Plans",
+    href: "/admin/plans",
+    scope: "platform",
+    anyOf: [],
+    blurb: "The plans businesses are put on: name, price, billing period, and who is on each.",
+  },
 ];
 
 export interface NavContext {

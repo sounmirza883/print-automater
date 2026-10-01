@@ -31,6 +31,9 @@ const NAV_ICONS: Record<string, string> = {
   "admin-businesses":
     "M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6ZM7 19a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm11 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
   "admin-users": "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 8c0-4.4 3.6-8 8-8s8 3.6 8 8",
+  // Stacked layers: plans are tiers, and no business-scoped entry has a shape
+  // to reuse for them (unlike "admin-businesses"/"admin-users" above).
+  "admin-plans": "M12 3 3 7.5l9 4.5 9-4.5L12 3ZM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5",
 };
 
 function NavIcon({ id }: { id: string }): ReactNode {

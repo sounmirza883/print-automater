@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { OwnerPanel } from "@/components/admin/business-detail";
+import type { PlanDefinitionResponse, ShopPlanResponse } from "@print-automated/types";
+import { OwnerPanel, PlanPanelBody } from "@/components/admin/business-detail";
 import { BusinessCreatedNotice } from "@/components/admin/businesses-screen";
 
 const noop = () => undefined;
@@ -56,5 +57,83 @@ describe("OwnerPanel (fix wave 1)", () => {
     const html = render(null);
     expect(html).toContain("No owner on record");
     expect(html).not.toContain("<button");
+  });
+});
+
+describe("PlanPanelBody (plan management: this business's own plan)", () => {
+  const standard: PlanDefinitionResponse = {
+    id: "plan-standard",
+    name: "Standard",
+    priceMinor: 250_000,
+    currency: "PKR",
+    billingPeriodDays: 30,
+    description: null,
+    archived: false,
+    subscriberCount: 4,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  };
+  const yearly: PlanDefinitionResponse = {
+    ...standard,
+    id: "plan-yearly",
+    name: "Yearly",
+    priceMinor: 2_500_000,
+    billingPeriodDays: 365,
+  };
+  const current = (over: Partial<ShopPlanResponse> = {}): ShopPlanResponse => ({
+    shopId: "shop-9",
+    active: true,
+    expiresAt: "2026-10-31T12:00:00.000Z",
+    activatedAt: "2026-10-01T12:00:00.000Z",
+    plan: standard,
+    ...over,
+  });
+  const render = (value: ShopPlanResponse, plans = [standard, yearly]) =>
+    renderToStaticMarkup(
+      createElement(PlanPanelBody, {
+        businessId: "shop-9",
+        businessName: "Corner Prints",
+        current: value,
+        plans,
+        onChanged: noop,
+      }),
+    );
+
+  it("shows the assigned plan's name, price and currency, state and expiry", () => {
+    const html = render(current());
+    expect(html).toContain("Standard");
+    expect(html).toContain("PKR 2,500.00 per 30 days");
+    expect(html).toContain("Active until");
+    expect(html).toContain("Oct 31, 2026");
+  });
+
+  it("lets the admin renew, change or cancel it from here", () => {
+    const html = render(current());
+    expect(html).toContain('<option value="plan-standard" selected="">');
+    expect(html).toContain("Yearly (PKR 25,000.00 per 365 days)");
+    expect(html).toContain("Renew plan");
+    expect(html).toContain("Cancel plan");
+  });
+
+  it("reads an expired plan as ended, with nothing to cancel", () => {
+    const html = render(current({ active: false }));
+    expect(html).toContain("Expired");
+    expect(html).toContain("Ended");
+    expect(html).not.toContain("Cancel plan");
+  });
+
+  it("says plainly when a business has never had a plan", () => {
+    const html = render(current({ active: false, expiresAt: null, activatedAt: null, plan: null }));
+    expect(html).toContain("None yet");
+    expect(html).toContain("Never activated");
+    expect(html).toContain("Not active");
+    expect(html).toContain("Activate plan");
+  });
+
+  it("explains an archived plan cannot be renewed as-is", () => {
+    const html = render(current({ plan: { ...standard, archived: true } }), [yearly]);
+    expect(html).toContain("Archived");
+    expect(html).toContain("cannot be chosen again");
+    expect(html).toContain("Change plan");
   });
 });

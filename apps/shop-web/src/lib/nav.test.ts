@@ -48,13 +48,20 @@ describe("visibleNavItems", () => {
     expect(ids).not.toContain("settings");
   });
 
-  it("shows a platform admin the platform section (with its businesses/users links) and notifications only", () => {
+  it("shows a platform admin the platform section (with its businesses/users/plans links) and notifications only", () => {
     expect(idsFor(UserRole.ADMIN, null)).toEqual([
       "notifications",
       "admin",
       "admin-businesses",
       "admin-users",
+      "admin-plans",
     ]);
+  });
+
+  it("never shows Plans to business staff, owners included", () => {
+    for (const role of [UserRole.SHOP_OWNER, UserRole.SHOP_MANAGER, UserRole.OPERATOR]) {
+      expect(idsFor(role, role)).not.toContain("admin-plans");
+    }
   });
 
   it("shows nothing business-scoped without a selected business", () => {
@@ -72,6 +79,7 @@ describe("activeNavItem", () => {
   it("picks the more specific platform sub-section over the general Platform link", () => {
     expect(activeNavItem("/admin/businesses/abc", NAV_ITEMS)?.id).toBe("admin-businesses");
     expect(activeNavItem("/admin/users/abc", NAV_ITEMS)?.id).toBe("admin-users");
+    expect(activeNavItem("/admin/plans", NAV_ITEMS)?.id).toBe("admin-plans");
     expect(activeNavItem("/admin", NAV_ITEMS)?.id).toBe("admin");
   });
 });
