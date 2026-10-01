@@ -14,6 +14,8 @@ describe("Shop Plan (26, e2e)", () => {
   let fx: Fx;
   let adminToken: string;
   const extraUserIds: string[] = [];
+  /** Plan management: activation assigns a named plan; its period is the extension. */
+  let tenDayPlanId: string;
 
   beforeAll(async () => {
     fx = await createPhase19Fixture("shop-plan", {
@@ -30,8 +32,23 @@ describe("Shop Plan (26, e2e)", () => {
     });
     extraUserIds.push(admin.id);
     adminToken = fx.app.get(TokenService).issueAccessToken(admin);
+    const plan = await fx.prisma.planDefinition.create({
+      data: {
+        name: `Shop Plan E2E 10-day ${randomUUID()}`,
+        priceMinor: 1_000,
+        currency: "PKR",
+        billingPeriodDays: 10,
+      },
+    });
+    tenDayPlanId = plan.id;
   });
   afterAll(async () => {
+    // shop_plans.plan_definition_id is ON DELETE RESTRICT: unassign before deleting.
+    await fx.prisma.shopPlan.updateMany({
+      where: { planDefinitionId: tenDayPlanId },
+      data: { planDefinitionId: null },
+    });
+    await fx.prisma.planDefinition.deleteMany({ where: { id: tenDayPlanId } });
     await fx.prisma.auditLog.deleteMany({ where: { actorId: { in: extraUserIds } } });
     await fx.prisma.user.deleteMany({ where: { id: { in: extraUserIds } } });
     await fx?.cleanup();
@@ -56,9 +73,11 @@ describe("Shop Plan (26, e2e)", () => {
     expect(res.status).toBe(200);
     expect(res.body.active).toBe(true);
     expect(res.body.expiresAt).not.toBeNull();
+    // Never assigned a named plan (plan management): null, not a crash.
+    expect(res.body.plan).toBeNull();
   });
 
-  it("admin activate extends from the LATER of now or the current expiry, and is audited", async () => {
+  it("admin activate extends (by the assigned plan's billing period) from the LATER of now or the current expiry, and is audited", async () => {
     const before = await http().get(`/v1/admin/businesses/${fx.shop.id}/plan`).set(admin());
     expect(before.status).toBe(200);
     const previousExpiresAt = new Date(before.body.expiresAt as string);
@@ -66,8 +85,9 @@ describe("Shop Plan (26, e2e)", () => {
     const res = await http()
       .post(`/v1/admin/businesses/${fx.shop.id}/plan/activate`)
       .set(admin())
-      .send({ days: 10 });
+      .send({ planDefinitionId: tenDayPlanId });
     expect(res.status).toBe(201);
+    expect(res.body.plan).toMatchObject({ id: tenDayPlanId, billingPeriodDays: 10 });
     const newExpiresAt = new Date(res.body.expiresAt as string);
     // Extends the EXISTING (still-active) expiry by 10 days, not from now.
     expect(newExpiresAt.getTime()).toBeCloseTo(previousExpiresAt.getTime() + 10 * 86_400_000, -3);
@@ -85,17 +105,17 @@ describe("Shop Plan (26, e2e)", () => {
     const res = await http()
       .post(`/v1/admin/businesses/${fx.shop.id}/plan/activate`)
       .set(admin())
-      .send({ days: 5 });
+      .send({ planDefinitionId: tenDayPlanId });
     expect(res.status).toBe(201);
     const newExpiresAt = new Date(res.body.expiresAt as string);
-    expect(newExpiresAt.getTime()).toBeCloseTo(Date.now() + 5 * 86_400_000, -3);
+    expect(newExpiresAt.getTime()).toBeCloseTo(Date.now() + 10 * 86_400_000, -3);
   });
 
   it("only ADMIN may activate a plan -- the shop's own owner gets 403", async () => {
     const res = await http()
       .post(`/v1/admin/businesses/${fx.shop.id}/plan/activate`)
       .set(owner())
-      .send({ days: 5 });
+      .send({ planDefinitionId: tenDayPlanId });
     expect(res.status).toBe(403);
   });
 

@@ -142,21 +142,35 @@ export class AdminController {
   }
 
   /** 26.4: the Plan (subscription) system -- a platform admin manually
-   * activates/renews a business's plan; there is no payment gateway here.
-   * `ShopPlanService.getStatusForAdmin`/`activate` skip the shop-membership
-   * check `GET /shop/plan` (26.5) requires, matching this whole controller's
-   * own "no ShopScopeGuard, by design" comment above. */
+   * assigns/renews/cancels a business's plan; there is no payment gateway here.
+   * `ShopPlanService.getStatusForAdmin`/`activate`/`cancel` skip the
+   * shop-membership check `GET /shop/plan` (26.5) requires, matching this whole
+   * controller's own "no ShopScopeGuard, by design" comment above. The plan
+   * definitions themselves live at `/admin/plans` (PlanDefinitionsController,
+   * same ADMIN-only gate). */
   @Get("businesses/:shopId/plan")
   getPlan(@Param("shopId") shopId: string): Promise<ShopPlanResponse> {
     return this.shopPlan.getStatusForAdmin(shopId);
   }
 
+  /** Plan management: assigns a named plan (`{ planDefinitionId }`) -- the same
+   * plan again renews, a different one switches; the extension is that plan's own
+   * `billingPeriodDays`, never a client-supplied day count. */
   @Post("businesses/:shopId/plan/activate")
   activatePlan(
     @Req() req: RequestWithUser,
     @Param("shopId") shopId: string,
     @Body() body: ActivatePlanDto,
   ): Promise<ShopPlanResponse> {
-    return this.shopPlan.activate(shopId, req.user!.id, body.days);
+    return this.shopPlan.activate(shopId, req.user!.id, body.planDefinitionId);
+  }
+
+  /** Plan management: clears the business's plan assignment and expires it now. */
+  @Post("businesses/:shopId/plan/cancel")
+  cancelPlan(
+    @Req() req: RequestWithUser,
+    @Param("shopId") shopId: string,
+  ): Promise<ShopPlanResponse> {
+    return this.shopPlan.cancel(shopId, req.user!.id);
   }
 }
