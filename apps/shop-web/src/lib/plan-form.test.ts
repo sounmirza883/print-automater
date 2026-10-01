@@ -134,10 +134,10 @@ describe("planToForm / toUpdatePlanInput", () => {
     expect(check.ok && toUpdatePlanInput(plan, check.input)).toEqual({ currency: "USD" });
   });
 
-  it("clears a description by sending an empty string", () => {
+  it("clears a description by sending null, not an empty string", () => {
     const check = checkPlanForm({ ...planToForm(plan), description: "   " });
     const body = check.ok ? toUpdatePlanInput(plan, check.input) : null;
-    expect(body).toEqual({ description: "" });
+    expect(body).toEqual({ description: null });
     expect(updatePlanDefinitionSchema.safeParse(body).success).toBe(true);
   });
 });

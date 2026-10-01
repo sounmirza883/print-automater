@@ -105,9 +105,10 @@ export function checkPlanForm(form: PlanForm): PlanFormCheck {
 }
 
 /** The smallest `PATCH /admin/plans/:id` body: only what differs from `plan`.
- * Clearing the description sends `""` -- `UpdatePlanDefinitionBody.description`
- * is typed `string`, not `string | null`, even though the server schema also
- * accepts null; every screen here treats an empty description as none. */
+ * Clearing the description sends `null` -- the server schema (and
+ * `UpdatePlanDefinitionBody`) distinguish `null` ("clear this field") from
+ * `undefined`/omitted ("leave it alone"); a plain `""` would be stored as a
+ * literal empty string, not actually clear the field server-side. */
 export function toUpdatePlanInput(
   plan: PlanDefinitionResponse,
   input: CreatePlanDefinitionBody,
@@ -120,6 +121,8 @@ export function toUpdatePlanInput(
     body.billingPeriodDays = input.billingPeriodDays;
   }
   const description = input.description ?? "";
-  if (description !== (plan.description ?? "")) body.description = description;
+  if (description !== (plan.description ?? "")) {
+    body.description = description === "" ? null : description;
+  }
   return body;
 }
