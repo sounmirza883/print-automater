@@ -14,7 +14,13 @@ export interface CreatePlanDefinitionBody {
   description?: string;
 }
 
-export type UpdatePlanDefinitionBody = Partial<CreatePlanDefinitionBody> & { archived?: boolean };
+/** `description?: string` on create (omit it, it's unset); on update, `null`
+ * clears a previously-set description, `undefined`/omitted leaves it unchanged
+ * -- distinct from create's shape, so this isn't just `Partial<...>`. */
+export type UpdatePlanDefinitionBody = Omit<Partial<CreatePlanDefinitionBody>, "description"> & {
+  description?: string | null;
+  archived?: boolean;
+};
 
 export interface PlanDefinitionListResult {
   items: PlanDefinitionResponse[];
