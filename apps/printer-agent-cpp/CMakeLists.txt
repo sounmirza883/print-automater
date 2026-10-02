@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(print_automated_agent VERSION 0.1.0 DESCRIPTION "Print Automated printer agent"
+project(print_automated_agent VERSION 0.4.0 DESCRIPTION "Print Automated printer agent"
         LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)

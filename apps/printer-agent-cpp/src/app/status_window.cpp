@@ -23,6 +23,17 @@ constexpr int kBodyTop = 104;
 const wchar_t* const kDetailLabels[StatusWindow::kDetailRowCount] = {
     L"Shop", L"This computer", L"Last heartbeat", L"Printers found", L"Last job"};
 
+// The same palette family as the shop-web console (apps/shop-web's dark surface/good/caution/
+// danger/accent tokens), so the agent's own window and the business dashboard read as one
+// product rather than a native dialog bolted onto a modern web app.
+constexpr COLORREF kBgColor = RGB(0x0d, 0x11, 0x17);
+constexpr COLORREF kTextPrimary = RGB(0xe6, 0xed, 0xf3);
+constexpr COLORREF kTextMuted = RGB(0x8b, 0x94, 0x9e);
+constexpr COLORREF kGood = RGB(0x3f, 0xb9, 0x7a);
+constexpr COLORREF kCaution = RGB(0xd2, 0x99, 0x22);
+constexpr COLORREF kDanger = RGB(0xf8, 0x51, 0x49);
+constexpr COLORREF kAccent = RGB(0x2f, 0x81, 0xf7);
+
 /// ISO-8601 UTC ("2026-09-28T10:00:00.000Z") to a locale-formatted local string, the
 /// same conversion pairing_page.cpp's own JS `when()` does client-side. Never throws:
 /// anything unparseable falls back to the raw string, and a widen() failure to "Unknown".
@@ -66,7 +77,12 @@ StatusWindow::StatusWindow(HINSTANCE instance, std::function<AgentStatus()> get_
   metrics.cbSize = sizeof metrics;
   if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof metrics, &metrics, 0)) {
     font_ = CreateFontIndirectW(&metrics.lfMessageFont);
+    LOGFONTW bold = metrics.lfMessageFont;
+    bold.lfWeight = FW_SEMIBOLD;
+    bold.lfHeight = (bold.lfHeight * 13) / 10;  // ~30% larger, matching the web header's weight
+    bold_font_ = CreateFontIndirectW(&bold);
   }
+  background_brush_ = CreateSolidBrush(kBgColor);
 }
 
 StatusWindow::~StatusWindow() {
@@ -75,6 +91,8 @@ StatusWindow::~StatusWindow() {
     UnregisterClassW(kWindowClass, instance_);
   }
   if (font_ != nullptr) DeleteObject(font_);
+  if (bold_font_ != nullptr) DeleteObject(bold_font_);
+  if (background_brush_ != nullptr) DeleteObject(background_brush_);
 }
 
 LRESULT CALLBACK StatusWindow::window_proc(HWND window, UINT message, WPARAM wparam,
@@ -97,7 +115,7 @@ void StatusWindow::create_window() {
   window_class.lpszClassName = kWindowClass;
   window_class.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_AGENT));
   window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-  window_class.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<UINT_PTR>(COLOR_BTNFACE + 1));
+  window_class.hbrBackground = background_brush_;
   RegisterClassExW(&window_class);
 
   constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
@@ -140,7 +158,7 @@ void StatusWindow::create_controls() {
   SendMessageW(pair_edit_, EM_SETLIMITTEXT, 12, 0);
 
   pair_button_ = CreateWindowExW(0, L"BUTTON", L"Pair this computer",
-                                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kMargin + 170,
+                                 WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, kMargin + 170,
                                  kBodyTop + 78, 180, 28, window_,
                                  reinterpret_cast<HMENU>(kPairButtonId), instance_, nullptr);
 
@@ -150,13 +168,16 @@ void StatusWindow::create_controls() {
       make_static(window_, instance_, kMargin, kWindowHeight - 40, kWindowWidth - 2 * kMargin, 20);
 
   if (font_ != nullptr) {
-    HWND all[] = {status_text_, problem_text_, pair_label_,  pair_hint_,
-                 pair_edit_,   pair_button_,   pair_error_, version_text_};
+    HWND all[] = {problem_text_, pair_label_, pair_hint_,
+                 pair_edit_,    pair_error_, version_text_};
     for (HWND control : all) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     for (int i = 0; i < kDetailRowCount; ++i) {
       SendMessageW(detail_labels_[i], WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
       SendMessageW(detail_values_[i], WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     }
+  }
+  if (bold_font_ != nullptr) {
+    SendMessageW(status_text_, WM_SETFONT, reinterpret_cast<WPARAM>(bold_font_), TRUE);
   }
 }
 
@@ -171,6 +192,8 @@ void StatusWindow::refresh() {
 
   const std::wstring state = status.pairing ? L"Pairing…" : status.paired ? L"Paired" : L"Not paired";
   SetWindowTextW(status_text_, (L"Status: " + state).c_str());
+  status_tone_ = status.paired ? 1 : (status.pairing ? 2 : 0);
+  InvalidateRect(status_text_, nullptr, TRUE);  // repaint now, not just on the next natural redraw
 
   for (int i = 0; i < kDetailRowCount; ++i) {
     ShowWindow(detail_labels_[i], status.paired ? SW_SHOW : SW_HIDE);
@@ -264,11 +287,44 @@ LRESULT StatusWindow::handle(UINT message, WPARAM wparam, LPARAM lparam) {
     case WM_CTLCOLORSTATIC: {
       HDC dc = reinterpret_cast<HDC>(wparam);
       HWND control = reinterpret_cast<HWND>(lparam);
-      SetBkColor(dc, GetSysColor(COLOR_BTNFACE));
-      SetTextColor(dc, (control == problem_text_ || control == pair_error_)
-                           ? RGB(0xB0, 0x2A, 0x1E)
-                           : GetSysColor(COLOR_BTNTEXT));
-      return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_BTNFACE));
+      SetBkMode(dc, TRANSPARENT);
+      COLORREF color = kTextPrimary;
+      if (control == status_text_) {
+        color = status_tone_ == 1 ? kGood : status_tone_ == 2 ? kCaution : kTextMuted;
+      } else if (control == problem_text_ || control == pair_error_) {
+        color = kDanger;
+      } else if (control == pair_hint_ || control == version_text_) {
+        color = kTextMuted;
+      } else {
+        for (HWND label : detail_labels_) {
+          if (control == label) {
+            color = kTextMuted;
+            break;
+          }
+        }
+      }
+      SetTextColor(dc, color);
+      return reinterpret_cast<LRESULT>(background_brush_);
+    }
+    case WM_DRAWITEM: {
+      // The pairing button is owner-drawn purely for a flat accent fill matching the web
+      // console's buttons -- Win32's stock push button has no clean way to recolor itself.
+      auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
+      if (item->CtlID != kPairButtonId) return FALSE;
+      const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+      HBRUSH fill = CreateSolidBrush(pressed ? RGB(0x25, 0x6b, 0xd1) : kAccent);
+      FillRect(item->hDC, &item->rcItem, fill);
+      DeleteObject(fill);
+      SetBkMode(item->hDC, TRANSPARENT);
+      SetTextColor(item->hDC, RGB(0xff, 0xff, 0xff));
+      HFONT previous = font_ != nullptr
+                           ? static_cast<HFONT>(SelectObject(item->hDC, font_))
+                           : nullptr;
+      wchar_t text[64];
+      GetWindowTextW(item->hwndItem, text, ARRAYSIZE(text));
+      DrawTextW(item->hDC, text, -1, &item->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+      if (previous != nullptr) SelectObject(item->hDC, previous);
+      return TRUE;
     }
     case WM_CLOSE:
       // Hidden, not destroyed: the tray's "Show agent window" brings it right back,

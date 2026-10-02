@@ -136,6 +136,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
     };
     agent.set_status_listener(refresh_status);
     refresh_status();
+    // The agent now opens its own window on every launch, like an ordinary desktop app,
+    // rather than starting hidden in the tray and waiting for a click to prove it has a
+    // GUI at all. The tray icon and "Open in browser" stay as secondary ways back to it
+    // after the person closes (hides) this window.
+    window.show();
     if (open_page) ShellExecuteW(nullptr, L"open", kPageUrl, nullptr, nullptr, SW_SHOWNORMAL);
 
     const int code = tray.run();

@@ -57,6 +57,11 @@ class StatusWindow {
 
   HWND window_ = nullptr;
   HFONT font_ = nullptr;
+  HFONT bold_font_ = nullptr;
+  HBRUSH background_brush_ = nullptr;
+  // 0 = neutral/not paired, 1 = paired (good), 2 = pairing (caution) -- which color
+  // status_text_ draws in, set by refresh() and read back in WM_CTLCOLORSTATIC/WM_DRAWITEM.
+  int status_tone_ = 0;
   HWND status_text_ = nullptr;
 
   HWND detail_labels_[kDetailRowCount] = {};
