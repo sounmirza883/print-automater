@@ -13,6 +13,7 @@ struct AgentPaths {
   std::filesystem::path config_file;     // config.json   (API URL, retention), written by the installer
   std::filesystem::path identity_file;   // identity.dat  (DPAPI-sealed; 24.3)
   std::filesystem::path legacy_identity_file;  // identity.json (the Node agent's plaintext key)
+  std::filesystem::path session_file;    // session.dat   (DPAPI-sealed staff refresh token; slice 1)
   std::filesystem::path ledger_file;     // ledger.sqlite (24.6)
   std::filesystem::path log_dir;         // logs\ .
   std::filesystem::path tmp_dir;         // tmp\  (job documents while printing; 24.8)

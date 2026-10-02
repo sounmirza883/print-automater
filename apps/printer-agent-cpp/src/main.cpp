@@ -9,11 +9,14 @@
 
 #include "agent/agent.h"
 #include "app/log.h"
+#include "app/login_window.h"
 #include "app/status_window.h"
 #include "app/tray.h"
 #include "app/version.h"
 #include "app/win.h"
+#include "backend/auth_client.h"
 #include "backend/http.h"
+#include "backend/session.h"
 #include "config/config.h"
 #include "config/paths.h"
 #include "identity/identity.h"
@@ -109,6 +112,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
       startup_error = "The saved pairing could not be read, so this computer must be paired again.";
     }
 
+    // Staff login (slice 1 of the native dashboard pages): a session independent of this
+    // computer's own pairing/device identity above. AuthClient talks to the SAME /v1/auth/*
+    // contract apps/shop-web uses; Session persists the refresh token the same way
+    // identity.dat is sealed. ApiClient (not used yet outside this file) is what future native
+    // pages will call through once this slice's session exists.
+    pa::AuthClient auth_client(config.api_base_url);
+    pa::Session session(paths.session_file);
+    if (auto persisted = session.load_persisted()) {
+      try {
+        session.set(auth_client.refresh(persisted->first, persisted->second));
+        log.info("restored staff session", {{"userId", session.current()->user.id}});
+      } catch (const std::exception& error) {
+        log.info("the saved staff session could not be renewed; sign-in is required again",
+                 {{"error", error.what()}});
+        session.clear();
+      }
+    }
+
     pa::Agent agent(paths, config, log, identity, startup_error);
     pa::LoopbackServer server(kPagePort,
                               {[&agent] { return agent.status(); },
@@ -142,6 +163,26 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
     // after the person closes (hides) this window.
     window.show();
     if (open_page) ShellExecuteW(nullptr, L"open", kPageUrl, nullptr, nullptr, SW_SHOWNORMAL);
+
+    // Slice 1: show the Login window whenever there is no valid staff session yet, alongside
+    // (not instead of) the status window above -- pairing this computer and signing in staff
+    // in are separate concerns. Later slices' native pages only ever run once this has
+    // succeeded.
+    pa::LoginWindow login_window(
+        instance,
+        [&](const std::string& email, const std::string& password) -> std::string {
+          try {
+            session.set(auth_client.login(email, password));
+            log.info("staff signed in", {{"userId", session.current()->user.id}});
+            return std::string();
+          } catch (const pa::BackendError& error) {
+            return error.what();
+          } catch (const std::exception& error) {
+            return std::string("Could not reach the service: ") + error.what();
+          }
+        },
+        [] {});
+    if (!session.current()) login_window.show();
 
     const int code = tray.run();
     agent.set_status_listener(nullptr);

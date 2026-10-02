@@ -14,6 +14,7 @@ AgentPaths agent_paths_in(const std::filesystem::path& root) {
   paths.config_file = paths.root / L"config.json";
   paths.identity_file = paths.root / L"identity.dat";
   paths.legacy_identity_file = paths.root / L"identity.json";
+  paths.session_file = paths.root / L"session.dat";
   paths.ledger_file = paths.root / L"ledger.sqlite";
   paths.log_dir = paths.root / L"logs";
   paths.tmp_dir = paths.root / L"tmp";

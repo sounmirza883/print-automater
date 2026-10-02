@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(print_automated_agent VERSION 0.4.0 DESCRIPTION "Print Automated printer agent"
+project(print_automated_agent VERSION 0.5.0 DESCRIPTION "Print Automated printer agent"
         LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -52,6 +52,10 @@ add_library(agent_core STATIC
   src/backend/http.cpp
   src/backend/backend_client.cpp
   src/backend/access_tokens.cpp
+  # slice 1: staff login + a generic authenticated API client, for the native dashboard pages
+  src/backend/auth_client.cpp
+  src/backend/session.cpp
+  src/backend/api_client.cpp
   # 24.11 status reporting
   src/backend/status_reporter.cpp
   # 24.10 failure classification and the spooler verdict
@@ -76,7 +80,9 @@ add_library(agent_core STATIC
   src/server/pairing_page.cpp
   src/app/tray.cpp
   # 28: the native status/pairing window, alongside the browser page above
-  src/app/status_window.cpp)
+  src/app/status_window.cpp
+  # slice 1: the native staff login window
+  src/app/login_window.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
@@ -103,7 +109,9 @@ add_executable(agent_tests
   tests/pdf_printer_test.cpp
   tests/log_test.cpp
   tests/job_processor_test.cpp
-  tests/loopback_test.cpp)
+  tests/loopback_test.cpp
+  tests/auth_client_test.cpp
+  tests/session_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)

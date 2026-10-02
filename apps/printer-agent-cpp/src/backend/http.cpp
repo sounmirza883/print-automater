@@ -69,7 +69,13 @@ std::unique_ptr<CURL, CurlDeleter> make_handle(const HttpRequest& request,
     curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(request.body.size()));
     curl_easy_setopt(c, CURLOPT_COPYPOSTFIELDS, request.body.c_str());
   } else if (request.method != "GET") {
+    // PATCH (and any other non-GET, non-POST verb): a custom verb with libcurl still needs
+    // POSTFIELDS explicitly to carry a body -- it is only implied for CURLOPT_POST.
     curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, request.method.c_str());
+    if (!request.body.empty()) {
+      curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(request.body.size()));
+      curl_easy_setopt(c, CURLOPT_COPYPOSTFIELDS, request.body.c_str());
+    }
   }
   return curl;
 }
