@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(print_automated_agent VERSION 0.5.0 DESCRIPTION "Print Automated printer agent"
+project(print_automated_agent VERSION 0.6.0 DESCRIPTION "Print Automated printer agent"
         LANGUAGES C CXX)
 
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -56,6 +56,8 @@ add_library(agent_core STATIC
   src/backend/auth_client.cpp
   src/backend/session.cpp
   src/backend/api_client.cpp
+  # slice 2: the shop's Orders/Queue list (parsing and fetching; the window is below)
+  src/backend/orders_client.cpp
   # 24.11 status reporting
   src/backend/status_reporter.cpp
   # 24.10 failure classification and the spooler verdict
@@ -82,11 +84,13 @@ add_library(agent_core STATIC
   # 28: the native status/pairing window, alongside the browser page above
   src/app/status_window.cpp
   # slice 1: the native staff login window
-  src/app/login_window.cpp)
+  src/app/login_window.cpp
+  # slice 2: the native Orders/Queue window (ListView, off-thread fetch)
+  src/app/orders_window.cpp)
 target_include_directories(agent_core PUBLIC src)
 target_link_libraries(agent_core
   PUBLIC pa_options pdfium CURL::libcurl unofficial-sodium::sodium unofficial::sqlite3::sqlite3
-         nlohmann_json::nlohmann_json crypt32 ws2_32 winspool shell32)
+         nlohmann_json::nlohmann_json crypt32 ws2_32 winspool shell32 comctl32)
 
 add_executable(print-automated-agent WIN32 src/main.cpp resources/agent.rc)
 target_link_libraries(print-automated-agent PRIVATE agent_core)
@@ -111,7 +115,8 @@ add_executable(agent_tests
   tests/job_processor_test.cpp
   tests/loopback_test.cpp
   tests/auth_client_test.cpp
-  tests/session_test.cpp)
+  tests/session_test.cpp
+  tests/orders_client_test.cpp)
 target_link_libraries(agent_tests PRIVATE agent_core Catch2::Catch2WithMain)
 pa_copy_pdfium_dll(agent_tests)
 include(Catch)

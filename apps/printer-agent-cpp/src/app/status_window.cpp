@@ -13,6 +13,7 @@ constexpr wchar_t kWindowClass[] = L"PrintAutomatedAgentStatusWindow";
 constexpr UINT kStatusMessage = WM_APP + 3;
 constexpr UINT_PTR kPairButtonId = 101;
 constexpr UINT_PTR kPairEditId = 102;
+constexpr UINT_PTR kOrdersButtonId = 103;
 
 constexpr int kMargin = 20;
 constexpr int kWindowWidth = 460;
@@ -71,8 +72,12 @@ HWND make_static(HWND parent, HINSTANCE instance, int x, int y, int w, int h) {
 }  // namespace
 
 StatusWindow::StatusWindow(HINSTANCE instance, std::function<AgentStatus()> get_status,
-                           std::function<void(std::string_view)> pair)
-    : instance_(instance), get_status_(std::move(get_status)), pair_(std::move(pair)) {
+                           std::function<void(std::string_view)> pair,
+                           std::function<void()> open_orders)
+    : instance_(instance),
+      get_status_(std::move(get_status)),
+      pair_(std::move(pair)),
+      open_orders_(std::move(open_orders)) {
   NONCLIENTMETRICSW metrics{};
   metrics.cbSize = sizeof metrics;
   if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof metrics, &metrics, 0)) {
@@ -130,7 +135,11 @@ void StatusWindow::create_window() {
 }
 
 void StatusWindow::create_controls() {
-  status_text_ = make_static(window_, instance_, kMargin, kMargin, kWindowWidth - 2 * kMargin, 24);
+  status_text_ = make_static(window_, instance_, kMargin, kMargin, kWindowWidth - 2 * kMargin - 130, 24);
+
+  orders_button_ = CreateWindowExW(0, L"BUTTON", L"Orders", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                   kWindowWidth - kMargin - 120, kMargin - 2, 120, 28, window_,
+                                   reinterpret_cast<HMENU>(kOrdersButtonId), instance_, nullptr);
 
   for (int i = 0; i < kDetailRowCount; ++i) {
     const int y = kBodyTop + i * kDetailRowHeight;
@@ -282,6 +291,8 @@ LRESULT StatusWindow::handle(UINT message, WPARAM wparam, LPARAM lparam) {
     case WM_COMMAND:
       if (LOWORD(wparam) == kPairButtonId && HIWORD(wparam) == BN_CLICKED) {
         submit_pairing_code();
+      } else if (LOWORD(wparam) == kOrdersButtonId && HIWORD(wparam) == BN_CLICKED && open_orders_) {
+        open_orders_();
       }
       return 0;
     case WM_CTLCOLORSTATIC: {

@@ -10,10 +10,12 @@
 #include "agent/agent.h"
 #include "app/log.h"
 #include "app/login_window.h"
+#include "app/orders_window.h"
 #include "app/status_window.h"
 #include "app/tray.h"
 #include "app/version.h"
 #include "app/win.h"
+#include "backend/api_client.h"
 #include "backend/auth_client.h"
 #include "backend/http.h"
 #include "backend/session.h"
@@ -141,9 +143,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
     // 28: the tray's own click/menu default shows this in-process window; the browser page
     // (kPageUrl) stays reachable too, unchanged, since it's the only thing a SECOND launched
     // instance (below) or an external pairing walkthrough can reach.
+    // Slice 2: the native Orders/Queue window, reached from the status window's "Orders" button.
+    // It fetches through the same ApiClient the staff session feeds, so it works as soon as a
+    // sign-in succeeds, without being rebuilt. Declared before the status window so it outlives it.
+    pa::ApiClient api_client(config.api_base_url, session, auth_client);
+    pa::OrdersWindow orders_window(instance, api_client);
     pa::StatusWindow window(
         instance, [&agent] { return agent.status(); },
-        [&agent](std::string_view code) { agent.pair(code); });
+        [&agent](std::string_view code) { agent.pair(code); }, [&orders_window] { orders_window.show(); });
     pa::Tray tray(
         instance, kPageUrl, [&] { window.show(); },
         [&] {

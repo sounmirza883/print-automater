@@ -24,8 +24,10 @@ namespace pa {
 /// the instant it's shown.
 class StatusWindow {
  public:
+  /// `open_orders` runs when the "Orders" button is clicked (slice 2: shows the Orders/Queue
+  /// window). The button is always shown, since the Orders window explains a missing sign-in.
   StatusWindow(HINSTANCE instance, std::function<AgentStatus()> get_status,
-               std::function<void(std::string_view)> pair);
+               std::function<void(std::string_view)> pair, std::function<void()> open_orders);
   StatusWindow(const StatusWindow&) = delete;
   StatusWindow& operator=(const StatusWindow&) = delete;
   ~StatusWindow();
@@ -54,8 +56,10 @@ class StatusWindow {
   HINSTANCE instance_;
   std::function<AgentStatus()> get_status_;
   std::function<void(std::string_view)> pair_;
+  std::function<void()> open_orders_;
 
   HWND window_ = nullptr;
+  HWND orders_button_ = nullptr;
   HFONT font_ = nullptr;
   HFONT bold_font_ = nullptr;
   HBRUSH background_brush_ = nullptr;
