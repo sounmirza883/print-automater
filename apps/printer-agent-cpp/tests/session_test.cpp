@@ -99,6 +99,31 @@ TEST_CASE("access_token_near_expiry is true once within the skew window, false w
   std::filesystem::remove_all(dir);
 }
 
+TEST_CASE("clear() on a session that was never set() is harmless (logout with nothing to clear)") {
+  const auto dir = fresh_dir(L"pa-session-clear-empty");
+  pa::Session session(dir / L"session.dat");
+  session.clear();
+  CHECK_FALSE(session.current().has_value());
+  CHECK_FALSE(std::filesystem::exists(dir / L"session.dat"));
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("a session can be set() again after clear(), e.g. signing back in after logout") {
+  const auto dir = fresh_dir(L"pa-session-clear-then-set");
+  pa::Session session(dir / L"session.dat");
+  session.set(sample_session(std::chrono::system_clock::now() + 15min));
+  session.clear();
+
+  pa::AuthSession second = sample_session(std::chrono::system_clock::now() + 15min);
+  second.user.email = "someone-else@example.com";
+  session.set(second);
+
+  REQUIRE(session.current().has_value());
+  CHECK(session.current()->user.email == "someone-else@example.com");
+  CHECK(std::filesystem::exists(dir / L"session.dat"));
+  std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("a corrupted session file is treated as no persisted session, not a crash") {
   const auto dir = fresh_dir(L"pa-session-corrupt");
   pa::Session session(dir / L"session.dat");

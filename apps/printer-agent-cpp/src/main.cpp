@@ -148,9 +148,49 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
     // sign-in succeeds, without being rebuilt. Declared before the status window so it outlives it.
     pa::ApiClient api_client(config.api_base_url, session, auth_client);
     pa::OrdersWindow orders_window(instance, api_client);
+
+    // Slice 1: the Login window, shown whenever there is no valid staff session, alongside (not
+    // instead of) the status window below -- pairing this computer and signing staff in are
+    // separate concerns. Declared before StatusWindow so its "Log out" button (slice 2.5) can
+    // show it again.
+    pa::LoginWindow login_window(
+        instance,
+        [&](const std::string& email, const std::string& password) -> std::string {
+          try {
+            session.set(auth_client.login(email, password));
+            log.info("staff signed in", {{"userId", session.current()->user.id}});
+            return std::string();
+          } catch (const pa::BackendError& error) {
+            return error.what();
+          } catch (const std::exception& error) {
+            return std::string("Could not reach the service: ") + error.what();
+          }
+        },
+        [] {});
+
+    // Slice 2.5: "Log out" -- best-effort revoke at the API (a network failure never blocks
+    // signing out locally), then clear the local session, hide the Orders window (it holds
+    // authenticated data) and show the Login window again, mirroring how it is shown at
+    // startup above when there is no valid session.
+    const auto log_out = [&] {
+      if (const auto current = session.current()) {
+        try {
+          auth_client.logout(current->refresh_token);
+        } catch (const std::exception& error) {
+          log.info("logout at the service failed; signing out locally anyway",
+                   {{"error", error.what()}});
+        }
+        log.info("staff signed out", {{"userId", current->user.id}});
+      }
+      session.clear();
+      orders_window.hide();
+      if (!login_window.visible()) login_window.show();
+    };
+
     pa::StatusWindow window(
         instance, [&agent] { return agent.status(); },
-        [&agent](std::string_view code) { agent.pair(code); }, [&orders_window] { orders_window.show(); });
+        [&agent](std::string_view code) { agent.pair(code); }, [&orders_window] { orders_window.show(); },
+        log_out);
     pa::Tray tray(
         instance, kPageUrl, [&] { window.show(); },
         [&] {
@@ -171,24 +211,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int) {
     window.show();
     if (open_page) ShellExecuteW(nullptr, L"open", kPageUrl, nullptr, nullptr, SW_SHOWNORMAL);
 
-    // Slice 1: show the Login window whenever there is no valid staff session yet, alongside
-    // (not instead of) the status window above -- pairing this computer and signing in staff
-    // in are separate concerns. Later slices' native pages only ever run once this has
-    // succeeded.
-    pa::LoginWindow login_window(
-        instance,
-        [&](const std::string& email, const std::string& password) -> std::string {
-          try {
-            session.set(auth_client.login(email, password));
-            log.info("staff signed in", {{"userId", session.current()->user.id}});
-            return std::string();
-          } catch (const pa::BackendError& error) {
-            return error.what();
-          } catch (const std::exception& error) {
-            return std::string("Could not reach the service: ") + error.what();
-          }
-        },
-        [] {});
     if (!session.current()) login_window.show();
 
     const int code = tray.run();

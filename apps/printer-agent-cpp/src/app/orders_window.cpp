@@ -208,6 +208,10 @@ void OrdersWindow::show() {
   start_fetch();
 }
 
+void OrdersWindow::hide() {
+  if (window_ != nullptr) ShowWindow(window_, SW_HIDE);
+}
+
 void OrdersWindow::start_fetch() {
   if (loading_) return;
   loading_ = true;

@@ -14,6 +14,7 @@ constexpr UINT kStatusMessage = WM_APP + 3;
 constexpr UINT_PTR kPairButtonId = 101;
 constexpr UINT_PTR kPairEditId = 102;
 constexpr UINT_PTR kOrdersButtonId = 103;
+constexpr UINT_PTR kLogoutButtonId = 104;
 
 constexpr int kMargin = 20;
 constexpr int kWindowWidth = 460;
@@ -73,11 +74,12 @@ HWND make_static(HWND parent, HINSTANCE instance, int x, int y, int w, int h) {
 
 StatusWindow::StatusWindow(HINSTANCE instance, std::function<AgentStatus()> get_status,
                            std::function<void(std::string_view)> pair,
-                           std::function<void()> open_orders)
+                           std::function<void()> open_orders, std::function<void()> log_out)
     : instance_(instance),
       get_status_(std::move(get_status)),
       pair_(std::move(pair)),
-      open_orders_(std::move(open_orders)) {
+      open_orders_(std::move(open_orders)),
+      log_out_(std::move(log_out)) {
   NONCLIENTMETRICSW metrics{};
   metrics.cbSize = sizeof metrics;
   if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof metrics, &metrics, 0)) {
@@ -135,11 +137,15 @@ void StatusWindow::create_window() {
 }
 
 void StatusWindow::create_controls() {
-  status_text_ = make_static(window_, instance_, kMargin, kMargin, kWindowWidth - 2 * kMargin - 130, 24);
+  status_text_ = make_static(window_, instance_, kMargin, kMargin, kWindowWidth - 2 * kMargin - 260, 24);
 
   orders_button_ = CreateWindowExW(0, L"BUTTON", L"Orders", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                   kWindowWidth - kMargin - 120, kMargin - 2, 120, 28, window_,
+                                   kWindowWidth - kMargin - 250, kMargin - 2, 120, 28, window_,
                                    reinterpret_cast<HMENU>(kOrdersButtonId), instance_, nullptr);
+
+  logout_button_ = CreateWindowExW(0, L"BUTTON", L"Log out", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                   kWindowWidth - kMargin - 120, kMargin - 2, 120, 28, window_,
+                                   reinterpret_cast<HMENU>(kLogoutButtonId), instance_, nullptr);
 
   for (int i = 0; i < kDetailRowCount; ++i) {
     const int y = kBodyTop + i * kDetailRowHeight;
@@ -177,8 +183,8 @@ void StatusWindow::create_controls() {
       make_static(window_, instance_, kMargin, kWindowHeight - 40, kWindowWidth - 2 * kMargin, 20);
 
   if (font_ != nullptr) {
-    HWND all[] = {problem_text_, pair_label_, pair_hint_,
-                 pair_edit_,    pair_error_, version_text_};
+    HWND all[] = {problem_text_, pair_label_, pair_hint_,       pair_edit_,
+                 pair_error_,   version_text_, orders_button_, logout_button_};
     for (HWND control : all) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     for (int i = 0; i < kDetailRowCount; ++i) {
       SendMessageW(detail_labels_[i], WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
@@ -293,6 +299,8 @@ LRESULT StatusWindow::handle(UINT message, WPARAM wparam, LPARAM lparam) {
         submit_pairing_code();
       } else if (LOWORD(wparam) == kOrdersButtonId && HIWORD(wparam) == BN_CLICKED && open_orders_) {
         open_orders_();
+      } else if (LOWORD(wparam) == kLogoutButtonId && HIWORD(wparam) == BN_CLICKED && log_out_) {
+        log_out_();
       }
       return 0;
     case WM_CTLCOLORSTATIC: {

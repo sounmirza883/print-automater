@@ -30,6 +30,11 @@ class OrdersWindow {
   /// Shows the window (creating it the first time), brings it forward and reloads the list.
   void show();
 
+  /// Hides the window if it exists and is visible (logout: the window holds authenticated
+  /// data that should not linger on screen once the session is gone). Harmless if show() was
+  /// never called.
+  void hide();
+
  private:
   struct FetchResult {
     bool ok = false;

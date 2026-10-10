@@ -26,8 +26,11 @@ class StatusWindow {
  public:
   /// `open_orders` runs when the "Orders" button is clicked (slice 2: shows the Orders/Queue
   /// window). The button is always shown, since the Orders window explains a missing sign-in.
+  /// `log_out` runs when "Log out" is clicked (slice 2.5); it is always shown too, and it is the
+  /// caller's job (main.cpp) to make it a no-op when there is nothing to clear.
   StatusWindow(HINSTANCE instance, std::function<AgentStatus()> get_status,
-               std::function<void(std::string_view)> pair, std::function<void()> open_orders);
+               std::function<void(std::string_view)> pair, std::function<void()> open_orders,
+               std::function<void()> log_out);
   StatusWindow(const StatusWindow&) = delete;
   StatusWindow& operator=(const StatusWindow&) = delete;
   ~StatusWindow();
@@ -57,9 +60,11 @@ class StatusWindow {
   std::function<AgentStatus()> get_status_;
   std::function<void(std::string_view)> pair_;
   std::function<void()> open_orders_;
+  std::function<void()> log_out_;
 
   HWND window_ = nullptr;
   HWND orders_button_ = nullptr;
+  HWND logout_button_ = nullptr;
   HFONT font_ = nullptr;
   HFONT bold_font_ = nullptr;
   HBRUSH background_brush_ = nullptr;
