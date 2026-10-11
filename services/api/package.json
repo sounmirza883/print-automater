@@ -14,7 +14,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:reset": "prisma migrate reset",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "prisma:seed-plans": "tsx prisma/seed-plans.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
