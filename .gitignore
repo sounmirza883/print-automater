@@ -41,3 +41,7 @@ terraform.tfvars
 crash.log
 crash.*.log
 .worktrees/
+
+# Local-only: browser network captures (can hold tokens/cookies) and editor config
+*.har
+.vscode/
