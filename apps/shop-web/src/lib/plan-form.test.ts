@@ -6,8 +6,10 @@ import {
 import {
   EMPTY_PLAN_FORM,
   checkPlanForm,
+  modeToValue,
   planToForm,
   toUpdatePlanInput,
+  valueMode,
   type PlanForm,
 } from "./plan-form";
 
@@ -19,6 +21,11 @@ const plan: PlanDefinitionResponse = {
   billingPeriodDays: 30,
   description: "For most shops",
   archived: false,
+  annualPriceMinor: null,
+  highlighted: false,
+  contactOnly: false,
+  sortOrder: 0,
+  values: {},
   subscriberCount: 3,
   createdAt: "2026-09-01T00:00:00.000Z",
   updatedAt: "2026-09-01T00:00:00.000Z",
@@ -30,6 +37,11 @@ const filled = (over: Partial<PlanForm> = {}): PlanForm => ({
   price: "2500",
   currency: " pkr ",
   billingPeriodDays: "30",
+  annualPrice: "",
+  highlighted: false,
+  contactOnly: false,
+  sortOrder: "0",
+  values: {},
   ...over,
 });
 
@@ -56,6 +68,10 @@ describe("checkPlanForm", () => {
         currency: "PKR",
         billingPeriodDays: 30,
         description: undefined,
+        highlighted: false,
+        contactOnly: false,
+        sortOrder: 0,
+        values: {},
       },
     });
     expect(check.ok && createPlanDefinitionSchema.safeParse(check.input).success).toBe(true);
@@ -117,6 +133,11 @@ describe("planToForm / toUpdatePlanInput", () => {
       currency: "PKR",
       billingPeriodDays: "30",
       description: "For most shops",
+      annualPrice: "",
+      highlighted: false,
+      contactOnly: false,
+      sortOrder: "0",
+      values: {},
     });
     const check = checkPlanForm(planToForm(plan));
     expect(check.ok && toUpdatePlanInput(plan, check.input)).toEqual({});
@@ -139,5 +160,81 @@ describe("planToForm / toUpdatePlanInput", () => {
     const body = check.ok ? toUpdatePlanInput(plan, check.input) : null;
     expect(body).toEqual({ description: null });
     expect(updatePlanDefinitionSchema.safeParse(body).success).toBe(true);
+  });
+});
+
+describe("pricing fields", () => {
+  it("converts annual price to minor units and sends sort order, badge and values", () => {
+    const check = checkPlanForm(
+      filled({
+        annualPrice: "25000",
+        highlighted: true,
+        sortOrder: "20",
+        values: { f1: "true", f2: "10", f3: "false", f4: "" },
+      }),
+    );
+    expect(check.ok && check.input).toMatchObject({
+      annualPriceMinor: 2_500_000,
+      highlighted: true,
+      sortOrder: 20,
+      values: { f1: "true", f2: "10" },
+    });
+    // dashes (false / empty) are NOT sent: a missing row is a dash.
+    expect(check.ok && Object.keys(check.input.values ?? {})).not.toContain("f3");
+    expect(check.ok && Object.keys(check.input.values ?? {})).not.toContain("f4");
+  });
+
+  it("annual price is optional (blank = none)", () => {
+    const check = checkPlanForm(filled({ annualPrice: "" }));
+    expect(check.ok && check.input.annualPriceMinor).toBeUndefined();
+  });
+
+  it("a contact-only plan needs no price and sends 0", () => {
+    const check = checkPlanForm(filled({ contactOnly: true, price: "" }));
+    expect(check.ok && check.input).toMatchObject({ contactOnly: true, priceMinor: 0 });
+  });
+
+  it("a contact-only plan keeps a price that was already typed", () => {
+    const check = checkPlanForm(filled({ contactOnly: true, price: "2500" }));
+    expect(check.ok && check.input.priceMinor).toBe(250_000);
+  });
+
+  it("rejects a bad annual price and sort order", () => {
+    expect(problemsOf(filled({ annualPrice: "abc" })).annualPrice).toBeDefined();
+    expect(problemsOf(filled({ sortOrder: "-1" })).sortOrder).toBeDefined();
+  });
+
+  it("toUpdatePlanInput sends annualPriceMinor: null when the annual price is cleared", () => {
+    const withAnnual = { ...plan, annualPriceMinor: 2_500_000 };
+    const check = checkPlanForm({ ...planToForm(withAnnual), annualPrice: "" });
+    expect(check.ok && toUpdatePlanInput(withAnnual, check.input)).toEqual({
+      annualPriceMinor: null,
+    });
+  });
+
+  it("toUpdatePlanInput sends values only when they changed", () => {
+    const withValues = { ...plan, values: { f1: "10" } };
+    const same = checkPlanForm(planToForm(withValues));
+    expect(same.ok && toUpdatePlanInput(withValues, same.input)).toEqual({});
+    const changed = checkPlanForm({ ...planToForm(withValues), values: { f1: "11" } });
+    expect(changed.ok && toUpdatePlanInput(withValues, changed.input)).toEqual({
+      values: { f1: "11" },
+    });
+  });
+});
+
+describe("value modes", () => {
+  it.each([
+    ["true", "yes"],
+    ["false", "no"],
+    ["", "no"],
+    ["10", "text"],
+    ["Unlimited", "text"],
+  ] as const)("%s -> %s", (value, mode) => expect(valueMode(value)).toBe(mode));
+
+  it("modeToValue", () => {
+    expect(modeToValue("yes", "")).toBe("true");
+    expect(modeToValue("no", "x")).toBe("false");
+    expect(modeToValue("text", "10")).toBe("10");
   });
 });

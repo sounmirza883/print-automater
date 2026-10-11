@@ -15,6 +15,11 @@ const definition = (over: Partial<PlanDefinitionResponse> = {}): PlanDefinitionR
   billingPeriodDays: 30,
   description: "For most shops",
   archived: false,
+  annualPriceMinor: null,
+  highlighted: false,
+  contactOnly: false,
+  sortOrder: 0,
+  values: {},
   subscriberCount: 12,
   createdAt: "2026-09-01T00:00:00.000Z",
   updatedAt: "2026-09-01T00:00:00.000Z",
@@ -90,5 +95,24 @@ describe("PlansTable", () => {
     const html = render([definition()]);
     expect(html).toContain('Edit<span class="sr-only"> Standard</span>');
     expect(html).toContain('Delete<span class="sr-only"> Standard</span>');
+  });
+
+  it("shows the annual price, a dash when there is none, and Custom for a contact-only plan", () => {
+    const withAnnual = render([definition({ annualPriceMinor: 2_500_000 })]);
+    expect(withAnnual).toContain("Annual");
+    expect(withAnnual).toContain("PKR");
+    expect(withAnnual).toContain("25,000");
+
+    const none = render([definition({ annualPriceMinor: null })]);
+    expect(none).not.toContain("Custom");
+
+    const custom = render([definition({ contactOnly: true, priceMinor: 0 })]);
+    expect(custom).toContain("Custom");
+    expect(custom).not.toContain("PKR");
+  });
+
+  it("flags the highlighted plan as Most popular", () => {
+    expect(render([definition({ highlighted: true })])).toContain("Most popular");
+    expect(render([definition()])).not.toContain("Most popular");
   });
 });
