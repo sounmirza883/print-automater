@@ -1587,12 +1587,57 @@ model PlanDefinition {
   billingPeriodDays Int      @map("billing_period_days")
   description       String?
   archived          Boolean  @default(false)
+  // Price for 365 days; null = no annual option. The struck-out "monthly x 12" price
+  // is computed by the marketing site, never stored.
+  annualPriceMinor  Int?     @map("annual_price_minor")
+  // "Most popular" badge + emphasised card.
+  highlighted       Boolean  @default(false)
+  // Custom pricing: card shows "Custom pricing" + "Contact us"; price_minor is ignored.
+  contactOnly       Boolean  @default(false) @map("contact_only")
+  sortOrder         Int      @default(0) @map("sort_order")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
 
-  shopPlans ShopPlan[]
+  shopPlans     ShopPlan[]
+  featureValues PlanFeatureValue[]
 
   @@map("plan_definitions")
+}
+
+// A row of the public Compare plans table ("Printers", "Audit log", ...), defined once;
+// each plan sets a value per row in plan_feature_values.
+model PlanFeature {
+  id         String   @id @default(uuid())
+  section    String
+  label      String
+  sortOrder  Int      @default(0) @map("sort_order")
+  // Also list this row as a bullet on each plan's pricing card.
+  showOnCard Boolean  @default(false) @map("show_on_card")
+  // Card bullet template, e.g. "{value} printers"; null = "<label>" for a tick and
+  // "<label>: <value>" for text.
+  cardText   String?  @map("card_text")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  values PlanFeatureValue[]
+
+  @@unique([section, label])
+  @@map("plan_features")
+}
+
+// "true" = tick, "false" = dash, anything else = the text shown (e.g. "10", "Unlimited").
+// A missing row renders as a dash.
+model PlanFeatureValue {
+  planId    String @map("plan_id")
+  featureId String @map("feature_id")
+  value     String
+
+  plan    PlanDefinition @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature PlanFeature    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureId])
+  @@index([featureId])
+  @@map("plan_feature_values")
 }
 
 enum PrinterRuleAction {
