@@ -526,10 +526,7 @@ Replace `PublicPlanResponse`/`toPublicPlanResponse` with the Task 2 `PublicPlan`
     ```
   - `create`: add `annualPriceMinor: input.annualPriceMinor ?? null, highlighted: input.highlighted ?? false, contactOnly: input.contactOnly ?? false, sortOrder: input.sortOrder ?? 0` to `data`; after the `create` call, `if (input.values) await this.replaceValues(tx, row.id, input.values);` then re-read with `tx.planDefinition.findUniqueOrThrow({ where: { id: row.id }, include: PLAN_DEFINITION_WITH_COUNT })` for the response and audit `after: snapshot(row)` plus `values: input.values ?? {}`.
   - `update`: after the EDITABLE loop and before the `changedKeys.length > 0` block, add
-    ```ts
-    const before values = ...
-    ```
-    concretely: read `const beforeValues = Object.fromEntries((await tx.planFeatureValue.findMany({ where: { planId: id } })).map((v) => [v.featureId, v.value]));`; if `input.values !== undefined` and `JSON.stringify(sortKeys(input.values)) !== JSON.stringify(sortKeys(beforeValues))` then `await this.replaceValues(tx, id, input.values)`, push `"values"` onto `changedKeys`. Define `const sortKeys = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));` at module level. The audit `pick` must handle the `values` key: build `before`/`after` for it from `beforeValues`/`input.values`. Update the `data` update call to run only when at least one non-`values` key changed (`const rowKeys = changedKeys.filter((k) => k !== "values")`).
+    Read `const beforeValues = Object.fromEntries((await tx.planFeatureValue.findMany({ where: { planId: id } })).map((v) => [v.featureId, v.value]));`; if `input.values !== undefined` and `JSON.stringify(sortKeys(input.values)) !== JSON.stringify(sortKeys(beforeValues))` then `await this.replaceValues(tx, id, input.values)`, push `"values"` onto `changedKeys`. Define `const sortKeys = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));` at module level. The audit `pick` must handle the `values` key: build `before`/`after` for it from `beforeValues`/`input.values`. Update the `data` update call to run only when at least one non-`values` key changed (`const rowKeys = changedKeys.filter((k) => k !== "values")`).
   - `list` ordering: `[{ archived: "asc" }, { sortOrder: "asc" }, { priceMinor: "asc" }, { name: "asc" }]`.
   - `remove` needs no change (FK cascade deletes values).
 
@@ -558,16 +555,13 @@ Replace `PublicPlanResponse`/`toPublicPlanResponse` with the Task 2 `PublicPlan`
 describe("plan feature rows", () => {
   it("create/list/patch/delete, ordered by sortOrder, audited, 409 on duplicate section+label", async () => {
     const label = `Row ${randomUUID()}`;
-    const created = await http()
-      .post("/v1/admin/plan-features")
-      .set(admin())
-      .send({
-        section: "Capacity",
-        label,
-        sortOrder: 5,
-        showOnCard: true,
-        cardText: "{value} things",
-      });
+    const created = await http().post("/v1/admin/plan-features").set(admin()).send({
+      section: "Capacity",
+      label,
+      sortOrder: 5,
+      showOnCard: true,
+      cardText: "{value} things",
+    });
     expect(created.status).toBe(201);
     featureIds.push(created.body.id as string);
     expect(created.body).toEqual({
