@@ -487,4 +487,41 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
       ).not.toBe(plan.id);
     });
   });
+
+  /** `GET /v1/plans`: what the public marketing site's pricing section reads. */
+  describe("public plan list", () => {
+    it("needs no login and lists live plans, cheapest first, with only public fields", async () => {
+      const pricey = await createPlan({ priceMinor: 9_000_000, description: "Big shops" });
+      const cheap = await createPlan({ priceMinor: 1_000 });
+
+      const res = await http().get("/v1/plans");
+      expect(res.status).toBe(200);
+      const items = res.body.items as Array<Record<string, unknown>>;
+      const names = items.map((p) => p.name);
+      expect(names.indexOf(cheap.name)).toBeGreaterThanOrEqual(0);
+      expect(names.indexOf(cheap.name)).toBeLessThan(names.indexOf(pricey.name));
+      expect(items.find((p) => p.name === pricey.name)).toEqual({
+        name: pricey.name,
+        priceMinor: 9_000_000,
+        currency: "PKR",
+        billingPeriodDays: 30,
+        description: "Big shops",
+      });
+    });
+
+    it("stops listing a plan once an admin archives it, and lists it again when unarchived", async () => {
+      const plan = await createPlan();
+      const listed = async () =>
+        ((await http().get("/v1/plans")).body.items as Array<{ name: string }>).some(
+          (p) => p.name === plan.name,
+        );
+      expect(await listed()).toBe(true);
+
+      await http().patch(`/v1/admin/plans/${plan.id}`).set(admin()).send({ archived: true });
+      expect(await listed()).toBe(false);
+
+      await http().patch(`/v1/admin/plans/${plan.id}`).set(admin()).send({ archived: false });
+      expect(await listed()).toBe(true);
+    });
+  });
 });

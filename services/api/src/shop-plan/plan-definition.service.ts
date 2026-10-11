@@ -10,6 +10,8 @@ import { AuditAction } from "../audit/audit-action.js";
 import {
   PLAN_DEFINITION_WITH_COUNT,
   toPlanDefinitionResponse,
+  toPublicPlanResponse,
+  type PublicPlanResponse,
 } from "./plan-definition-response.js";
 import { subscriberCountPhrase } from "./plan-period.js";
 
@@ -94,6 +96,16 @@ export class PlanDefinitionService {
       orderBy: [{ archived: "asc" }, { priceMinor: "asc" }, { name: "asc" }],
     });
     return { items: rows.map(toPlanDefinitionResponse) };
+  }
+
+  /** The public pricing list: only plans an admin has not archived (an archived
+   * plan is no longer offered), cheapest first -- the same order the admin sees. */
+  async listPublic(): Promise<{ items: PublicPlanResponse[] }> {
+    const rows = await this.prisma.planDefinition.findMany({
+      where: { archived: false },
+      orderBy: [{ priceMinor: "asc" }, { name: "asc" }],
+    });
+    return { items: rows.map(toPublicPlanResponse) };
   }
 
   async get(id: string): Promise<PlanDefinitionResponse> {

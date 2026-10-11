@@ -13,6 +13,31 @@ export type PlanDefinitionWithCount = Prisma.PlanDefinitionGetPayload<{
   include: typeof PLAN_DEFINITION_WITH_COUNT;
 }>;
 
+/** What the public marketing site may see of a plan: the offer itself, never
+ * the admin-only parts (`id`, `archived`, `subscriberCount`, timestamps). */
+export interface PublicPlanResponse {
+  name: string;
+  priceMinor: number;
+  currency: string;
+  billingPeriodDays: number;
+  description: string | null;
+}
+
+export function toPublicPlanResponse(
+  row: Pick<
+    PlanDefinitionWithCount,
+    "name" | "priceMinor" | "currency" | "billingPeriodDays" | "description"
+  >,
+): PublicPlanResponse {
+  return {
+    name: row.name,
+    priceMinor: row.priceMinor,
+    currency: row.currency,
+    billingPeriodDays: row.billingPeriodDays,
+    description: row.description,
+  };
+}
+
 export function toPlanDefinitionResponse(row: PlanDefinitionWithCount): PlanDefinitionResponse {
   return {
     id: row.id,
