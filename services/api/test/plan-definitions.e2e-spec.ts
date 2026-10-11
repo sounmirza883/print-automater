@@ -93,14 +93,19 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
     return res.body as PlanBody;
   }
 
-  async function createFeature(section: string, label: string): Promise<string> {
+  /** `label` is made unique, so rows seeded into the dev database never collide with it. */
+  async function createFeature(
+    section: string,
+    label: string,
+  ): Promise<{ id: string; label: string }> {
+    const unique = `${label} ${randomUUID()}`;
     const res = await http()
       .post("/v1/admin/plan-features")
       .set(admin())
-      .send({ section, label: `${label} ${randomUUID()}` });
+      .send({ section, label: unique });
     expect(res.status).toBe(201);
     featureIds.push(res.body.id as string);
-    return res.body.id as string;
+    return { id: res.body.id as string, label: unique };
   }
 
   async function setShopPlan(
@@ -535,7 +540,8 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
     });
 
     it("ordered by sortOrder, excludes archived, exposes feature rows keyed by plan name, no admin fields", async () => {
-      const f = await createFeature("Capacity", "Printers");
+      const feature = await createFeature("Capacity", "Printers");
+      const f = feature.id;
       const live = await createPlan({
         sortOrder: 1,
         highlighted: true,
@@ -560,7 +566,7 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
         highlighted: true,
         contactOnly: false,
       });
-      const row = res.body.features.find((x: { label: string }) => x.label.startsWith("Printers"));
+      const row = res.body.features.find((x: { label: string }) => x.label === feature.label);
       expect(row.values[live.name]).toBe("7");
       expect(Object.keys(row.values)).not.toContain(gone.name);
       expect(JSON.stringify(res.body)).not.toMatch(/subscriberCount|archived|createdAt/);
@@ -584,8 +590,8 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
 
   describe("pricing fields and feature values", () => {
     it("stores annual price, badge, contact-only, sort order and values; replaces values on update", async () => {
-      const a = await createFeature("Capacity", "Printers");
-      const b = await createFeature("Support", "Support");
+      const a = (await createFeature("Capacity", "Printers")).id;
+      const b = (await createFeature("Support", "Support")).id;
       const plan = await createPlan({
         annualPriceMinor: 6_000_000,
         highlighted: true,
@@ -625,7 +631,7 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
     });
 
     it("lists by sortOrder, and deleting a plan cascades its values", async () => {
-      const f = await createFeature("Capacity", "Orders");
+      const f = (await createFeature("Capacity", "Orders")).id;
       const second = await createPlan({ sortOrder: 2, values: { [f]: "5" } });
       const first = await createPlan({ sortOrder: 1 });
       const ids = (await http().get("/v1/admin/plans").set(admin())).body.items.map(
@@ -640,16 +646,13 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
   describe("plan feature rows", () => {
     it("create/list/patch/delete, audited, 409 on duplicate section+label", async () => {
       const label = `Row ${randomUUID()}`;
-      const created = await http()
-        .post("/v1/admin/plan-features")
-        .set(admin())
-        .send({
-          section: "Capacity",
-          label,
-          sortOrder: 5,
-          showOnCard: true,
-          cardText: "{value} things",
-        });
+      const created = await http().post("/v1/admin/plan-features").set(admin()).send({
+        section: "Capacity",
+        label,
+        sortOrder: 5,
+        showOnCard: true,
+        cardText: "{value} things",
+      });
       expect(created.status).toBe(201);
       featureIds.push(created.body.id as string);
       expect(created.body).toEqual({
