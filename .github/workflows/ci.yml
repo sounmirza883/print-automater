@@ -9,46 +9,19 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: print_automated
-          POSTGRES_PASSWORD: print_automated_test
-          POSTGRES_DB: print_automated_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U print_automated"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    # packages/config's loadEnvOrExit runs at module scope in both
-    # services/api (config.module.ts) and apps/customer-web (src/env.ts)
-    # -- imported transitively by almost every test/build target, so a
-    # missing required var here isn't a test failure, it's an immediate
-    # process.exit(1) that kills the job outright. Locally this was
-    # always masked by a real .env file on disk since Phase 0.5; CI has
-    # no .env, so every one of apiEnvSchema/webEnvSchema's required keys
-    # (no `.default()`) must be set explicitly. Values below are
-    # syntactically-valid throwaway placeholders (matching each
-    # .env.example's own style) -- schema validation only checks shape,
-    # nothing here needs to be a real secret or reach a real service.
+    # packages/config's loadEnvOrExit runs at module scope in services/api,
+    # services/worker and apps/customer-web, so every required key (no
+    # `.default()`) must be set or the process exits on import. Locally a
+    # real .env hides this; a clean runner has none. Secrets below are
+    # throwaway placeholders -- only their shape is validated. Infra
+    # endpoints match docker-compose.dev.yml, which CI starts below, so the
+    # real-infrastructure specs under src/ (MinIO, MailHog, ClamAV) run
+    # against the same ports and credentials they use locally.
     env:
-      NODE_ENV: test
-      DATABASE_URL: postgresql://print_automated:print_automated_test@localhost:5432/print_automated_test
-      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: postgresql://print_automated:print_automated_dev@localhost:5433/print_automated?connection_limit=20&pool_timeout=30
+      REDIS_URL: redis://localhost:6380
       JWT_ACCESS_SECRET: ci-test-access-secret-needs-32-plus-chars
       JWT_REFRESH_SECRET: ci-test-refresh-secret-needs-32-plus-ch
       JWT_AGENT_SECRET: ci-test-agent-secret-needs-32-plus-chars
@@ -56,9 +29,9 @@ jobs:
       MOCK_PAYMENT_WEBHOOK_SECRET: ci-test-webhook-secret-needs-32-plus-ch
       S3_ENDPOINT: http://localhost:9010
       S3_REGION: us-east-1
-      S3_BUCKET: print-automated-documents-ci
-      S3_ACCESS_KEY_ID: ci-test-access-key
-      S3_SECRET_ACCESS_KEY: ci-test-secret-key
+      S3_BUCKET: print-automated-documents
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
       KMS_PROVIDER: local
       KMS_LOCAL_MASTER_KEY: ci-test-kms-master-key-needs-32-plus-ch
       NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
@@ -66,6 +39,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Started first so ClamAV can load its signature database while
+      # install, lint and typecheck run.
+      - name: Start infrastructure
+        run: docker compose -f infrastructure/docker/docker-compose.dev.yml up -d
 
       - uses: pnpm/action-setup@v4
         with:
@@ -79,14 +57,47 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Nothing generates @prisma/client on install (the schema lives in
+      # services/api, not the workspace root), and every package that
+      # imports it fails to compile without it.
+      - name: Generate Prisma client
+        run: pnpm --filter @print-automated/api exec prisma generate
+
       - name: Lint
         run: pnpm -w lint
 
       - name: Typecheck
         run: pnpm -w typecheck
 
+      - name: Wait for infrastructure
+        timeout-minutes: 10
+        run: |
+          compose="docker compose -f infrastructure/docker/docker-compose.dev.yml"
+          for svc in postgres redis minio mailhog clamav; do
+            cid=$($compose ps -q "$svc")
+            echo "Waiting for $svc"
+            until [ "$(docker inspect -f '{{.State.Health.Status}}' "$cid")" = "healthy" ]; do
+              sleep 5
+            done
+          done
+          # minio-init is a one-shot container that creates the bucket.
+          cid=$($compose ps -aq minio-init)
+          until [ "$(docker inspect -f '{{.State.Status}}' "$cid")" = "exited" ]; do
+            sleep 2
+          done
+          [ "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" = "0" ]
+
+      - name: Apply database migrations
+        run: pnpm --filter @print-automated/api exec prisma migrate deploy
+
       - name: Test
         run: pnpm -w test
+        env:
+          NODE_ENV: test
 
       - name: Build
         run: pnpm -w build
+
+      - name: Dump infrastructure logs
+        if: failure()
+        run: docker compose -f infrastructure/docker/docker-compose.dev.yml logs --tail=100
