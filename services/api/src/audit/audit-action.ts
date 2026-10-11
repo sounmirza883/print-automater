@@ -89,6 +89,9 @@ export const AuditAction = {
   PLAN_DEFINITION_CREATED: "PLAN_DEFINITION_CREATED",
   PLAN_DEFINITION_UPDATED: "PLAN_DEFINITION_UPDATED",
   PLAN_DEFINITION_DELETED: "PLAN_DEFINITION_DELETED",
+  PLAN_FEATURE_CREATED: "PLAN_FEATURE_CREATED",
+  PLAN_FEATURE_UPDATED: "PLAN_FEATURE_UPDATED",
+  PLAN_FEATURE_DELETED: "PLAN_FEATURE_DELETED",
   // HISTORICAL ONLY: written by the public self-service signup
   // (`POST /shops/register`), which fix wave 1 removed -- onboarding is
   // admin-only now (SHOP_CREATED). Kept so existing audit rows still name a

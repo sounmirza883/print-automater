@@ -17,6 +17,11 @@ interface PlanBody {
   billingPeriodDays: number;
   description: string | null;
   archived: boolean;
+  annualPriceMinor: number | null;
+  highlighted: boolean;
+  contactOnly: boolean;
+  sortOrder: number;
+  values: Record<string, string>;
   subscriberCount: number;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +39,7 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
   /** A second business, for "N businesses are assigned" counts. */
   let otherShopId: string;
   const planIds: string[] = [];
+  const featureIds: string[] = [];
 
   beforeAll(async () => {
     fx = await createPhase19Fixture("plan-defs", { multiItemEnabled: false });
@@ -60,6 +66,7 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
       data: { planDefinitionId: null },
     });
     await fx.prisma.planDefinition.deleteMany({ where: { id: { in: planIds } } });
+    await fx.prisma.planFeature.deleteMany({ where: { id: { in: featureIds } } });
     await fx.prisma.auditLog.deleteMany({ where: { actorId: adminId } });
     await fx.prisma.shop.deleteMany({ where: { id: otherShopId } });
     await fx.prisma.user.deleteMany({ where: { id: adminId } });
@@ -84,6 +91,16 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
     expect(res.status).toBe(201);
     planIds.push(res.body.id as string);
     return res.body as PlanBody;
+  }
+
+  async function createFeature(section: string, label: string): Promise<string> {
+    const res = await http()
+      .post("/v1/admin/plan-features")
+      .set(admin())
+      .send({ section, label: `${label} ${randomUUID()}` });
+    expect(res.status).toBe(201);
+    featureIds.push(res.body.id as string);
+    return res.body.id as string;
   }
 
   async function setShopPlan(
@@ -131,6 +148,11 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
         billingPeriodDays: 30,
         description: "Starter tier",
         archived: false,
+        annualPriceMinor: null,
+        highlighted: false,
+        contactOnly: false,
+        sortOrder: 0,
+        values: {},
         subscriberCount: 0,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
@@ -506,7 +528,42 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
         currency: "PKR",
         billingPeriodDays: 30,
         description: "Big shops",
+        annualPriceMinor: null,
+        highlighted: false,
+        contactOnly: false,
       });
+    });
+
+    it("ordered by sortOrder, excludes archived, exposes feature rows keyed by plan name, no admin fields", async () => {
+      const f = await createFeature("Capacity", "Printers");
+      const live = await createPlan({
+        sortOrder: 1,
+        highlighted: true,
+        annualPriceMinor: 5_000_000,
+        values: { [f]: "7" },
+      });
+      const gone = await createPlan({ sortOrder: 0, values: { [f]: "9" } });
+      await http().patch(`/v1/admin/plans/${gone.id}`).set(admin()).send({ archived: true });
+
+      const res = await http().get("/v1/plans");
+      expect(res.status).toBe(200);
+      const names = res.body.items.map((p: { name: string }) => p.name);
+      expect(names).toContain(live.name);
+      expect(names).not.toContain(gone.name);
+      expect(res.body.items.find((p: { name: string }) => p.name === live.name)).toEqual({
+        name: live.name,
+        description: live.description,
+        priceMinor: live.priceMinor,
+        currency: "PKR",
+        billingPeriodDays: 30,
+        annualPriceMinor: 5_000_000,
+        highlighted: true,
+        contactOnly: false,
+      });
+      const row = res.body.features.find((x: { label: string }) => x.label.startsWith("Printers"));
+      expect(row.values[live.name]).toBe("7");
+      expect(Object.keys(row.values)).not.toContain(gone.name);
+      expect(JSON.stringify(res.body)).not.toMatch(/subscriberCount|archived|createdAt/);
     });
 
     it("stops listing a plan once an admin archives it, and lists it again when unarchived", async () => {
@@ -522,6 +579,117 @@ describe("Plan definitions + per-business plan assignment (e2e)", () => {
 
       await http().patch(`/v1/admin/plans/${plan.id}`).set(admin()).send({ archived: false });
       expect(await listed()).toBe(true);
+    });
+  });
+
+  describe("pricing fields and feature values", () => {
+    it("stores annual price, badge, contact-only, sort order and values; replaces values on update", async () => {
+      const a = await createFeature("Capacity", "Printers");
+      const b = await createFeature("Support", "Support");
+      const plan = await createPlan({
+        annualPriceMinor: 6_000_000,
+        highlighted: true,
+        sortOrder: 20,
+        values: { [a]: "10", [b]: "true" },
+      });
+      expect(plan).toMatchObject({
+        annualPriceMinor: 6_000_000,
+        highlighted: true,
+        contactOnly: false,
+        sortOrder: 20,
+        values: { [a]: "10", [b]: "true" },
+      });
+
+      const patched = await http()
+        .patch(`/v1/admin/plans/${plan.id}`)
+        .set(admin())
+        .send({ annualPriceMinor: null, values: { [a]: "Unlimited" } });
+      expect(patched.status).toBe(200);
+      expect(patched.body.annualPriceMinor).toBeNull();
+      expect(patched.body.values).toEqual({ [a]: "Unlimited" }); // b removed: replace, not merge
+    });
+
+    it("rejects values for a feature that does not exist (400, not 500)", async () => {
+      const res = await http()
+        .post("/v1/admin/plans")
+        .set(admin())
+        .send({
+          name: `Bad ${randomUUID()}`,
+          priceMinor: 1,
+          currency: "PKR",
+          billingPeriodDays: 30,
+          values: { [randomUUID()]: "1" },
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error_code).toBe("PLAN_FEATURE_NOT_FOUND");
+    });
+
+    it("lists by sortOrder, and deleting a plan cascades its values", async () => {
+      const f = await createFeature("Capacity", "Orders");
+      const second = await createPlan({ sortOrder: 2, values: { [f]: "5" } });
+      const first = await createPlan({ sortOrder: 1 });
+      const ids = (await http().get("/v1/admin/plans").set(admin())).body.items.map(
+        (p: PlanBody) => p.id,
+      );
+      expect(ids.indexOf(first.id)).toBeLessThan(ids.indexOf(second.id));
+      expect((await http().delete(`/v1/admin/plans/${second.id}`).set(admin())).status).toBe(200);
+      expect(await fx.prisma.planFeatureValue.count({ where: { planId: second.id } })).toBe(0);
+    });
+  });
+
+  describe("plan feature rows", () => {
+    it("create/list/patch/delete, audited, 409 on duplicate section+label", async () => {
+      const label = `Row ${randomUUID()}`;
+      const created = await http()
+        .post("/v1/admin/plan-features")
+        .set(admin())
+        .send({
+          section: "Capacity",
+          label,
+          sortOrder: 5,
+          showOnCard: true,
+          cardText: "{value} things",
+        });
+      expect(created.status).toBe(201);
+      featureIds.push(created.body.id as string);
+      expect(created.body).toEqual({
+        id: expect.any(String),
+        section: "Capacity",
+        label,
+        sortOrder: 5,
+        showOnCard: true,
+        cardText: "{value} things",
+      });
+
+      const dup = await http()
+        .post("/v1/admin/plan-features")
+        .set(admin())
+        .send({ section: "Capacity", label });
+      expect(dup.status).toBe(409);
+      expect(dup.body.error_code).toBe("PLAN_FEATURE_TAKEN");
+
+      const patched = await http()
+        .patch(`/v1/admin/plan-features/${created.body.id}`)
+        .set(admin())
+        .send({ cardText: null });
+      expect(patched.status).toBe(200);
+      expect(patched.body.cardText).toBeNull();
+
+      const list = await http().get("/v1/admin/plan-features").set(admin());
+      expect(list.body.items.map((f: { id: string }) => f.id)).toContain(created.body.id);
+
+      expect(
+        (await http().delete(`/v1/admin/plan-features/${created.body.id}`).set(admin())).status,
+      ).toBe(200);
+      expect(
+        await fx.prisma.auditLog.count({
+          where: { resourceId: created.body.id, resourceType: "plan_feature" },
+        }),
+      ).toBe(3);
+    });
+
+    it("is ADMIN only", async () => {
+      expect((await http().get("/v1/admin/plan-features").set(owner())).status).toBe(403);
     });
   });
 });
