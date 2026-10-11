@@ -61,6 +61,12 @@ export type {
 } from "./resources/settings.resource.js";
 export { DashboardResource } from "./resources/dashboard.resource.js";
 export {
+  PaymentProofsResource,
+  type SubmitPaymentProofBody,
+  type ApprovePaymentProofBody,
+  type AdminListPaymentProofsQuery,
+} from "./resources/payment-proofs.resource.js";
+export {
   PlanResource,
   type CreatePlanDefinitionBody,
   type UpdatePlanDefinitionBody,

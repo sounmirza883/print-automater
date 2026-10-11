@@ -14,7 +14,7 @@ export const adminPagingShape = {
   offset: z.coerce.number().int().min(0).max(MAX_PAGE_OFFSET).optional(),
 };
 
-function resolveAdminPaging<
+export function resolveAdminPaging<
   T extends { take?: number; skip?: number; limit?: number; offset?: number },
 >(value: T): Omit<T, "take" | "skip" | "limit" | "offset"> & { take: number; skip: number } {
   const { take, skip, limit, offset, ...rest } = value;

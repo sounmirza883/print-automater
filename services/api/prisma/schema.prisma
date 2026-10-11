@@ -186,6 +186,7 @@ model Shop {
   settings           ShopSettings?
   printerRules       PrinterAutomationRule[]
   plan               ShopPlan?
+  paymentProofs      PaymentProof[]
 
   @@map("shops")
 }
@@ -1600,8 +1601,63 @@ model PlanDefinition {
 
   shopPlans     ShopPlan[]
   featureValues PlanFeatureValue[]
+  paymentProofs PaymentProof[]
 
   @@map("plan_definitions")
+}
+
+enum PaymentProofStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Manual plan billing: a business owner pays the platform outside the app (bank,
+// Easypaisa, JazzCash) and submits proof; a platform admin approves it (granting
+// `grantedMonths` of access via ShopPlanService.activateInTx) or rejects it. The file
+// lives in S3 under `fileKey` FOREVER -- nothing deletes it, rejected proofs included.
+// Money is integer minor units, like PlanDefinition.priceMinor. `submittedByUserId` /
+// `reviewedByUserId` are bare ids with no FK, like ShopPlan.activatedByUserId. The FK
+// to the plan is RESTRICT so a plan with proofs against it cannot be hard-deleted out
+// from under the billing history. A partial unique index (migration SQL) allows at
+// most one PENDING proof per shop.
+model PaymentProof {
+  id                String             @id @default(uuid())
+  shopId            String             @map("shop_id")
+  submittedByUserId String             @map("submitted_by_user_id")
+  planDefinitionId  String             @map("plan_definition_id")
+  amountMinor       Int                @map("amount_minor")
+  currency          String
+  transactionRef    String             @map("transaction_ref")
+  fileKey           String             @map("file_key")
+  fileName          String             @map("file_name")
+  fileContentType   String             @map("file_content_type")
+  fileSize          Int                @map("file_size")
+  status            PaymentProofStatus @default(PENDING)
+  reviewedByUserId  String?            @map("reviewed_by_user_id")
+  reviewedAt        DateTime?          @map("reviewed_at")
+  rejectionReason   String?            @map("rejection_reason")
+  grantedMonths     Int?               @map("granted_months")
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  shop           Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  planDefinition PlanDefinition @relation(fields: [planDefinitionId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([shopId, createdAt])
+  @@index([transactionRef])
+  @@map("payment_proofs")
+}
+
+// Singleton (id is always 1): platform-wide text an admin edits -- where owners send
+// their plan payments. Read by every shop's staff on the Billing screen.
+model PlatformSettings {
+  id                  Int      @id @default(1)
+  paymentInstructions String   @default("") @map("payment_instructions")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedByUserId     String?  @map("updated_by_user_id")
+
+  @@map("platform_settings")
 }
 
 // A row of the public Compare plans table ("Printers", "Audit log", ...), defined once;

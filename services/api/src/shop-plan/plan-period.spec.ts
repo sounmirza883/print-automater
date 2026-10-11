@@ -1,7 +1,9 @@
 import {
   DAY_MS,
+  addCalendarMonths,
   cancelledExpiry,
   extendedExpiry,
+  extendedExpiryByMonths,
   isActiveAt,
   subscriberCountPhrase,
 } from "./plan-period.js";
@@ -26,6 +28,38 @@ describe("extendedExpiry (activate / renew / switch)", () => {
   it("starts an expired or never-activated plan from now, not from the stale expiry", () => {
     expect(extendedExpiry(later(-5), now, 30)).toEqual(later(30));
     expect(extendedExpiry(null, now, 30)).toEqual(later(30));
+  });
+});
+
+describe("addCalendarMonths", () => {
+  it("adds whole calendar months, not 30-day multiples", () => {
+    expect(addCalendarMonths(new Date("2026-10-15T09:30:00.000Z"), 1)).toEqual(
+      new Date("2026-11-15T09:30:00.000Z"),
+    );
+    expect(addCalendarMonths(new Date("2026-10-15T09:30:00.000Z"), 12)).toEqual(
+      new Date("2027-10-15T09:30:00.000Z"),
+    );
+  });
+
+  it("clamps to the last day of a shorter target month", () => {
+    expect(addCalendarMonths(new Date("2026-01-31T00:00:00.000Z"), 1)).toEqual(
+      new Date("2026-02-28T00:00:00.000Z"),
+    );
+    expect(addCalendarMonths(new Date("2027-12-31T00:00:00.000Z"), 2)).toEqual(
+      new Date("2028-02-29T00:00:00.000Z"),
+    );
+  });
+});
+
+describe("extendedExpiryByMonths (payment-proof approval)", () => {
+  it("extends a still-active plan from its current expiry", () => {
+    const current = new Date("2026-10-20T12:00:00.000Z");
+    expect(extendedExpiryByMonths(current, now, 3)).toEqual(new Date("2027-01-20T12:00:00.000Z"));
+  });
+
+  it("starts an expired or never-activated plan from now", () => {
+    expect(extendedExpiryByMonths(later(-5), now, 1)).toEqual(new Date("2026-11-01T12:00:00.000Z"));
+    expect(extendedExpiryByMonths(null, now, 12)).toEqual(new Date("2027-10-01T12:00:00.000Z"));
   });
 });
 

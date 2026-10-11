@@ -10,7 +10,12 @@ import {
   type PlanDefinitionWithCount,
 } from "./plan-definition-response.js";
 import { planDefinitionArchived, planDefinitionNotFound } from "./plan-definition.service.js";
-import { cancelledExpiry, extendedExpiry, isActiveAt } from "./plan-period.js";
+import {
+  cancelledExpiry,
+  extendedExpiry,
+  extendedExpiryByMonths,
+  isActiveAt,
+} from "./plan-period.js";
 
 export type { ShopPlanResponse };
 
@@ -125,49 +130,68 @@ export class ShopPlanService {
     adminUserId: string,
     planDefinitionId: string,
   ): Promise<ShopPlanResponse> {
-    return this.prisma.$transaction(async (tx) => {
-      const current = await this.lockShopPlan(tx, shopId);
-      const plans = await tx.$queryRaw<
-        Array<{
-          name: string;
-          price_minor: number;
-          currency: string;
-          billing_period_days: number;
-          archived: boolean;
-        }>
-      >`
-        SELECT name, price_minor, currency, billing_period_days, archived
-        FROM plan_definitions WHERE id = ${planDefinitionId} FOR SHARE
-      `;
-      const plan = plans[0];
-      if (!plan) {
-        throw planDefinitionNotFound();
-      }
-      if (plan.archived) {
-        throw planDefinitionArchived(plan.name);
-      }
+    return this.prisma.$transaction(
+      (tx) => this.activateInTx(tx, shopId, adminUserId, planDefinitionId),
+      TX_OPTIONS,
+    );
+  }
 
-      const now = new Date();
-      const expiresAt = extendedExpiry(current.expires_at, now, plan.billing_period_days);
-      const after = await tx.shopPlan.update({
-        where: { shopId },
-        data: { expiresAt, activatedAt: now, activatedByUserId: adminUserId, planDefinitionId },
-        include: WITH_PLAN,
-      });
+  /** `activate`'s body, run inside the caller's transaction so a payment-proof
+   * approval is atomic with the activation. `options.months` grants that many
+   * CALENDAR months instead of the plan's own `billingPeriodDays` (the admin picks
+   * the duration when approving a proof). */
+  async activateInTx(
+    tx: Prisma.TransactionClient,
+    shopId: string,
+    adminUserId: string,
+    planDefinitionId: string,
+    options: { months?: number } = {},
+  ): Promise<ShopPlanResponse> {
+    const current = await this.lockShopPlan(tx, shopId);
+    const plans = await tx.$queryRaw<
+      Array<{
+        name: string;
+        price_minor: number;
+        currency: string;
+        billing_period_days: number;
+        archived: boolean;
+      }>
+    >`
+      SELECT name, price_minor, currency, billing_period_days, archived
+      FROM plan_definitions WHERE id = ${planDefinitionId} FOR SHARE
+    `;
+    const plan = plans[0];
+    if (!plan) {
+      throw planDefinitionNotFound();
+    }
+    if (plan.archived) {
+      throw planDefinitionArchived(plan.name);
+    }
 
-      await this.audit(tx, adminUserId, AuditAction.SHOP_PLAN_ACTIVATED, shopId, {
-        planDefinitionId,
-        planName: plan.name,
-        previousPlanDefinitionId: current.plan_definition_id,
-        days: plan.billing_period_days,
-        priceMinor: plan.price_minor,
-        currency: plan.currency,
-        previousExpiresAt: current.expires_at?.toISOString() ?? null,
-        newExpiresAt: expiresAt.toISOString(),
-      });
+    const now = new Date();
+    const expiresAt =
+      options.months === undefined
+        ? extendedExpiry(current.expires_at, now, plan.billing_period_days)
+        : extendedExpiryByMonths(current.expires_at, now, options.months);
+    const after = await tx.shopPlan.update({
+      where: { shopId },
+      data: { expiresAt, activatedAt: now, activatedByUserId: adminUserId, planDefinitionId },
+      include: WITH_PLAN,
+    });
 
-      return toResponse(after);
-    }, TX_OPTIONS);
+    await this.audit(tx, adminUserId, AuditAction.SHOP_PLAN_ACTIVATED, shopId, {
+      planDefinitionId,
+      planName: plan.name,
+      previousPlanDefinitionId: current.plan_definition_id,
+      days: plan.billing_period_days,
+      ...(options.months === undefined ? {} : { months: options.months }),
+      priceMinor: plan.price_minor,
+      currency: plan.currency,
+      previousExpiresAt: current.expires_at?.toISOString() ?? null,
+      newExpiresAt: expiresAt.toISOString(),
+    });
+
+    return toResponse(after);
   }
 
   /** Clears a business's plan assignment and expires it immediately (an

@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { VersioningType } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
-import type { NextFunction, Request, Response } from "express";
+import { json, type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { ZodValidationPipe } from "nestjs-zod";
 import type { ApiEnv } from "@print-automated/config";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter.js";
 import { RequestCounterService } from "./observability/request-counter.service.js";
+
+/** 5 MB file as base64 (~6.99M chars) plus the JSON around it. */
+const PAYMENT_PROOF_BODY_LIMIT = "8mb";
 
 export interface ConfigureAppOptions {
   /** Test-only: pino writes straight to the raw fd by default (bypassing
@@ -56,6 +59,19 @@ export function configureApp(
   });
 
   app.use(helmet());
+
+  // Plan-payment proofs arrive as base64 inside JSON (a screenshot of up to 5 MB is
+  // ~6.7 MB of base64), far over Express's 100 kb default. Only this route gets the
+  // bigger limit -- everything else keeps the default. Mounted before Nest registers its
+  // own parser at init, which then skips a request whose body is already parsed.
+  //
+  // The wrapper is load-bearing: `json()` returns a function NAMED `jsonParser`, and Nest
+  // skips registering its own global JSON parser whenever it finds a layer with that name
+  // already on the router -- which would silently disable body parsing on EVERY route.
+  const paymentProofJson = json({ limit: PAYMENT_PROOF_BODY_LIMIT });
+  app.use("/v1/shop/payment-proofs", (req: Request, res: Response, next: NextFunction) =>
+    paymentProofJson(req, res, next),
+  );
 
   // Attaches req.id + a child req.log bound to it on every request, so
   // a log line and the response it corresponds to always carry the same

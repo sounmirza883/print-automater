@@ -55,13 +55,29 @@ describe("visibleNavItems", () => {
       "admin-businesses",
       "admin-users",
       "admin-plans",
+      "admin-payments",
     ]);
   });
 
-  it("never shows Plans to business staff, owners included", () => {
+  it("never shows Plans or Payments to business staff, owners included", () => {
     for (const role of [UserRole.SHOP_OWNER, UserRole.SHOP_MANAGER, UserRole.OPERATOR]) {
       expect(idsFor(role, role)).not.toContain("admin-plans");
+      expect(idsFor(role, role)).not.toContain("admin-payments");
     }
+  });
+
+  it("shows Billing to the business owner only -- paying for the plan is not for managers or staff", () => {
+    expect(idsFor(UserRole.SHOP_OWNER, UserRole.SHOP_OWNER)).toContain("billing");
+    for (const role of [
+      UserRole.SHOP_MANAGER,
+      UserRole.SHOP_COUNTER,
+      UserRole.OPERATOR,
+      UserRole.PRINTER_MANAGER,
+    ]) {
+      expect(idsFor(role, role)).not.toContain("billing");
+    }
+    // A platform admin has no single business, so no Billing either.
+    expect(idsFor(UserRole.ADMIN, null)).not.toContain("billing");
   });
 
   it("shows nothing business-scoped without a selected business", () => {

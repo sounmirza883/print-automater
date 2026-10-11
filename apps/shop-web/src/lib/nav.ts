@@ -109,6 +109,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     blurb: "Business details, automation switches and printer rules.",
   },
   {
+    id: "billing",
+    label: "Billing",
+    href: "/billing",
+    scope: "business",
+    anyOf: [Permission.MANAGE_SETTINGS],
+    blurb: "Pay for your plan and send proof of payment.",
+  },
+  {
     id: "notifications",
     label: "Notifications",
     href: "/notifications",
@@ -147,6 +155,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     scope: "platform",
     anyOf: [],
     blurb: "The plans businesses are put on: name, price, billing period, and who is on each.",
+  },
+  {
+    id: "admin-payments",
+    label: "Payments",
+    href: "/admin/payments",
+    scope: "platform",
+    anyOf: [],
+    blurb: "Payment proofs from businesses: check each one, then approve or reject it.",
   },
 ];
 

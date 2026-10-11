@@ -102,6 +102,14 @@ const COPY: Record<string, string> = {
     "That email address already has an account, so it cannot be used for a new business's owner. Enter a different email address for the owner.",
   OWNER_ALREADY_ACTIVE:
     "The owner has already set their password, so there is no code to resend. They can sign in normally.",
+  PAYMENT_PROOF_PENDING_EXISTS:
+    "A payment is already waiting for review. You can send another once it has been checked.",
+  PAYMENT_PROOF_ALREADY_REVIEWED:
+    "This payment was already reviewed (possibly by another admin). The list has been refreshed.",
+  PAYMENT_PROOF_INVALID_FILE:
+    "That file could not be accepted. Upload a JPEG, PNG or PDF of up to 5 MB.",
+  PAYMENT_PROOF_NOT_FOUND: "That payment no longer exists.",
+  PLAN_CONTACT_ONLY: "That plan has custom pricing. Contact Print Automated to arrange payment.",
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
   UPSTREAM_UNREACHABLE: "The service is unreachable right now. Try again in a moment.",
   CROSS_ORIGIN_BLOCKED: "That request was blocked for safety. Reload the page and try again.",
@@ -124,6 +132,7 @@ const STALE_STATE_CODES = new Set([
   "RULE_ORDER_MISMATCH",
   "SHOP_STAFF_INVITE_NOT_PENDING",
   "OWNER_ALREADY_ACTIVE",
+  "PAYMENT_PROOF_ALREADY_REVIEWED",
 ]);
 
 function coded(error: unknown): CodedError {

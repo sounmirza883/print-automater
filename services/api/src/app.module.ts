@@ -40,6 +40,7 @@ import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { ReportsModule } from "./reports/reports.module.js";
 import { NotificationCenterModule } from "./notification-center/notification-center.module.js";
 import { ShopPlanModule } from "./shop-plan/shop-plan.module.js";
+import { PaymentProofsModule } from "./payment-proofs/payment-proofs.module.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
 import { PublicOrdersModule } from "./public-orders/public-orders.module.js";
 
@@ -105,6 +106,7 @@ import { PublicOrdersModule } from "./public-orders/public-orders.module.js";
     ReportsModule,
     NotificationCenterModule,
     ShopPlanModule,
+    PaymentProofsModule,
     PublicOrdersModule,
   ],
 })

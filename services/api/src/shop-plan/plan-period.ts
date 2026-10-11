@@ -17,6 +17,27 @@ export function extendedExpiry(current: Date | null, now: Date, days: number): D
   return new Date(base.getTime() + days * DAY_MS);
 }
 
+/** `date` + `months` calendar months in UTC, clamping the day to the target
+ * month's last day (31 Jan + 1 month = 28/29 Feb, never 2/3 Mar). */
+export function addCalendarMonths(date: Date, months: number): Date {
+  const result = new Date(date.getTime());
+  const day = result.getUTCDate();
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDay = new Date(
+    Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDay));
+  return result;
+}
+
+/** Same base rule as `extendedExpiry` (later of now or the current expiry), but
+ * the grant is an admin-chosen number of calendar months -- payment-proof approval. */
+export function extendedExpiryByMonths(current: Date | null, now: Date, months: number): Date {
+  const base = isActiveAt(current, now) ? current! : now;
+  return addCalendarMonths(base, months);
+}
+
 /** Cancel: a still-active plan expires right now. An already-expired (or
  * never-activated) one keeps its existing expiry -- cancelling never moves an
  * expiry forward, so a past date stays the truthful record of when it lapsed. */

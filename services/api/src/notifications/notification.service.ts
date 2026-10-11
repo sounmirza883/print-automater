@@ -79,6 +79,40 @@ The code expires in 7 days. If you were not expecting this, ignore this email.`,
       { removeOnComplete: true, removeOnFail: true },
     );
   }
+
+  /** Plan-payment proof reviewed: tells the submitting owner the outcome. Carries no
+   * secret, so the job is kept like any other email. The business name is
+   * owner-controlled, so it is sanitised; the rejection reason is written by a platform
+   * admin. */
+  async sendPaymentProofDecision(
+    email: string,
+    shopName: string,
+    decision:
+      | { approved: true; planName: string; months: number; expiresAt: Date }
+      | { approved: false; reason: string },
+  ): Promise<void> {
+    const name = sanitizeShopNameForEmail(shopName);
+    const text = decision.approved
+      ? `Your payment for "${name}" was approved.
+
+Plan: ${decision.planName}
+Access added: ${decision.months} month${decision.months === 1 ? "" : "s"}
+Active until: ${decision.expiresAt.toISOString().slice(0, 10)}
+
+Thank you.`
+      : `Your payment proof for "${name}" was not approved.
+
+Reason: ${decision.reason}
+
+You can submit a new proof from the Billing screen.`;
+    await this.notificationsQueue.add("send-email", {
+      to: email,
+      subject: decision.approved
+        ? "Your Print Automated payment was approved"
+        : "Your Print Automated payment proof was not approved",
+      text,
+    });
+  }
 }
 
 const SHOP_NAME_MAX = 60;

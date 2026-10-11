@@ -92,6 +92,13 @@ export const AuditAction = {
   PLAN_FEATURE_CREATED: "PLAN_FEATURE_CREATED",
   PLAN_FEATURE_UPDATED: "PLAN_FEATURE_UPDATED",
   PLAN_FEATURE_DELETED: "PLAN_FEATURE_DELETED",
+  // Payment-proof billing (resource = the proof; metadata = shopId, planDefinitionId,
+  // amountMinor, and for approve the months granted / for reject the reason).
+  PAYMENT_PROOF_SUBMITTED: "PAYMENT_PROOF_SUBMITTED",
+  PAYMENT_PROOF_APPROVED: "PAYMENT_PROOF_APPROVED",
+  PAYMENT_PROOF_REJECTED: "PAYMENT_PROOF_REJECTED",
+  // The admin-edited payment-instructions text (resource = the singleton settings row).
+  PAYMENT_INSTRUCTIONS_UPDATED: "PAYMENT_INSTRUCTIONS_UPDATED",
   // HISTORICAL ONLY: written by the public self-service signup
   // (`POST /shops/register`), which fix wave 1 removed -- onboarding is
   // admin-only now (SHOP_CREATED). Kept so existing audit rows still name a

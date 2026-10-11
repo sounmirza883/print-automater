@@ -20,6 +20,7 @@ import { SettingsResource, PrinterRulesResource } from "./resources/settings.res
 import { ReportsResource } from "./resources/reports.resource.js";
 import { NotificationsResource } from "./resources/notifications.resource.js";
 import { PlanResource } from "./resources/plan.resource.js";
+import { PaymentProofsResource } from "./resources/payment-proofs.resource.js";
 import { AdminResource } from "./resources/admin.resource.js";
 
 export class ApiClient {
@@ -41,6 +42,7 @@ export class ApiClient {
   readonly reports: ReportsResource;
   readonly notifications: NotificationsResource;
   readonly plan: PlanResource;
+  readonly paymentProofs: PaymentProofsResource;
   readonly admin: AdminResource;
 
   constructor(options: HttpClientOptions) {
@@ -63,6 +65,7 @@ export class ApiClient {
     this.reports = new ReportsResource(http);
     this.notifications = new NotificationsResource(http);
     this.plan = new PlanResource(http);
+    this.paymentProofs = new PaymentProofsResource(http);
     this.admin = new AdminResource(http);
   }
 }

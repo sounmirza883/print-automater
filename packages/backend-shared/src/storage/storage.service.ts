@@ -32,6 +32,12 @@ export class StorageService {
     return `documents/${documentId}`;
   }
 
+  /** Plan-payment proofs (screenshot/PDF). Kept forever -- nothing in the app
+   * deletes this key, rejected proofs included. */
+  paymentProofKey(proofId: string): string {
+    return `payment-proofs/${proofId}`;
+  }
+
   /** 21.9/21.10: the customer's original upload (image, DOCX) when the
    * printable artifact at documentKey() was derived from it. */
   originalDocumentKey(documentId: string): string {

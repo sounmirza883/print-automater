@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
+import { Permission } from "@print-automated/types";
 import { useSession } from "@/components/session-provider";
 import { getApi } from "@/lib/api";
 import { useResource } from "@/lib/use-resource";
@@ -22,7 +24,15 @@ function daysLeft(expiresAt: string): number {
  * before a business is chosen. A load failure fails silently (null) rather
  * than adding a second error surface on top of every screen's own. */
 export function PlanBanner(): ReactNode {
-  const { business, isAdmin } = useSession();
+  const { business, isAdmin, can } = useSession();
+  // Only the owner can pay (MANAGE_SETTINGS is owner-only); everyone else is told who to ask.
+  const renewal: ReactNode = can(Permission.MANAGE_SETTINGS) ? (
+    <Link href="/billing" className="font-medium underline underline-offset-2">
+      Pay or renew in Billing.
+    </Link>
+  ) : (
+    "Ask your business owner to renew it."
+  );
   const shopId = business?.id;
   const state = useResource(() => getApi().plan.get(shopId!), [shopId], {
     intervalMs: POLL_MS,
@@ -41,7 +51,7 @@ export function PlanBanner(): ReactNode {
         className="border-b border-danger/50 bg-danger-soft px-4 py-2 text-center text-sm font-medium sm:px-6"
       >
         Your business&apos;s plan has expired. Printing is paused until it&apos;s renewed --
-        everything else here still works. Contact Print Automated to renew it.
+        everything else here still works. {renewal}
       </div>
     );
   }
@@ -58,8 +68,7 @@ export function PlanBanner(): ReactNode {
       role="status"
       className="border-b border-caution/50 bg-caution-soft px-4 py-2 text-center text-sm sm:px-6"
     >
-      Your business&apos;s plan expires in {remaining} {remaining === 1 ? "day" : "days"}. Contact
-      Print Automated to renew it.
+      Your business&apos;s plan expires in {remaining} {remaining === 1 ? "day" : "days"}. {renewal}
     </div>
   );
 }

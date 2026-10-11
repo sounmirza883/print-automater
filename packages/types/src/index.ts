@@ -80,3 +80,10 @@ export type {
   PublicPlansResponse,
 } from "./shop-plan.js";
 export type { AdminBusinessResponse, AdminListResult } from "./admin.js";
+export type {
+  PaymentProofStatus,
+  PaymentProofResponse,
+  PaymentProofListResponse,
+  BillingPlanOption,
+  PaymentInstructionsResponse,
+} from "./payment-proofs.js";

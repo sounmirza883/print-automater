@@ -114,6 +114,25 @@ export {
   type UpdateUserStatusInput,
 } from "./admin/index.js";
 export {
+  PAYMENT_PROOF_CONTENT_TYPES,
+  PAYMENT_PROOF_MAX_BASE64_CHARS,
+  PAYMENT_PROOF_MAX_BYTES,
+  PAYMENT_PROOF_STATUSES,
+  MAX_GRANT_MONTHS,
+  submitPaymentProofSchema,
+  type SubmitPaymentProofInput,
+  listShopPaymentProofsQuerySchema,
+  type ListShopPaymentProofsQueryInput,
+  adminListPaymentProofsQuerySchema,
+  type AdminListPaymentProofsQueryInput,
+  approvePaymentProofSchema,
+  type ApprovePaymentProofInput,
+  rejectPaymentProofSchema,
+  type RejectPaymentProofInput,
+  updatePaymentInstructionsSchema,
+  type UpdatePaymentInstructionsInput,
+} from "./payment-proofs/index.js";
+export {
   createCustomerSchema,
   type CreateCustomerInput,
   updateCustomerSchema,
