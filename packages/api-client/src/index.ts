@@ -65,6 +65,9 @@ export {
   type CreatePlanDefinitionBody,
   type UpdatePlanDefinitionBody,
   type PlanDefinitionListResult,
+  type CreatePlanFeatureBody,
+  type UpdatePlanFeatureBody,
+  type PlanFeatureListResult,
 } from "./resources/plan.resource.js";
 export {
   ReportsResource,

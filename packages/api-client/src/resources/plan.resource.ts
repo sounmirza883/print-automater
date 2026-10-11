@@ -1,4 +1,8 @@
-import type { PlanDefinitionResponse, ShopPlanResponse } from "@print-automated/types";
+import type {
+  PlanDefinitionResponse,
+  PlanFeatureResponse,
+  ShopPlanResponse,
+} from "@print-automated/types";
 import type { HttpClient } from "../http-client.js";
 
 /** Create/update inputs for a plan definition (platform-wide, not per-business) --
@@ -12,15 +16,47 @@ export interface CreatePlanDefinitionBody {
   currency: string;
   billingPeriodDays: number;
   description?: string;
+  /** Price for 365 days; omit for no annual option. */
+  annualPriceMinor?: number;
+  highlighted?: boolean;
+  /** Custom pricing: the public card shows "Custom pricing" and "Contact us". */
+  contactOnly?: boolean;
+  sortOrder?: number;
+  /** featureId -> "true" | "false" | text; replaces the plan's whole set of values. */
+  values?: Record<string, string>;
 }
 
 /** `description?: string` on create (omit it, it's unset); on update, `null`
  * clears a previously-set description, `undefined`/omitted leaves it unchanged
  * -- distinct from create's shape, so this isn't just `Partial<...>`. */
-export type UpdatePlanDefinitionBody = Omit<Partial<CreatePlanDefinitionBody>, "description"> & {
+export type UpdatePlanDefinitionBody = Omit<
+  Partial<CreatePlanDefinitionBody>,
+  "description" | "annualPriceMinor"
+> & {
   description?: string | null;
+  /** `null` removes the annual option. */
+  annualPriceMinor?: number | null;
   archived?: boolean;
 };
+
+/** A row of the public Compare plans table. */
+export interface CreatePlanFeatureBody {
+  section: string;
+  label: string;
+  sortOrder?: number;
+  showOnCard?: boolean;
+  /** Card bullet template, e.g. "{value} printers". */
+  cardText?: string;
+}
+
+export type UpdatePlanFeatureBody = Omit<Partial<CreatePlanFeatureBody>, "cardText"> & {
+  /** `null` clears the template (the card then shows the label). */
+  cardText?: string | null;
+};
+
+export interface PlanFeatureListResult {
+  items: PlanFeatureResponse[];
+}
 
 export interface PlanDefinitionListResult {
   items: PlanDefinitionResponse[];
@@ -82,6 +118,32 @@ export class PlanResource {
     return this.http.request<PlanDefinitionResponse>(`/v1/admin/plans/${id}`, {
       method: "PATCH",
       body: input,
+    });
+  }
+
+  /** The rows of the public Compare plans table, in display order. */
+  listFeatures(): Promise<PlanFeatureListResult> {
+    return this.http.request<PlanFeatureListResult>("/v1/admin/plan-features");
+  }
+
+  createFeature(input: CreatePlanFeatureBody): Promise<PlanFeatureResponse> {
+    return this.http.request<PlanFeatureResponse>("/v1/admin/plan-features", {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  updateFeature(id: string, input: UpdatePlanFeatureBody): Promise<PlanFeatureResponse> {
+    return this.http.request<PlanFeatureResponse>(`/v1/admin/plan-features/${id}`, {
+      method: "PATCH",
+      body: input,
+    });
+  }
+
+  /** Also deletes every plan's value for this row. */
+  deleteFeature(id: string): Promise<{ result: "DELETED" }> {
+    return this.http.request<{ result: "DELETED" }>(`/v1/admin/plan-features/${id}`, {
+      method: "DELETE",
     });
   }
 

@@ -3,8 +3,7 @@ import { FEATURE_CATALOG, PLAN_CATALOG } from "../src/shop-plan/plan-catalog.js"
 
 const prisma = new PrismaClient();
 const log = (message: string): void => {
-  process.stdout.write(`${message}
-`);
+  process.stdout.write(`${message}\n`);
 };
 
 /** Idempotent and non-destructive: creates only the features and plans that are missing and
