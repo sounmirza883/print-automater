@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { tokens } from "@print-automated/design-tokens";
+import { theme } from "@print-automated/design-tokens";
 import type { ApiClient, PairingCode } from "@print-automated/api-client";
 import { ActionForm } from "@/components/form";
-import { Button, MUTED } from "@/components/ui";
+import { Button, MONO, MUTED } from "@/components/ui";
 import { errorMessage } from "@/lib/job-actions";
 
 /** 23.35: a one-time code for pairing the print agent on a shop computer, as shop-web's
@@ -101,16 +101,23 @@ export function PairComputer({
 }
 
 const styles = StyleSheet.create({
-  error: { color: tokens.colors.error },
+  error: { ...theme.type.body, color: theme.tones.danger.fg },
   codeBox: {
     borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    backgroundColor: "#fff",
-    padding: 14,
+    borderColor: theme.border.default,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.surface.card,
+    padding: theme.space.lg,
     alignItems: "center",
-    gap: 4,
+    gap: theme.space.xs,
   },
-  codeLabel: { color: MUTED, fontSize: 13 },
-  code: { fontSize: 30, fontWeight: "700", letterSpacing: 6, fontVariant: ["tabular-nums"] },
+  codeLabel: { ...theme.type.caption, color: MUTED },
+  code: {
+    fontFamily: MONO,
+    fontSize: 32,
+    fontWeight: "700",
+    letterSpacing: 6,
+    color: theme.brand.accent,
+    fontVariant: ["tabular-nums"],
+  },
 });

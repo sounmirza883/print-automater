@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { tokens } from "@print-automated/design-tokens";
+import { theme } from "@print-automated/design-tokens";
 import {
   availableOrderActions,
   shouldSteerToReprint,
@@ -277,8 +277,8 @@ function QualityForm({
 }
 
 const styles = StyleSheet.create({
-  actions: { gap: 8, marginTop: 8 },
-  note: { borderWidth: 1, borderRadius: tokens.radius.md, padding: 10 },
-  muted: { color: MUTED },
-  error: { color: tokens.colors.error },
+  actions: { gap: theme.space.sm, marginTop: theme.space.sm },
+  note: { borderWidth: 1, borderRadius: theme.radius.md, padding: theme.space.md },
+  muted: { ...theme.type.body, color: MUTED },
+  error: { ...theme.type.body, color: theme.tones.danger.fg },
 });

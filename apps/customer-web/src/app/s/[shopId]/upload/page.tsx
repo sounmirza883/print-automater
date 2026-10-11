@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   ColorMode,
   Finishing,
@@ -629,9 +630,12 @@ function ConfirmationScreen({ order }: { order: PublicOrderResult }): ReactNode 
         </div>
       </div>
 
-      <p className="text-sm text-gray-600">
-        Show this order number to the shop when you collect your prints.
-      </p>
+      <div className="flex flex-col items-center gap-2 rounded-lg border border-gray-300 p-4">
+        <QRCodeSVG value={order.publicOrderNumber} size={176} marginSize={2} />
+        <p className="text-sm text-gray-600">
+          Show this QR code (or the order number) to the shop to pay and collect your prints.
+        </p>
+      </div>
     </main>
   );
 }

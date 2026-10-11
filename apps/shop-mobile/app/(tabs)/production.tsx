@@ -1,49 +1,35 @@
 import type { ReactNode } from "react";
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { tokens } from "@print-automated/design-tokens";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { theme } from "@print-automated/design-tokens";
 import { Permission, type DashboardJob } from "@print-automated/types";
 import { JobCard } from "@/components/job-card";
-import { MUTED, SectionTitle, TONES } from "@/components/ui";
+import { MONO, ScreenHeader, SectionTitle, StateView, TONES } from "@/components/ui";
 import { useShopAuth } from "@/providers/shop-auth-provider";
 import { useOperatorDashboard } from "@/lib/use-operator-dashboard";
 
 /** 23.8/23.33, the production floor (PRD 40): the job on my printer now, then what is assigned
  * to me, what is waiting for anyone, what is blocked and why, and what I finished today. Each
  * job shows what to load and how to print it; tapping one opens its order and actions. */
-export default function ProductionScreen(): ReactNode {
+function ProductionBody(): ReactNode {
   const { apiClient, shopId, can } = useShopAuth();
   const allowed = can(Permission.VIEW_OPERATOR_DASHBOARD);
   const { state, reload } = useOperatorDashboard(apiClient, shopId, allowed);
 
   if (!allowed) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.muted}>Your role does not include the production view.</Text>
-      </View>
+      <StateView
+        kind="empty"
+        icon="lock-closed-outline"
+        title="Production view isn't available"
+        message="Your role does not include the production view."
+      />
     );
   }
   if (state.phase === "loading") {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator />
-      </View>
-    );
+    return <StateView kind="loading" title="Loading the floor" />;
   }
   if (state.phase === "error") {
-    return (
-      <View style={styles.container}>
-        <Text accessibilityRole="alert" style={styles.error}>
-          {state.message}
-        </Text>
-      </View>
-    );
+    return <StateView kind="error" title="Couldn't load production" message={state.message} />;
   }
 
   const { data } = state;
@@ -51,9 +37,21 @@ export default function ProductionScreen(): ReactNode {
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={state.refreshing} onRefresh={reload} />}
+      refreshControl={
+        <RefreshControl
+          refreshing={state.refreshing}
+          onRefresh={reload}
+          tintColor={theme.brand.accent}
+          colors={[theme.brand.accent]}
+        />
+      }
     >
-      <View style={styles.counts}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.counts}
+        style={styles.countsScroll}
+      >
         <Count
           label="On a printer"
           value={data.currentJobs.length}
@@ -67,7 +65,7 @@ export default function ProductionScreen(): ReactNode {
           tone={data.blocked.total > 0 ? "caution" : undefined}
         />
         <Count label="Done today" value={data.completedToday.total} tone="good" />
-      </View>
+      </ScrollView>
 
       <JobList
         title="On a printer now"
@@ -115,13 +113,15 @@ function Count({
   const colour = tone !== undefined && value > 0 ? TONES[tone] : null;
   return (
     <View
+      accessible
+      accessibilityLabel={`${label}: ${value}`}
       style={[
         styles.count,
         colour !== null && { backgroundColor: colour.bg, borderColor: colour.border },
       ]}
     >
       <Text style={[styles.countValue, colour !== null && { color: colour.fg }]}>{value}</Text>
-      <Text style={styles.countLabel}>{label}</Text>
+      <Text style={[styles.countLabel, colour !== null && { color: colour.fg }]}>{label}</Text>
     </View>
   );
 }
@@ -141,7 +141,9 @@ function JobList({
     <View style={styles.list}>
       <SectionTitle title={title} count={total} />
       {jobs.length === 0 ? (
-        <Text style={styles.muted}>{empty}</Text>
+        <View style={styles.emptyRow}>
+          <Text style={styles.muted}>{empty}</Text>
+        </View>
       ) : (
         jobs.map((job) => <JobCard key={job.id} job={job} />)
       )}
@@ -155,22 +157,47 @@ function JobList({
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: "#F9FAFB" },
-  container: { padding: 16, gap: 12 },
-  muted: { color: MUTED },
-  error: { color: tokens.colors.error },
-  counts: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  screen: { flex: 1, backgroundColor: theme.surface.background },
+  scroll: { flex: 1, backgroundColor: theme.surface.background },
+  container: { padding: theme.space.lg, gap: theme.space.xl, paddingBottom: theme.space.xxl },
+  muted: { ...theme.type.caption, color: theme.text.muted },
+  countsScroll: { flexGrow: 0, marginHorizontal: -theme.space.lg },
+  counts: { paddingHorizontal: theme.space.lg, gap: theme.space.sm },
   count: {
-    flexGrow: 1,
-    minWidth: 96,
+    minWidth: 104,
+    minHeight: 88,
     borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    padding: 12,
-    backgroundColor: "#fff",
-    gap: 2,
+    borderColor: theme.border.default,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.md,
+    backgroundColor: theme.surface.card,
+    justifyContent: "space-between",
   },
-  countValue: { fontSize: 24, fontWeight: "700", color: "#111827" },
-  countLabel: { color: MUTED, fontSize: 13 },
-  list: { gap: 8 },
+  countValue: {
+    fontFamily: MONO,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "700",
+    color: theme.text.primary,
+  },
+  countLabel: { ...theme.type.caption, color: theme.text.muted },
+  list: { gap: theme.space.md },
+  emptyRow: {
+    padding: theme.space.lg,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: theme.border.strong,
+    alignItems: "center",
+  },
 });
+
+export default function ProductionScreen(): ReactNode {
+  const { shopName } = useShopAuth();
+  return (
+    <View style={styles.screen}>
+      <ScreenHeader title="Production" subtitle={shopName} />
+      <ProductionBody />
+    </View>
+  );
+}

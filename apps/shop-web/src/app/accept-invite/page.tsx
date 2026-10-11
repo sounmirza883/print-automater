@@ -80,6 +80,12 @@ export default function AcceptInvitePage(): ReactNode {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className={FIELD}
+              // Autofill/password-manager extensions stamp a `fdprocessedid`
+              // attribute onto form fields before React hydrates. That's a
+              // real DOM mutation, not a bug in our markup -- suppress the
+              // mismatch warning rather than fight an extension we don't
+              // control.
+              suppressHydrationWarning
             />
           </label>
           <label htmlFor="password" className="flex flex-col gap-1 text-sm font-medium">
@@ -93,6 +99,7 @@ export default function AcceptInvitePage(): ReactNode {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className={FIELD}
+              suppressHydrationWarning
             />
           </label>
           <label htmlFor="code" className="flex flex-col gap-1 text-sm font-medium">
@@ -107,6 +114,7 @@ export default function AcceptInvitePage(): ReactNode {
               value={code}
               onChange={(event) => setCode(event.target.value)}
               className={`${FIELD} num`}
+              suppressHydrationWarning
             />
           </label>
           {error !== null && (
@@ -121,6 +129,7 @@ export default function AcceptInvitePage(): ReactNode {
             type="submit"
             disabled={submitting}
             className="rounded-md bg-accent px-4 py-2.5 font-semibold text-white disabled:opacity-60"
+            suppressHydrationWarning
           >
             {submitting ? "Joining…" : "Accept and sign in"}
           </button>

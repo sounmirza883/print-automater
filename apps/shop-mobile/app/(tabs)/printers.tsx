@@ -1,15 +1,7 @@
 import { useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { tokens } from "@print-automated/design-tokens";
+import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { theme } from "@print-automated/design-tokens";
 import {
   humanizeEnum,
   type PrinterCapabilities,
@@ -17,6 +9,7 @@ import {
 } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
 import { PairComputer } from "@/components/pair-computer";
+import { Button, Card, Field, ScreenHeader, StateView } from "@/components/ui";
 
 const CAPABILITY_LABELS: Array<{ key: keyof PrinterCapabilities; label: string }> = [
   { key: "color", label: "Color" },
@@ -38,21 +31,21 @@ import { useIsOffline } from "@/lib/use-is-offline";
 // Every PrinterStatus (15.3 added BUSY, PAUSED, MAINTENANCE and UNKNOWN); anything newer
 // still reads as words, in grey.
 const STATUS_COLOR: Record<string, string> = {
-  ONLINE: tokens.colors.success,
-  BUSY: tokens.colors.primaryAction,
-  OFFLINE: "#9CA3AF",
-  ERROR: tokens.colors.error,
-  PAUSED: tokens.colors.warning,
-  MAINTENANCE: tokens.colors.warning,
-  UNKNOWN: "#9CA3AF",
-  DISABLED: "#9CA3AF",
+  ONLINE: theme.tones.good.solid,
+  BUSY: theme.brand.accent,
+  OFFLINE: theme.inactive,
+  ERROR: theme.tones.danger.solid,
+  PAUSED: theme.tones.caution.solid,
+  MAINTENANCE: theme.tones.caution.solid,
+  UNKNOWN: theme.inactive,
+  DISABLED: theme.inactive,
 };
 
 /** §38's printer status list plus register/rename/enable-disable/
  * remove -- all inline against a tapped row, no separate modal. 23.35: pairing a computer's
  * agent, and every change here, only for roles that may manage printers; others see the
  * list. */
-export default function PrintersScreen(): ReactNode {
+function PrintersBody(): ReactNode {
   const { shopId, apiClient, can } = useShopAuth();
   const manage = can(Permission.MANAGE_PRINTERS);
   const printers = usePrinters(apiClient, shopId);
@@ -68,9 +61,12 @@ export default function PrintersScreen(): ReactNode {
 
   if (shopId === null) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.subtitle}>You aren&apos;t registered as staff at any shop yet.</Text>
-      </View>
+      <StateView
+        kind="empty"
+        icon="storefront-outline"
+        title="No business yet"
+        message="This account isn't registered as staff at any business, so there are no printers to show."
+      />
     );
   }
 
@@ -98,28 +94,30 @@ export default function PrintersScreen(): ReactNode {
 
   return (
     <View style={styles.container}>
-      {manage && <PairComputer apiClient={apiClient} shopId={activeShopId} offline={isOffline} />}
       {manage && (
-        <View style={styles.addRow}>
-          <TextInput
-            value={newName}
-            onChangeText={setNewName}
-            placeholder="New printer name"
-            style={styles.input}
-            editable={!registering}
-          />
-          <Pressable
-            accessibilityRole="button"
-            disabled={registerBlocked}
-            onPress={() => void handleRegister()}
-            style={[styles.registerButton, registerBlocked && styles.buttonDisabled]}
-          >
-            {registering ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.registerButtonText}>Register</Text>
-            )}
-          </Pressable>
+        <View style={styles.manage}>
+          <PairComputer apiClient={apiClient} shopId={activeShopId} offline={isOffline} />
+          <View style={styles.addRow}>
+            <Field
+              icon="print-outline"
+              accessibilityLabel="New printer name"
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="New printer name"
+              editable={!registering}
+              style={styles.addField}
+              onSubmitEditing={() => void handleRegister()}
+            />
+            <View style={styles.addButton}>
+              <Button
+                label="Register"
+                variant="primary"
+                busy={registering}
+                disabled={registerBlocked}
+                onPress={() => void handleRegister()}
+              />
+            </View>
+          </View>
         </View>
       )}
       {formError !== null && (
@@ -128,24 +126,28 @@ export default function PrintersScreen(): ReactNode {
         </Text>
       )}
 
-      {printers.phase === "loading" && <ActivityIndicator />}
+      {printers.phase === "loading" && <StateView kind="loading" title="Loading printers" />}
       {printers.phase === "error" && (
-        <Text accessibilityRole="alert" style={styles.errorText}>
-          {printers.message}
-        </Text>
+        <StateView kind="error" title="Couldn't load printers" message={printers.message} />
       )}
       {printers.phase === "ready" && printers.printers.length === 0 && (
-        <Text style={styles.subtitle}>
-          {manage
-            ? "No printers yet. Pair a computer and the printers it finds appear here."
-            : "No printers yet."}
-        </Text>
+        <StateView
+          kind="empty"
+          icon="print-outline"
+          title="No printers yet"
+          message={
+            manage
+              ? "Pair a computer and the printers it finds appear here."
+              : "Someone who manages printers can pair a computer to add them."
+          }
+        />
       )}
       {printers.phase === "ready" && printers.printers.length > 0 && (
         <FlatList
           data={printers.printers}
           keyExtractor={(printer) => printer.id}
           contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => (
             <PrinterRow
               printer={item}
@@ -219,24 +221,36 @@ function PrinterRow({
     }
   }
 
+  const statusColor = STATUS_COLOR[printer.status] ?? theme.inactive;
   return (
-    <View style={styles.card}>
+    <Card edge={statusColor}>
       <Pressable
         accessibilityRole={manage ? "button" : undefined}
+        accessibilityLabel={`${printer.name}, ${humanizeEnum(printer.status)}`}
+        accessibilityState={manage ? { expanded } : undefined}
         disabled={!manage}
         onPress={onToggleExpanded}
         style={styles.cardHeaderRow}
       >
         <View style={styles.statusRow}>
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: STATUS_COLOR[printer.status] ?? "#9CA3AF" },
-            ]}
-          />
-          <Text style={styles.printerName}>{printer.name}</Text>
+          <View style={styles.printerIcon}>
+            <Ionicons name="print" size={22} color={statusColor} />
+          </View>
+          <View style={styles.nameCol}>
+            <Text style={styles.printerName}>{printer.name}</Text>
+            <View style={styles.statusLine}>
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+              <Text style={styles.statusLabel}>{humanizeEnum(printer.status)}</Text>
+            </View>
+          </View>
         </View>
-        <Text style={styles.statusLabel}>{humanizeEnum(printer.status)}</Text>
+        {manage && (
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={20}
+            color={theme.text.muted}
+          />
+        )}
       </Pressable>
 
       {manage && expanded && (
@@ -247,17 +261,22 @@ function PrinterRow({
             </Text>
           )}
           <View style={styles.renameRow}>
-            <TextInput value={name} onChangeText={setName} style={styles.input} editable={!busy} />
-            <Pressable
-              accessibilityRole="button"
-              disabled={blocked || name.trim().length === 0}
-              onPress={() =>
-                void run(() => apiClient.printers.update(printer.id, { name: name.trim() }))
-              }
-              style={[styles.smallButton, blocked && styles.buttonDisabled]}
-            >
-              <Text style={styles.smallButtonText}>Save name</Text>
-            </Pressable>
+            <Field
+              accessibilityLabel="Printer name"
+              value={name}
+              onChangeText={setName}
+              editable={!busy}
+              style={styles.addField}
+            />
+            <View style={styles.addButton}>
+              <Button
+                label="Save name"
+                disabled={blocked || name.trim().length === 0}
+                onPress={() =>
+                  void run(() => apiClient.printers.update(printer.id, { name: name.trim() }))
+                }
+              />
+            </View>
           </View>
           <View style={styles.capabilitiesSection}>
             <Text style={styles.capabilitiesTitle}>
@@ -267,112 +286,106 @@ function PrinterRow({
               <View key={key} style={styles.capabilityRow}>
                 <Text style={styles.capabilityLabel}>{label}</Text>
                 <Switch
+                  accessibilityLabel={label}
                   value={(printer.capabilities ?? DEFAULT_CAPABILITIES)[key]}
                   onValueChange={(value) => void toggleCapability(key, value)}
                   disabled={capsBusyKey !== null || isOffline}
+                  trackColor={{ true: theme.brand.accent, false: theme.border.strong }}
                 />
               </View>
             ))}
           </View>
           <View style={styles.actionRow}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={blocked}
-              onPress={() =>
-                void run(() =>
-                  apiClient.printers.update(printer.id, {
-                    enabled: printer.status !== "DISABLED" ? false : true,
-                  }),
-                )
-              }
-              style={[styles.smallButton, blocked && styles.buttonDisabled]}
-            >
-              <Text style={styles.smallButtonText}>
-                {printer.status === "DISABLED" ? "Enable" : "Disable"}
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={blocked}
-              onPress={() => void run(() => apiClient.printers.remove(printer.id))}
-              style={[styles.removeButton, blocked && styles.buttonDisabled]}
-            >
-              {busy ? <ActivityIndicator /> : <Text style={styles.removeButtonText}>Remove</Text>}
-            </Pressable>
+            <View style={styles.actionCell}>
+              <Button
+                label={printer.status === "DISABLED" ? "Enable" : "Disable"}
+                icon={printer.status === "DISABLED" ? "play-outline" : "pause-outline"}
+                disabled={blocked}
+                onPress={() =>
+                  void run(() =>
+                    apiClient.printers.update(printer.id, {
+                      enabled: printer.status !== "DISABLED" ? false : true,
+                    }),
+                  )
+                }
+              />
+            </View>
+            <View style={styles.actionCell}>
+              <Button
+                label="Remove"
+                icon="trash-outline"
+                variant="danger"
+                busy={busy}
+                disabled={blocked}
+                onPress={() => void run(() => apiClient.printers.remove(printer.id))}
+              />
+            </View>
           </View>
         </View>
       )}
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, gap: 12 },
-  subtitle: { color: "#6B7280" },
-  errorText: { color: tokens.colors.error },
-  addRow: { flexDirection: "row", gap: 8 },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  screen: { flex: 1, backgroundColor: theme.surface.background },
+  container: { flex: 1, padding: theme.space.lg, gap: theme.space.md },
+  errorText: { ...theme.type.body, color: theme.tones.danger.fg },
+  manage: { gap: theme.space.md },
+  addRow: { flexDirection: "row", gap: theme.space.sm, alignItems: "center" },
+  addField: { flex: 1 },
+  addButton: { flexShrink: 0 },
+  listContent: { gap: theme.space.md, paddingBottom: theme.space.xxl },
+  cardHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    minHeight: 48,
   },
-  registerButton: {
-    backgroundColor: tokens.colors.primaryAction,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 16,
+  statusRow: { flexDirection: "row", alignItems: "center", gap: theme.space.md, flex: 1 },
+  printerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.surface.subtle,
+    alignItems: "center",
     justifyContent: "center",
   },
-  registerButtonText: { color: "#fff", fontWeight: "700" },
-  buttonDisabled: { opacity: 0.5 },
-  listContent: { gap: 8, paddingBottom: 24 },
-  card: {
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    padding: 14,
-    gap: 10,
-  },
-  cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
-  printerName: { fontWeight: "700" },
-  statusLabel: { color: "#6B7280" },
+  nameCol: { flex: 1, gap: 2 },
+  statusLine: { flexDirection: "row", alignItems: "center", gap: 6 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  printerName: { ...theme.type.heading, color: theme.text.primary },
+  statusLabel: { ...theme.type.caption, color: theme.text.muted },
   expandedSection: {
-    gap: 10,
+    gap: theme.space.md,
     borderTopWidth: 1,
-    borderTopColor: tokens.borders.color,
-    paddingTop: 10,
+    borderTopColor: theme.border.default,
+    paddingTop: theme.space.md,
   },
-  renameRow: { flexDirection: "row", gap: 8 },
-  capabilitiesSection: { gap: 4 },
-  capabilitiesTitle: { fontWeight: "600", color: "#6B7280", fontSize: 13 },
+  renameRow: { flexDirection: "row", gap: theme.space.sm, alignItems: "center" },
+  capabilitiesSection: { gap: theme.space.xs },
+  capabilitiesTitle: {
+    ...theme.type.overline,
+    color: theme.text.muted,
+    textTransform: "uppercase",
+  },
   capabilityRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 2,
+    minHeight: 44,
   },
-  capabilityLabel: { fontWeight: "500" },
-  actionRow: { flexDirection: "row", gap: 8 },
-  smallButton: {
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    justifyContent: "center",
-  },
-  smallButtonText: { fontWeight: "600" },
-  removeButton: {
-    borderWidth: 1,
-    borderColor: tokens.colors.error,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    justifyContent: "center",
-  },
-  removeButtonText: { color: tokens.colors.error, fontWeight: "600" },
+  capabilityLabel: { ...theme.type.bodyStrong, color: theme.text.primary },
+  actionRow: { flexDirection: "row", gap: theme.space.sm },
+  actionCell: { flex: 1 },
 });
+
+export default function PrintersScreen(): ReactNode {
+  const { shopName } = useShopAuth();
+  return (
+    <View style={styles.screen}>
+      <ScreenHeader title="Printers" subtitle={shopName} />
+      <PrintersBody />
+    </View>
+  );
+}

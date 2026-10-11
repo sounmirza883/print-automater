@@ -24,7 +24,9 @@ export default function RootLayout({ children }: { children: ReactNode }): React
             truth; never hand-copied here. */}
         <style dangerouslySetInnerHTML={{ __html: toCssVariablesText() }} />
       </head>
-      <body className="min-h-screen bg-surface text-ink antialiased">{children}</body>
+      <body className="min-h-screen bg-surface text-ink antialiased" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { tokens } from "@print-automated/design-tokens";
+import { theme } from "@print-automated/design-tokens";
 import type { Choice } from "@/lib/job-actions";
 import { MUTED } from "@/components/ui";
 
@@ -57,6 +57,7 @@ export function NoteField({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
+        placeholderTextColor={theme.inactive}
         maxLength={500}
         style={styles.input}
       />
@@ -83,42 +84,50 @@ export function ActionForm({
 }
 
 const styles = StyleSheet.create({
-  group: { gap: 6 },
-  label: { color: MUTED, fontSize: 13 },
+  group: { gap: theme.space.sm },
+  label: { ...theme.type.caption, color: MUTED },
   option: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    minHeight: 44,
+    gap: theme.space.md,
+    borderWidth: 1.5,
+    borderColor: theme.border.default,
+    backgroundColor: theme.surface.card,
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.space.md,
+    paddingHorizontal: theme.space.md,
+    minHeight: theme.touch,
   },
-  optionChecked: { borderColor: tokens.colors.primaryAction, backgroundColor: "#EFF6FF" },
-  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: "#9CA3AF" },
+  optionChecked: {
+    borderColor: theme.brand.accent,
+    backgroundColor: theme.surface.accentSubtle,
+  },
+  dot: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: theme.inactive },
   dotChecked: {
-    borderColor: tokens.colors.primaryAction,
-    backgroundColor: tokens.colors.primaryAction,
+    borderColor: theme.brand.accent,
+    borderWidth: 6,
+    backgroundColor: theme.surface.card,
   },
-  optionText: { flexShrink: 1 },
+  optionText: { ...theme.type.body, flexShrink: 1, color: theme.text.primary },
   input: {
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 44,
+    borderWidth: 1.5,
+    borderColor: theme.border.strong,
+    backgroundColor: theme.surface.card,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: theme.space.md,
+    minHeight: theme.touch,
+    fontSize: 16,
+    color: theme.text.primary,
   },
   form: {
     borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    padding: 12,
-    gap: 10,
-    backgroundColor: "#F9FAFB",
+    borderColor: theme.border.default,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.lg,
+    gap: theme.space.md,
+    backgroundColor: theme.surface.subtle,
   },
-  formDanger: { borderColor: "#FECACA", backgroundColor: "#FEF2F2" },
-  formTitle: { fontWeight: "700" },
+  formDanger: { borderColor: theme.tones.danger.border, backgroundColor: theme.tones.danger.bg },
+  formTitle: { ...theme.type.heading, color: theme.text.primary },
 });

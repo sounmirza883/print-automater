@@ -2,16 +2,17 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "jest"],
     "jsx": "preserve",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "verbatimModuleSyntax": false,
     "allowJs": true,
+    "ignoreDeprecations": "5.0",
     "incremental": true,
     "outDir": "dist",
     "noEmit": true,
     "plugins": [{ "name": "next" }],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

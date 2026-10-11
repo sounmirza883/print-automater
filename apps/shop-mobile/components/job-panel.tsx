@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { tokens } from "@print-automated/design-tokens";
+import { theme } from "@print-automated/design-tokens";
 import {
   availableJobActions,
   humanizeEnum,
@@ -521,16 +521,17 @@ function ResolveForm({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    padding: 12,
-    gap: 8,
-    backgroundColor: "#fff",
+    borderColor: theme.border.default,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.lg,
+    gap: theme.space.md,
+    backgroundColor: theme.surface.card,
+    ...theme.shadow.card,
   },
-  fact: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  factLabel: { color: MUTED },
-  factValue: { fontWeight: "600", flexShrink: 1, textAlign: "right" },
-  actions: { gap: 8, marginTop: 4 },
-  muted: { color: MUTED },
-  error: { color: tokens.colors.error },
+  fact: { flexDirection: "row", justifyContent: "space-between", gap: theme.space.md },
+  factLabel: { ...theme.type.body, color: MUTED },
+  factValue: { ...theme.type.bodyStrong, flexShrink: 1, textAlign: "right" },
+  actions: { gap: theme.space.sm, marginTop: theme.space.xs },
+  muted: { ...theme.type.body, color: MUTED },
+  error: { ...theme.type.body, color: theme.tones.danger.fg },
 });

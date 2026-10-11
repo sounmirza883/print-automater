@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { tokens } from "@print-automated/design-tokens";
+import { theme } from "@print-automated/design-tokens";
 import { instructionSummary } from "@print-automated/api-client";
 import type { DashboardJob } from "@print-automated/types";
-import { BlockedNote, MUTED, Pills } from "@/components/ui";
+import { BlockedNote, Card, MONO, MUTED, Pills, PressableScale } from "@/components/ui";
 import { formatAge, jobBadges } from "@/lib/job-view";
 
 /** One job on the production screen (23.33): the order number and badges, the document, what
@@ -18,51 +19,63 @@ export function JobCard({
   showPrinter?: boolean;
 }): ReactNode {
   const router = useRouter();
+  const edge = job.blockedReason !== null ? theme.tones.caution.solid : theme.brand.accent;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`Order ${job.publicOrderNumber}, ${job.status.toLowerCase()}`}
       onPress={() => router.push(`/orders/${job.orderId}`)}
-      style={styles.card}
+      scaleTo={0.985}
     >
-      <View style={styles.headerRow}>
-        <Text style={styles.orderNumber}>{job.publicOrderNumber}</Text>
-        <Text style={styles.age}>{formatAge(job.updatedAt)}</Text>
-      </View>
-      <Pills badges={jobBadges(job)} />
-      {job.documentFilename !== null && (
-        <Text numberOfLines={1} style={styles.document}>
-          {job.documentFilename}
-        </Text>
-      )}
-      <Text style={styles.instructions}>
-        <Text style={styles.instructionsLabel}>Load and print: </Text>
-        {instructionSummary(job.instructions)}
-      </Text>
-      {showPrinter && (
-        <Text style={styles.printer}>
-          {job.printerName !== null ? `On ${job.printerName}` : "No printer assigned yet"}
-        </Text>
-      )}
-      <BlockedNote reason={job.blockedReason} />
-    </Pressable>
+      <Card edge={edge}>
+        <View style={styles.headerRow}>
+          <Text style={styles.orderNumber}>{job.publicOrderNumber}</Text>
+          <View style={styles.ageRow}>
+            <Ionicons name="time-outline" size={14} color={MUTED} />
+            <Text style={styles.age}>{formatAge(job.updatedAt)}</Text>
+          </View>
+        </View>
+        <Pills badges={jobBadges(job)} />
+        {job.documentFilename !== null && (
+          <View style={styles.line}>
+            <Ionicons name="document-text-outline" size={16} color={MUTED} />
+            <Text numberOfLines={1} style={styles.document}>
+              {job.documentFilename}
+            </Text>
+          </View>
+        )}
+        <View style={styles.instructionBox}>
+          <Text style={styles.instructionsLabel}>Load and print</Text>
+          <Text style={styles.instructions}>{instructionSummary(job.instructions)}</Text>
+        </View>
+        {showPrinter && (
+          <View style={styles.line}>
+            <Ionicons name="print-outline" size={16} color={MUTED} />
+            <Text style={styles.printer}>
+              {job.printerName !== null ? `On ${job.printerName}` : "No printer assigned yet"}
+            </Text>
+          </View>
+        )}
+        <BlockedNote reason={job.blockedReason} />
+      </Card>
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderColor: tokens.borders.color,
-    borderRadius: tokens.radius.md,
-    padding: 14,
-    gap: 6,
-    backgroundColor: "#fff",
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  orderNumber: { ...theme.type.heading, fontFamily: MONO, fontSize: 16, color: theme.text.primary },
+  ageRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  age: { ...theme.type.caption, color: MUTED },
+  line: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+  document: { ...theme.type.body, flex: 1, color: theme.text.primary },
+  instructionBox: {
+    backgroundColor: theme.surface.subtle,
+    borderRadius: theme.radius.sm,
+    padding: theme.space.md,
+    gap: 2,
   },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  orderNumber: { fontWeight: "700", fontSize: 16 },
-  age: { color: MUTED, fontSize: 12 },
-  document: { fontSize: 14 },
-  instructions: { fontSize: 13, color: MUTED },
-  instructionsLabel: { fontWeight: "700", color: "#111827" },
-  printer: { fontSize: 13, color: MUTED },
+  instructionsLabel: { ...theme.type.overline, color: MUTED, textTransform: "uppercase" },
+  instructions: { ...theme.type.bodyStrong, color: theme.text.primary },
+  printer: { ...theme.type.caption, color: MUTED },
 });

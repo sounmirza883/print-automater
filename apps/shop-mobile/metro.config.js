@@ -17,6 +17,32 @@ config.resolver.nodeModulesPaths = [
 ];
 config.watchFolders = [workspaceRoot];
 
+// Git worktrees checked out inside this repo (.worktrees/, plus the ones
+// Claude Code creates under .claude/worktrees/) are full copies of the
+// monorepo, each with its own node_modules. Because watchFolders is the
+// whole workspace root, Metro would crawl and watch every one of them --
+// ~134k of the ~152k directories under the root when this was added --
+// and without Watchman (Expo's default) that alone pushes startup past
+// Metro's 4-minute limit: "Failed to start watch mode", after which every
+// request 500s. Anchored to this workspace root on purpose, so a
+// worktree's own copy of this file does not block the worktree it runs in.
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const underWorkspaceRoot = (...segments) => {
+  const source = path
+    .join(workspaceRoot, ...segments)
+    .split(path.sep)
+    .map(escapeRegExp)
+    .join("[\\\\/]")
+    // Windows reports the drive letter in either case depending on the shell.
+    .replace(/^[A-Za-z](?=:)/, (drive) => `[${drive.toLowerCase()}${drive.toUpperCase()}]`);
+  return new RegExp(`^${source}(?:[\\\\/]|$)`);
+};
+config.resolver.blockList = [
+  ...[config.resolver.blockList].flat().filter(Boolean),
+  underWorkspaceRoot(".worktrees"),
+  underWorkspaceRoot(".claude", "worktrees"),
+];
+
 // Those same workspace packages' own source uses NodeNext-style ".js"
 // specifiers on their relative imports (e.g. "./tokens.js" resolving to
 // tokens.ts) -- required so Node's native ESM loader can run them
