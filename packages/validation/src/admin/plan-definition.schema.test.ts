@@ -135,3 +135,42 @@ describe("activatePlanSchema (assign a named plan, not a raw day count)", () => 
     expect(activatePlanSchema.safeParse({ days: 30 }).success).toBe(false);
   });
 });
+
+describe("plan pricing fields", () => {
+  const uuid = "11111111-1111-4111-8111-111111111111";
+
+  it("accepts annual price, badge, contact-only, sort order and values", () => {
+    const result = createPlanDefinitionSchema.safeParse({
+      ...valid(),
+      annualPriceMinor: 6_000_000,
+      highlighted: true,
+      contactOnly: false,
+      sortOrder: 20,
+      values: { [uuid]: "10" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a values key that is not a uuid, and a blank value", () => {
+    expect(
+      createPlanDefinitionSchema.safeParse({ ...valid(), values: { nope: "1" } }).success,
+    ).toBe(false);
+    expect(
+      createPlanDefinitionSchema.safeParse({ ...valid(), values: { [uuid]: "  " } }).success,
+    ).toBe(false);
+  });
+
+  it("update: annualPriceMinor null clears it", () => {
+    const result = updatePlanDefinitionSchema.safeParse({ annualPriceMinor: null });
+    expect(result.success && result.data.annualPriceMinor).toBeNull();
+  });
+
+  it("rejects a negative annual price and an out-of-range sort order", () => {
+    expect(createPlanDefinitionSchema.safeParse({ ...valid(), annualPriceMinor: -1 }).success).toBe(
+      false,
+    );
+    expect(createPlanDefinitionSchema.safeParse({ ...valid(), sortOrder: 1001 }).success).toBe(
+      false,
+    );
+  });
+});

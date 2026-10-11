@@ -11,6 +11,12 @@ export {
   updatePlanDefinitionSchema,
   type UpdatePlanDefinitionInput,
 } from "./plan-definition.schema.js";
+export {
+  createPlanFeatureSchema,
+  type CreatePlanFeatureInput,
+  updatePlanFeatureSchema,
+  type UpdatePlanFeatureInput,
+} from "./plan-feature.schema.js";
 export { createBusinessSchema, type CreateBusinessInput } from "./create-business.schema.js";
 export {
   updateBusinessStatusSchema,
