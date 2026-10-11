@@ -21,7 +21,7 @@ toggle were dropped in that slice; this spec brings them back, DB-driven.
 
 - Shared feature rows: feature rows are defined once; each plan sets a value per row.
   The Compare table is the full matrix; card bullets come from the same rows.
-- Look stays as before: Monthly/Annual toggle with "2 months free", "Most popular"
+- Look stays as before: Monthly/Annual toggle, "Most popular"
   badge, bullets on cards, Compare plans table with Capacity / Automation / Reporting /
   Support groups.
 - Currency: PKR. Prices (integer minor units = paisa):
@@ -33,11 +33,14 @@ toggle were dropped in that slice; this spec brings them back, DB-driven.
   | Business   | PKR 15,000 | PKR 150,000       |
   | Enterprise | Custom     | Custom            |
 
-  "2 months free" is true by construction (annual = 10 x monthly) and stays as the
-  toggle's label.
+  There is no "2 months free" offer. On the Annual view each paid card shows a
+  struck-out price (monthly x 12, calculated, never stored) next to the discounted
+  annual price, with a "Save PKR X" note (X = monthly x 12 - annual). The toggle is
+  labelled "Annual".
 
 - Enterprise: every limit and feature is "Custom"; the card shows "Custom pricing" and a
   "Contact us" button instead of a price. Talking to the team is the only way to get it.
+- Only the features in the current list are offered; new ones are added later as rows.
 - Seeding: a one-off, idempotent seed loads the four plans and the Compare table from
   the current `content/pricing.ts` content, after which every cell is editable in admin.
 
