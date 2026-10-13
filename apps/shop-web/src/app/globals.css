@@ -1,45 +1,104 @@
 @import "tailwindcss";
 
-/* Surface, text and status-text colours for the back office. The five
-   semantic FILL colours (primary action, success, warning, error,
-   neutral) come from @print-automated/design-tokens (injected as
-   --color-* variables by layout.tsx); tokens carry no dark palette or
-   text-safe shades yet, so the light/dark surfaces and the darker/lighter
-   "-fg" text variants that keep contrast >= 4.5:1 live here, in ONE
-   place, layered on top of the tokens. */
+/* The console's two themes. Surfaces, text and status-text colours live
+   here, in ONE place; the five semantic FILL colours (primary action,
+   success, warning, error, neutral) still come from
+   @print-automated/design-tokens (injected as --color-* by layout.tsx),
+   which other apps share and which carries no dark palette.
+
+   Which theme applies: `<html data-theme="light|dark">` when the person chose
+   one (app/layout.tsx renders it from the shop_theme cookie), otherwise the
+   operating system. CSS has no way to share a block between a media query
+   and a selector, so the dark values are written twice; globals.test.ts
+   fails if the two copies drift or a text/background pair drops under 4.5:1.
+
+   `inv` flips with the theme (black in light, white in dark); `brand` does
+   not (dark in both), for surfaces such as the sign-in panel that must never
+   turn white. */
 :root {
-  color-scheme: light dark;
-  --surface: #f2f3f0;
+  color-scheme: light;
+  --surface: #f6f6f6;
   --panel: #ffffff;
-  --panel-2: #f7f8f6;
-  --ink: #14171c;
-  --muted: #5a6270;
-  --line: #dfe2e6;
-  --side: #12161c;
-  --side-ink: #c5cbd5;
-  --side-line: #232a34;
-  --accent-fg: #1d4ed8;
-  --good-fg: #15803d;
-  --warn-fg: #b45309;
-  --bad-fg: #b91c1c;
+  --panel-2: #f0f0f0;
+  --ink: #0a0a0a;
+  --ink-2: #3a3a3a;
+  --muted: #646464;
+  --line: #e3e3e3;
+  --line-strong: #cfcfcf;
+  --side: #ffffff;
+  --side-ink: #3a3a3a;
+  --side-line: #e3e3e3;
+  --inv: #0a0a0a;
+  --inv-ink: #ffffff;
+  --brand: #0a0a0a;
+  --brand-ink: #ffffff;
+  --accent-fg: #1e46b8;
+  --good-fg: #166534;
+  --warn-fg: #8a4b0a;
+  --bad-fg: #b42318;
+  --accent-soft: #e8effe;
+  --good-soft: #e7f6ec;
+  --caution-soft: #fdf1dc;
+  --danger-soft: #fdeceb;
+  --panel-shadow: 0 1px 2px rgb(10 10 10 / 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --surface: #0d1014;
-    --panel: #161a21;
-    --panel-2: #1b2029;
-    --ink: #e7e9ed;
-    --muted: #99a1ae;
-    --line: #2a313c;
-    --side: #090b0e;
-    --side-ink: #b7bec9;
-    --side-line: #1c222b;
-    --accent-fg: #8fb0ff;
-    --good-fg: #5ee08f;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #0a0a0a;
+    --panel: #131313;
+    --panel-2: #1c1c1c;
+    --ink: #f5f5f5;
+    --ink-2: #d0d0d0;
+    --muted: #a0a0a0;
+    --line: #272727;
+    --line-strong: #3a3a3a;
+    --side: #0a0a0a;
+    --side-ink: #d0d0d0;
+    --side-line: #272727;
+    --inv: #f5f5f5;
+    --inv-ink: #0a0a0a;
+    --brand: #131313;
+    --brand-ink: #f5f5f5;
+    --accent-fg: #93b4ff;
+    --good-fg: #4ade80;
     --warn-fg: #fbbf24;
-    --bad-fg: #ff8d8d;
+    --bad-fg: #f87171;
+    --accent-soft: #111b33;
+    --good-soft: #0f2417;
+    --caution-soft: #2a1f08;
+    --danger-soft: #2b1212;
+    --panel-shadow: 0 0 0 0 transparent;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #0a0a0a;
+  --panel: #131313;
+  --panel-2: #1c1c1c;
+  --ink: #f5f5f5;
+  --ink-2: #d0d0d0;
+  --muted: #a0a0a0;
+  --line: #272727;
+  --line-strong: #3a3a3a;
+  --side: #0a0a0a;
+  --side-ink: #d0d0d0;
+  --side-line: #272727;
+  --inv: #f5f5f5;
+  --inv-ink: #0a0a0a;
+  --brand: #131313;
+  --brand-ink: #f5f5f5;
+  --accent-fg: #93b4ff;
+  --good-fg: #4ade80;
+  --warn-fg: #fbbf24;
+  --bad-fg: #f87171;
+  --accent-soft: #111b33;
+  --good-soft: #0f2417;
+  --caution-soft: #2a1f08;
+  --danger-soft: #2b1212;
+  --panel-shadow: 0 0 0 0 transparent;
 }
 
 @theme inline {
@@ -47,11 +106,17 @@
   --color-panel: var(--panel);
   --color-panel-2: var(--panel-2);
   --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-side: var(--side);
   --color-side-ink: var(--side-ink);
   --color-side-line: var(--side-line);
+  --color-inv: var(--inv);
+  --color-inv-ink: var(--inv-ink);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
   --color-quiet: var(--color-neutral);
   --color-accent: var(--color-primary-action);
   --color-accent-fg: var(--accent-fg);
@@ -61,28 +126,68 @@
   --color-caution-fg: var(--warn-fg);
   --color-danger: var(--color-error);
   --color-danger-fg: var(--bad-fg);
-  --color-accent-soft: color-mix(in srgb, var(--color-primary-action) 14%, var(--panel));
-  --color-good-soft: color-mix(in srgb, var(--color-success) 15%, var(--panel));
-  --color-caution-soft: color-mix(in srgb, var(--color-warning) 17%, var(--panel));
-  --color-danger-soft: color-mix(in srgb, var(--color-error) 14%, var(--panel));
-  --font-mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --color-accent-soft: var(--accent-soft);
+  --color-good-soft: var(--good-soft);
+  --color-caution-soft: var(--caution-soft);
+  --color-danger-soft: var(--danger-soft);
+  --shadow-panel: var(--panel-shadow);
+  /* Every screen says rounded-md for controls and rounded-lg for panels;
+     re-pointing the two steps re-shapes all of them at once. */
+  --radius-md: 0.5625rem;
+  --radius-lg: 0.75rem;
+  --font-sans:
+    var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas,
+    monospace;
 }
 
 html {
   background: var(--surface);
   color: var(--ink);
+  accent-color: var(--inv);
 }
 
 body {
-  font-family: var(--font-family, system-ui, sans-serif);
+  /* Written out rather than var(--font-sans): an `inline` theme value is not
+     guaranteed to exist as a variable outside Tailwind's own utilities. */
+  font-family:
+    var(--font-geist-sans),
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
   font-size: 14px;
   line-height: 20px;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Figures line up in columns; every number in the console uses this. */
+/* How much of the bottom of the screen the phone tab bar covers: nothing from
+   `lg` up (there is no bar), and below it the bar's own height (a 50px tab +
+   6px top padding + 1px border = 57px) plus its bottom padding. Anything a
+   screen sticks to the bottom sits above the bar by using this. Keep it in
+   step with shell/bottom-tabs.tsx. */
+body {
+  --bottom-nav: 0px;
+}
+
+/* 64rem is Tailwind's `lg` breakpoint: keep it in rem, or it disagrees with
+   the `lg:` utilities when the browser's font size is not 16px. */
+@media (width < 64rem) {
+  body {
+    --bottom-nav: calc(3.5625rem + max(0.5rem, env(safe-area-inset-bottom)));
+  }
+}
+
+/* Identifiers and figures that must line up in columns. */
 .num {
-  font-family: var(--font-mono);
+  font-family:
+    var(--font-geist-mono), ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas,
+    monospace;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -91,7 +196,113 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent-fg);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+/* The search palette's box is the only field in its dialog and holds focus
+   for as long as the dialog is open, so a ring around it says nothing (the
+   browser pass showed a blue rectangle inside the palette's header). Its
+   caret shows where typing goes. Opt-in, one use; not for ordinary fields. */
+[data-quiet-focus]:focus-visible {
+  outline: none;
+}
+
+/* Tabs sit in a sideways-scrolling row, which would clip a ring drawn outside
+   them; draw it just inside instead. */
+nav[data-tabs] :focus-visible {
+  outline-offset: -2px;
+}
+
+@layer base {
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      box-shadow 150ms ease,
+      opacity 150ms ease;
+  }
+}
+
+/* DataTable stackOnPhone: below `sm`, each row is a card and each cell a
+   "label ..... value" line (the label is the cell's data-label). The column
+   headings stay in the DOM, visually hidden, and Row/Cell carry explicit
+   roles, so it is still a table to a screen reader. */
+/* 40rem is Tailwind's `sm` breakpoint: keep it in rem, or it disagrees with
+   the `sm:` utilities when the browser's font size is not 16px. */
+@media (width < 40rem) {
+  table.stack-sm,
+  table.stack-sm tbody,
+  table.stack-sm tr,
+  table.stack-sm td {
+    display: block;
+  }
+  table.stack-sm thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table.stack-sm tbody {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+  table.stack-sm tbody > tr {
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    background: var(--panel);
+    box-shadow: var(--panel-shadow);
+    padding: 0.625rem 0.875rem;
+  }
+  table.stack-sm td {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 1rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 0.25rem 0;
+    text-align: right;
+    white-space: normal;
+  }
+  table.stack-sm td[data-label]::before {
+    content: attr(data-label);
+    /* Where supported, give the generated label empty alternative text: the
+       visually hidden header row already names the column for a screen
+       reader, and without this it would hear each label twice. Browsers that
+       do not know the syntax drop this line and keep the one above. */
+    content: attr(data-label) / "";
+    flex: none;
+    margin-right: auto;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: left;
+  }
+  table.stack-sm td:not([data-label]) {
+    justify-content: flex-start;
+    text-align: left;
+  }
+  table.stack-sm td:not([data-label]):first-child {
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  table.stack-sm td:not([data-label]):last-child:not(:first-child) {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    padding-top: 0.5rem;
+  }
+  table.stack-sm td:empty {
+    display: none;
+  }
 }
 
 @keyframes shimmer {

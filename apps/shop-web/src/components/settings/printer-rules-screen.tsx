@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import type { PrinterResponse, PrinterRule } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
@@ -15,7 +14,16 @@ import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
-import { Button, EmptyState, LiveStatus, PageHeader, Panel, Pill } from "@/components/ui";
+import {
+  BackLink,
+  Button,
+  EmptyState,
+  LiveStatus,
+  Notice,
+  PageHeader,
+  Panel,
+  Pill,
+} from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { humanizeEnum } from "@/lib/format";
 import {
@@ -62,11 +70,7 @@ function RulesBody(): ReactNode {
 
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/settings" className="underline underline-offset-2">
-          &larr; Settings
-        </Link>
-      </p>
+      <BackLink href="/settings">Settings</BackLink>
       <PageHeader
         title="Printer rules"
         subtitle="Steer which printers new jobs prefer or avoid"
@@ -85,16 +89,13 @@ function RulesBody(): ReactNode {
           </>
         }
       />
-      <p
-        role="note"
-        className="mb-4 rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-sm"
-      >
+      <Notice tone="accent" role="note" className="mb-4">
         Rules are checked from the top. <strong>Prefer</strong> tries those printers first for
         matching jobs; <strong>avoid</strong> uses them only if nothing else can do the job. A
         printer named on a job, or chosen by hand, always wins, and a rule that would leave no
         printer is skipped. Rules never move a job that is already printing. Up to {MAX_RULES}{" "}
         rules.
-      </p>
+      </Notice>
       <ErrorBanner message={runner.error} />
       <ResourceBoundary state={rules} what="printer rules">
         {(data) =>

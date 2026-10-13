@@ -9,7 +9,7 @@ import { SubmitProofDialog } from "@/components/billing/submit-proof-dialog";
 import { Modal } from "@/components/modal";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
-import { Button, DataTable, EmptyState, PageHeader, Panel, Pill } from "@/components/ui";
+import { Button, DataTable, EmptyState, Notice, PageHeader, Panel, Pill } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import {
   durationLabel,
@@ -69,12 +69,9 @@ function BillingBody(): ReactNode {
       />
 
       {notice !== null && (
-        <p
-          role="status"
-          className="mb-4 rounded-md border border-good/50 bg-good-soft px-3 py-2 text-sm"
-        >
+        <Notice tone="good" role="status" className="mb-4">
           {notice}
-        </p>
+        </Notice>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">

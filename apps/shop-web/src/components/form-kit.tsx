@@ -1,12 +1,22 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { Button } from "@/components/ui";
+import { Button, Notice } from "@/components/ui";
 
 /** Small form primitives shared by every management screen, so labels,
  * hints, invalid states and spacing are identical everywhere. */
 
-export const INPUT = "rounded-md border border-line bg-panel px-2 py-1.5 text-sm font-normal";
+/** What every field shares; the two recipes below differ only in size. */
+const FIELD_SHAPE =
+  "rounded-md border border-line bg-panel font-normal text-ink placeholder:text-muted hover:border-line-strong";
+
+export const INPUT = `${FIELD_SHAPE} min-h-9 px-2.5 py-1.5 text-sm max-sm:min-h-11 max-sm:text-base`;
+
+/** The roomier field of the sign-in pages: 44px tall with 16px text at every
+ * width. A separate recipe rather than `${INPUT} text-base`, because two
+ * font-size utilities on one element are settled by stylesheet order, not by
+ * which comes last in the class list. */
+export const INPUT_LG = `${FIELD_SHAPE} min-h-11 px-3 py-2 text-base`;
 
 export function Field({
   label,
@@ -20,7 +30,7 @@ export function Field({
   children: ReactNode;
 }): ReactNode {
   return (
-    <label className="grid gap-1 text-sm font-medium">
+    <label className="grid gap-1.5 text-sm font-medium">
       {label}
       {children}
       {error ? (
@@ -174,7 +184,7 @@ export function CheckField({
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5"
+        className="mt-0.5 size-4 accent-inv"
       />
       <span>
         <span className="font-medium">{label}</span>
@@ -208,14 +218,14 @@ export function SearchForm({
         onSubmit();
       }}
     >
-      <label className="grid min-w-[14rem] flex-1 gap-1 text-xs font-medium text-muted">
+      <label className="grid min-w-[14rem] flex-1 gap-1.5 text-xs font-medium text-muted">
         {label}
         <input
           type="search"
           value={value}
           maxLength={100}
           onChange={(event) => onChange(event.target.value)}
-          className={`${INPUT} text-base text-ink`}
+          className={`${INPUT} text-ink`}
         />
       </label>
       {children}
@@ -260,11 +270,8 @@ export function ErrorBanner({ message }: { message: string | null }): ReactNode 
     return null;
   }
   return (
-    <p
-      role="alert"
-      className="mb-4 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-    >
+    <Notice tone="danger" role="alert" className="mb-4">
       {message}
-    </p>
+    </Notice>
   );
 }

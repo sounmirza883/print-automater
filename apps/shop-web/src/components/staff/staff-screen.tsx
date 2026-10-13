@@ -10,12 +10,15 @@ import { RequirePermission, ResourceBoundary } from "@/components/resource-bound
 import { useSession } from "@/components/session-provider";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
+  Row,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -114,12 +117,9 @@ function StaffBody(): ReactNode {
         }
       />
       {notice !== null && (
-        <p
-          role="status"
-          className="mb-4 rounded-md border border-good/50 bg-good-soft px-3 py-2 text-sm text-good-fg"
-        >
+        <Notice tone="good" role="status" className="mb-4">
           {notice}
-        </p>
+        </Notice>
       )}
       <PendingInvites
         data={invites.data}
@@ -172,19 +172,25 @@ function StaffBody(): ReactNode {
                 : "Add the people who work at this business."}
             </EmptyState>
           ) : (
-            <Panel>
-              <DataTable caption="Staff" head={["Name", "Email", "Role", "Status", "Since", ""]}>
+            <Panel flushOnPhone>
+              <DataTable
+                caption="Staff"
+                head={["Name", "Email", "Role", "Status", "Since", ""]}
+                stackOnPhone
+              >
                 {data.items.map((member) => (
-                  <tr key={member.id}>
-                    <td className="px-4 py-2 font-medium">
+                  <Row key={member.id}>
+                    <Cell className="font-medium">
                       {member.name}
                       {member.userId === user.id && (
                         <span className="ml-2 text-xs text-muted">(you)</span>
                       )}
-                    </td>
-                    <td className="px-4 py-2 text-muted">{member.email}</td>
-                    <td className="px-4 py-2">{roleLabel(member.role as UserRole)}</td>
-                    <td className="px-4 py-2">
+                    </Cell>
+                    <Cell label="Email" className="text-muted">
+                      {member.email}
+                    </Cell>
+                    <Cell label="Role">{roleLabel(member.role as UserRole)}</Cell>
+                    <Cell label="Status">
                       <Pill
                         tone={
                           member.status === "ACTIVE"
@@ -200,9 +206,11 @@ function StaffBody(): ReactNode {
                             ? "Suspended"
                             : "Removed"}
                       </Pill>
-                    </td>
-                    <td className="px-4 py-2 text-muted">{formatDate(member.createdAt)}</td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                    </Cell>
+                    <Cell label="Since" className="text-muted">
+                      {formatDate(member.createdAt)}
+                    </Cell>
+                    <Cell className="text-right whitespace-nowrap">
                       {member.status !== "REMOVED" && canActOnMember(businessRole, member.role) && (
                         <>
                           <Button
@@ -219,8 +227,8 @@ function StaffBody(): ReactNode {
                           </Button>
                         </>
                       )}
-                    </td>
-                  </tr>
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />
@@ -357,27 +365,40 @@ function PendingInvites({
     return null;
   }
   return (
-    <Panel title="Pending invitations" aside={`${data.total} waiting`} className="mb-4">
-      <DataTable caption="Pending invitations" head={["Email", "Role", "Sent", "Expires", ""]}>
+    <Panel
+      title="Pending invitations"
+      aside={`${data.total} waiting`}
+      className="mb-4"
+      flushOnPhone
+    >
+      <DataTable
+        caption="Pending invitations"
+        head={["Email", "Role", "Sent", "Expires", ""]}
+        stackOnPhone
+      >
         {data.items.map((invite) => (
-          <tr key={invite.id}>
-            <td className="px-4 py-2 font-medium">
+          <Row key={invite.id}>
+            <Cell className="font-medium">
               {invite.email}
               {invite.invitedBy === userId && (
                 <span className="ml-2 text-xs text-muted">(by you)</span>
               )}
-            </td>
-            <td className="px-4 py-2">{roleLabel(invite.role as UserRole)}</td>
-            <td className="px-4 py-2 text-muted">{formatDate(invite.createdAt)}</td>
-            <td className="px-4 py-2 text-muted">{formatDate(invite.expiresAt)}</td>
-            <td className="px-4 py-2 text-right whitespace-nowrap">
+            </Cell>
+            <Cell label="Role">{roleLabel(invite.role as UserRole)}</Cell>
+            <Cell label="Sent" className="text-muted">
+              {formatDate(invite.createdAt)}
+            </Cell>
+            <Cell label="Expires" className="text-muted">
+              {formatDate(invite.expiresAt)}
+            </Cell>
+            <Cell className="text-right whitespace-nowrap">
               {canCancelInvite(actorRole, invite.role) && (
                 <Button variant="ghost" onClick={() => onCancel(invite)}>
                   Cancel
                 </Button>
               )}
-            </td>
-          </tr>
+            </Cell>
+          </Row>
         ))}
       </DataTable>
       <Pager page={page} pageSize={INVITE_PAGE} total={data.total} onPage={onPage} />

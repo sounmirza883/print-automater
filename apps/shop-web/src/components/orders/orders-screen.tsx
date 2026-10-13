@@ -9,7 +9,9 @@ import { BlockedNote } from "@/components/blocked-note";
 import { QrAwaitingPaymentPill } from "@/components/orders/action-bars";
 import { OperatorPicker } from "@/components/orders/operator-picker";
 import { RequirePermission } from "@/components/resource-boundary";
+import { INPUT } from "@/components/form-kit";
 import { useSession } from "@/components/session-provider";
+import { Tabs } from "@/components/tabs";
 import {
   Button,
   EmptyState,
@@ -29,6 +31,7 @@ import {
   ORDER_STATUS_OPTIONS,
   PAGE_SIZE,
   PAYMENT_STATUS_OPTIONS,
+  activeFilterCount,
   blockedReasonsOf,
   configurationSummary,
   isSearching,
@@ -42,7 +45,6 @@ import {
 import { useResource } from "@/lib/use-resource";
 
 const POLL_MS = 30_000;
-const FIELD = "rounded-md border border-line bg-panel px-2 py-1.5 text-sm";
 
 /** PRD 110: the queue. The five groups the API defines (needs attention
  * first, and visibly so), plus search and filters over every order. The
@@ -64,6 +66,23 @@ function OrdersBody(): ReactNode {
   const query = parseOrdersQuery(params);
   const searching = isSearching(query);
   const [draft, setDraft] = useState<OrdersQuery>(query);
+  // The URL is the source of truth and the form is a draft of it. When the URL
+  // changes from outside this form (the search palette, the back button, a link
+  // from the dashboard), the draft follows; otherwise the next Search would send
+  // the form's old text and silently drop what the URL was showing.
+  const urlKey = toSearchString(query);
+  const [syncedKey, setSyncedKey] = useState(urlKey);
+  // Phone only: below `sm` the filter fields fold away behind a Filters button.
+  // A search by text alone does not need them open; a filter that is set does.
+  // Declared before the sync block below, which may open it.
+  const [filtersOpen, setFiltersOpen] = useState(activeFilterCount(query) > 0);
+  if (syncedKey !== urlKey) {
+    setSyncedKey(urlKey);
+    setDraft(query);
+    if (activeFilterCount(query) > 0) {
+      setFiltersOpen(true);
+    }
+  }
   const [showMore, setShowMore] = useState(
     query.printerId !== "" || query.operatorId !== "" || query.customerId !== "",
   );
@@ -115,28 +134,23 @@ function OrdersBody(): ReactNode {
         }
       />
 
-      <nav aria-label="Order groups" className="mb-4 flex flex-wrap gap-1 border-b border-line">
-        <GroupTab
-          label="All"
-          active={query.group === null && !searching}
-          onClick={() => {
-            setDraft(EMPTY_QUERY);
-            go(EMPTY_QUERY);
-          }}
-        />
-        {ORDER_GROUPS.map((group) => (
-          <GroupTab
-            key={group.id}
-            label={group.label}
-            emphasis={group.id === "needsAttention"}
-            active={query.group === group.id && !searching}
-            onClick={() => {
-              setDraft(EMPTY_QUERY);
-              go({ ...EMPTY_QUERY, group: group.id });
-            }}
-          />
-        ))}
-      </nav>
+      <Tabs
+        ariaLabel="Order groups"
+        activeId={searching ? null : (query.group ?? "all")}
+        items={[
+          { id: "all", label: "All" },
+          ...ORDER_GROUPS.map((group) => ({
+            id: group.id,
+            label: group.label,
+            emphasis: group.id === "needsAttention",
+          })),
+        ]}
+        onSelect={(id) => {
+          setDraft(EMPTY_QUERY);
+          const group = ORDER_GROUPS.find((candidate) => candidate.id === id);
+          go(group === undefined ? EMPTY_QUERY : { ...EMPTY_QUERY, group: group.id });
+        }}
+      />
 
       <form
         onSubmit={submitSearch}
@@ -152,127 +166,155 @@ function OrdersBody(): ReactNode {
               value={draft.q}
               maxLength={100}
               onChange={(event) => setDraft({ ...draft, q: event.target.value })}
-              className={`${FIELD} text-base text-ink`}
+              className={INPUT}
             />
           </label>
-          <label className="grid gap-1 text-xs font-medium text-muted">
-            Status
-            <select
-              value={draft.status}
-              onChange={(event) => setDraft({ ...draft, status: event.target.value })}
-              className={FIELD}
-            >
-              <option value="">Any</option>
-              {ORDER_STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {humanizeEnum(status)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-muted">
-            Payment
-            <select
-              value={draft.paymentStatus}
-              onChange={(event) => setDraft({ ...draft, paymentStatus: event.target.value })}
-              className={FIELD}
-            >
-              <option value="">Any</option>
-              {PAYMENT_STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {humanizeEnum(status)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-muted">
-            From
-            <input
-              type="date"
-              value={draft.from}
-              onChange={(event) => setDraft({ ...draft, from: event.target.value })}
-              className={FIELD}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-muted">
-            To
-            <input
-              type="date"
-              value={draft.to}
-              onChange={(event) => setDraft({ ...draft, to: event.target.value })}
-              className={FIELD}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-muted">
-            Priority
-            <select
-              value={draft.priority}
-              onChange={(event) => setDraft({ ...draft, priority: event.target.value })}
-              className={FIELD}
-            >
-              <option value="">Any</option>
-              <option value="0">Normal</option>
-              <option value="10">High</option>
-              <option value="20">Urgent</option>
-            </select>
-          </label>
-          <Button type="submit" variant="primary">
-            Search
-          </Button>
-          {(searching || isSearching(draft)) && (
-            <Button
-              onClick={() => {
-                setDraft(EMPTY_QUERY);
-                go({ ...EMPTY_QUERY, group: query.group });
-              }}
-            >
-              Clear
+          {/* Phone: Search and Filters sit beside the search box, and everything else
+              folds away until Filters is pressed. From `sm` up the wrapper is
+              display:contents, so the controls flow in one row exactly as they always
+              did; the desktop Search button then sits after Priority, and this phone
+              copy is display:none (out of the tab order and the accessibility tree). */}
+          <span className="contents sm:hidden">
+            <Button type="submit" variant="primary">
+              Search
             </Button>
-          )}
+          </span>
           <button
             type="button"
-            aria-expanded={showMore}
-            onClick={() => setShowMore(!showMore)}
-            className="text-sm font-medium underline"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen(!filtersOpen)}
+            className="inline-flex min-h-11 items-center rounded-md border border-line bg-panel px-3 text-sm font-medium sm:hidden"
           >
-            {showMore ? "Fewer filters" : "More filters"}
+            {filtersOpen
+              ? "Hide filters"
+              : activeFilterCount(query) > 0
+                ? `Filters (${activeFilterCount(query)})`
+                : "Filters"}
           </button>
-        </div>
-        {showMore && (
-          <div className="flex flex-wrap items-end gap-3">
-            {printers.data !== null && (
-              <label className="grid gap-1 text-xs font-medium text-muted">
-                Printer
-                <select
-                  value={draft.printerId}
-                  onChange={(event) => setDraft({ ...draft, printerId: event.target.value })}
-                  className={FIELD}
-                >
-                  <option value="">Any</option>
-                  {printers.data.items.map((printer) => (
-                    <option key={printer.id} value={printer.id}>
-                      {printer.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+          <div
+            className={`${filtersOpen ? "flex" : "hidden"} basis-full flex-wrap items-end gap-3 sm:contents`}
+          >
+            <label className="grid gap-1 text-xs font-medium text-muted">
+              Status
+              <select
+                value={draft.status}
+                onChange={(event) => setDraft({ ...draft, status: event.target.value })}
+                className={INPUT}
+              >
+                <option value="">Any</option>
+                {ORDER_STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {humanizeEnum(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-muted">
+              Payment
+              <select
+                value={draft.paymentStatus}
+                onChange={(event) => setDraft({ ...draft, paymentStatus: event.target.value })}
+                className={INPUT}
+              >
+                <option value="">Any</option>
+                {PAYMENT_STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {humanizeEnum(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-muted">
+              From
+              <input
+                type="date"
+                value={draft.from}
+                onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+                className={INPUT}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-muted">
+              To
+              <input
+                type="date"
+                value={draft.to}
+                onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+                className={INPUT}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-muted">
+              Priority
+              <select
+                value={draft.priority}
+                onChange={(event) => setDraft({ ...draft, priority: event.target.value })}
+                className={INPUT}
+              >
+                <option value="">Any</option>
+                <option value="0">Normal</option>
+                <option value="10">High</option>
+                <option value="20">Urgent</option>
+              </select>
+            </label>
+            <span className="contents max-sm:hidden">
+              <Button type="submit" variant="primary">
+                Search
+              </Button>
+            </span>
+            {(searching || isSearching(draft)) && (
+              <Button
+                onClick={() => {
+                  setDraft(EMPTY_QUERY);
+                  go({ ...EMPTY_QUERY, group: query.group });
+                }}
+              >
+                Clear
+              </Button>
             )}
-            <OperatorPicker
-              shopId={shopId}
-              label="Operator"
-              value={draft.operatorId}
-              onChange={(value) => setDraft({ ...draft, operatorId: value })}
-              emptyLabel="Any"
-              className={FIELD}
-              labelClassName="grid gap-1 text-xs font-medium text-muted"
-            />
-            <UuidField
-              label="Customer ID"
-              value={draft.customerId}
-              onChange={(value) => setDraft({ ...draft, customerId: value })}
-            />
+            <button
+              type="button"
+              aria-expanded={showMore}
+              onClick={() => setShowMore(!showMore)}
+              className="text-sm font-medium underline"
+            >
+              {showMore ? "Fewer filters" : "More filters"}
+            </button>
+            {showMore && (
+              <div className="flex basis-full flex-wrap items-end gap-3">
+                {printers.data !== null && (
+                  <label className="grid gap-1 text-xs font-medium text-muted">
+                    Printer
+                    <select
+                      value={draft.printerId}
+                      onChange={(event) => setDraft({ ...draft, printerId: event.target.value })}
+                      className={INPUT}
+                    >
+                      <option value="">Any</option>
+                      {printers.data.items.map((printer) => (
+                        <option key={printer.id} value={printer.id}>
+                          {printer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <OperatorPicker
+                  shopId={shopId}
+                  label="Operator"
+                  value={draft.operatorId}
+                  onChange={(value) => setDraft({ ...draft, operatorId: value })}
+                  emptyLabel="Any"
+                  className={INPUT}
+                  labelClassName="grid gap-1 text-xs font-medium text-muted"
+                />
+                <UuidField
+                  label="Customer ID"
+                  value={draft.customerId}
+                  onChange={(value) => setDraft({ ...draft, customerId: value })}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </div>
         {searching && (
           <p className="text-xs text-muted">
             Showing search results across all groups, newest first.
@@ -347,32 +389,6 @@ function OrdersBody(): ReactNode {
   );
 }
 
-function GroupTab({
-  label,
-  active,
-  emphasis = false,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  emphasis?: boolean;
-  onClick: () => void;
-}): ReactNode {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "page" : undefined}
-      className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium ${
-        active ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink"
-      }`}
-    >
-      {emphasis && <span aria-hidden="true" className="size-2 rounded-full bg-caution" />}
-      {label}
-    </button>
-  );
-}
-
 function UuidField({
   label,
   value,
@@ -390,7 +406,7 @@ function UuidField({
         onChange={(event) => onChange(event.target.value.trim())}
         placeholder="paste an ID"
         spellCheck={false}
-        className={`${FIELD} num w-72`}
+        className={`${INPUT} num w-72`}
       />
     </label>
   );

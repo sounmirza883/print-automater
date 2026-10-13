@@ -3,10 +3,12 @@
 import { useState, type ReactNode } from "react";
 import type { ShopOrderJobSummary, ShopOrderResponse } from "@print-automated/api-client";
 import { JobFailureReason, ReprintReason, ShopRejectionReason } from "@print-automated/types";
+import { INPUT } from "@/components/form-kit";
 import { FormDialog } from "@/components/modal";
 import type { ActionOutcome } from "@/components/orders/use-action-runner";
 import { OperatorPicker } from "@/components/orders/operator-picker";
 import { PrinterPicker } from "@/components/orders/printer-picker";
+import { Notice } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatMoney, humanizeEnum, parseMoneyToMinor } from "@/lib/format";
 
@@ -47,8 +49,6 @@ interface DialogProps {
   close: () => void;
   open: (next: DialogState) => void;
 }
-
-const FIELD = "rounded-md border border-line bg-panel px-2 py-1.5 font-normal";
 
 function Field({ label, children }: { label: string; children: ReactNode }): ReactNode {
   return (
@@ -132,7 +132,7 @@ function RejectDialog({ order, runner, close }: DialogProps): ReactNode {
         <select
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         >
           {Object.values(ShopRejectionReason).map((value) => (
             <option key={value} value={value}>
@@ -317,7 +317,7 @@ function QualityCheckDialog({ order, runner, close }: DialogProps): ReactNode {
         ))}
       </fieldset>
       {result === "FAILED" && (
-        <p role="note" className="rounded-md border border-caution/50 bg-caution-soft px-3 py-2">
+        <Notice tone="caution" role="note">
           A failed check cannot simply be retried. To print the bad pages again, choose{" "}
           <button
             type="button"
@@ -327,7 +327,7 @@ function QualityCheckDialog({ order, runner, close }: DialogProps): ReactNode {
             Needs reprint
           </button>{" "}
           instead, or use Reprint on the job afterwards.
-        </p>
+        </Notice>
       )}
       {result === "NEEDS_REPRINT" && (
         <>
@@ -358,7 +358,7 @@ function QualityCheckDialog({ order, runner, close }: DialogProps): ReactNode {
             <select
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              className={FIELD}
+              className={INPUT}
             >
               {Object.values(ReprintReason).map((value) => (
                 <option key={value} value={value}>
@@ -373,7 +373,7 @@ function QualityCheckDialog({ order, runner, close }: DialogProps): ReactNode {
               value={cost}
               onChange={(event) => setCost(event.target.value)}
               aria-invalid={costInvalid}
-              className={`${FIELD} num`}
+              className={`${INPUT} num`}
             />
             {costInvalid && (
               <span className="text-xs text-danger-fg">Enter an amount like 125.50.</span>
@@ -386,7 +386,7 @@ function QualityCheckDialog({ order, runner, close }: DialogProps): ReactNode {
           value={note}
           maxLength={500}
           onChange={(event) => setNote(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </Field>
     </FormDialog>
@@ -431,7 +431,7 @@ function ReassignDialog({
           value={reason}
           maxLength={500}
           onChange={(event) => setReason(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </Field>
     </FormDialog>
@@ -503,7 +503,7 @@ function PauseDialog({
           value={reason}
           maxLength={500}
           onChange={(event) => setReason(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </Field>
     </FormDialog>
@@ -620,7 +620,7 @@ function FailureReasonDialog({
         <select
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         >
           {Object.values(JobFailureReason).map((value) => (
             <option key={value} value={value}>
@@ -634,7 +634,7 @@ function FailureReasonDialog({
           value={note}
           maxLength={500}
           onChange={(event) => setNote(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </Field>
     </FormDialog>
@@ -692,7 +692,7 @@ function ReprintDialog({
         <select
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         >
           {Object.values(ReprintReason).map((value) => (
             <option key={value} value={value}>
@@ -707,7 +707,7 @@ function ReprintDialog({
           value={cost}
           onChange={(event) => setCost(event.target.value)}
           aria-invalid={costInvalid}
-          className={`${FIELD} num`}
+          className={`${INPUT} num`}
         />
         {costInvalid && (
           <span className="text-xs text-danger-fg">Enter an amount like 125.50.</span>
@@ -725,7 +725,7 @@ function ReprintDialog({
           value={note}
           maxLength={500}
           onChange={(event) => setNote(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </Field>
     </FormDialog>
@@ -796,7 +796,7 @@ function ResolveUnknownDialog({
             <select
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              className={FIELD}
+              className={INPUT}
             >
               {Object.values(JobFailureReason).map((value) => (
                 <option key={value} value={value}>
@@ -810,7 +810,7 @@ function ResolveUnknownDialog({
               value={note}
               maxLength={500}
               onChange={(event) => setNote(event.target.value)}
-              className={FIELD}
+              className={INPUT}
             />
           </Field>
         </>

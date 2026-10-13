@@ -10,12 +10,15 @@ import { RequirePermission, ResourceBoundary } from "@/components/resource-bound
 import { useSession } from "@/components/session-provider";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
+  Row,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -102,12 +105,9 @@ function CustomersBody(): ReactNode {
         />
       </SearchForm>
       {runner.error !== null && (
-        <p
-          role="alert"
-          className="mb-3 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-        >
+        <Notice tone="danger" role="alert" className="mb-3">
           {runner.error}
-        </p>
+        </Notice>
       )}
       <ResourceBoundary state={list} what="customers">
         {(data) =>
@@ -118,24 +118,33 @@ function CustomersBody(): ReactNode {
                 : "Customers you add here can be picked when placing an order at the counter."}
             </EmptyState>
           ) : (
-            <Panel>
+            <Panel flushOnPhone>
               <DataTable
                 caption="Customers"
                 head={["Name", "Company", "Phone", "Email", "Added", "Status", ""]}
+                stackOnPhone
               >
                 {data.items.map((customer) => (
-                  <tr key={customer.id}>
-                    <td className="px-4 py-2 font-medium">{customer.name}</td>
-                    <td className="px-4 py-2 text-muted">{customer.company ?? "-"}</td>
-                    <td className="num px-4 py-2">{customer.phone ?? "-"}</td>
-                    <td className="px-4 py-2 text-muted">{customer.email ?? "-"}</td>
-                    <td className="px-4 py-2 text-muted">{formatDate(customer.createdAt)}</td>
-                    <td className="px-4 py-2">
+                  <Row key={customer.id}>
+                    <Cell className="font-medium">{customer.name}</Cell>
+                    <Cell label="Company" className="text-muted">
+                      {customer.company ?? "-"}
+                    </Cell>
+                    <Cell label="Phone" className="num">
+                      {customer.phone ?? "-"}
+                    </Cell>
+                    <Cell label="Email" className="text-muted">
+                      {customer.email ?? "-"}
+                    </Cell>
+                    <Cell label="Added" className="text-muted">
+                      {formatDate(customer.createdAt)}
+                    </Cell>
+                    <Cell label="Status">
                       <Pill tone={customer.active ? "good" : "neutral"}>
                         {customer.active ? "Active" : "Inactive"}
                       </Pill>
-                    </td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                    </Cell>
+                    <Cell className="text-right whitespace-nowrap">
                       {canEdit && (
                         <>
                           <Button
@@ -160,8 +169,8 @@ function CustomersBody(): ReactNode {
                           </Button>
                         </>
                       )}
-                    </td>
-                  </tr>
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />

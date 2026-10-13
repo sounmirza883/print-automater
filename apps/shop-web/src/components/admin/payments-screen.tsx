@@ -6,7 +6,17 @@ import { PaymentInstructionsPanel } from "@/components/admin/payment-instruction
 import { ReviewProofDialog } from "@/components/admin/review-proof-dialog";
 import { SelectField } from "@/components/form-kit";
 import { ResourceBoundary } from "@/components/resource-boundary";
-import { Button, DataTable, EmptyState, PageHeader, Panel, Pill } from "@/components/ui";
+import {
+  Button,
+  Cell,
+  DataTable,
+  EmptyState,
+  Notice,
+  PageHeader,
+  Panel,
+  Pill,
+  Row,
+} from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { durationLabel, proofStatusLabel, proofStatusTone } from "@/lib/billing-view";
 import { formatDateTime, formatMoney } from "@/lib/format";
@@ -61,15 +71,16 @@ export function PaymentsScreen(): ReactNode {
       />
 
       {notice !== null && (
-        <p
-          role="status"
-          className="mb-4 rounded-md border border-good/50 bg-good-soft px-3 py-2 text-sm"
-        >
+        <Notice tone="good" role="status" className="mb-4">
           {notice}
-        </p>
+        </Notice>
       )}
 
-      <Panel title="Submitted payments" aside={list.data ? `${list.data.total} total` : undefined}>
+      <Panel
+        title="Submitted payments"
+        aside={list.data ? `${list.data.total} total` : undefined}
+        flushOnPhone
+      >
         <ResourceBoundary state={list} what="payments">
           {(data) =>
             data.items.length === 0 ? (
@@ -82,22 +93,27 @@ export function PaymentsScreen(): ReactNode {
               <DataTable
                 caption="Submitted payments"
                 head={["Submitted", "Business", "Plan", "Amount", "Reference", "Status", ""]}
+                stackOnPhone
               >
                 {data.items.map((proof) => (
-                  <tr key={proof.id}>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
+                  <Row key={proof.id}>
+                    <Cell className="py-2.5 whitespace-nowrap">
                       {formatDateTime(proof.createdAt)}
-                    </td>
-                    <td className="px-4 py-2.5 font-medium">{proof.shopName}</td>
-                    <td className="px-4 py-2.5">{proof.planName}</td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
+                    </Cell>
+                    <Cell label="Business" className="py-2.5 font-medium">
+                      {proof.shopName}
+                    </Cell>
+                    <Cell label="Plan" className="py-2.5">
+                      {proof.planName}
+                    </Cell>
+                    <Cell label="Amount" className="py-2.5 whitespace-nowrap">
                       {formatMoney(proof.amountMinor, proof.currency)}
-                    </td>
-                    <td className="px-4 py-2.5">
+                    </Cell>
+                    <Cell label="Reference" className="py-2.5">
                       <span className="num">{proof.transactionRef}</span>{" "}
                       {proof.duplicateTransactionRef && <Pill tone="caution">Duplicate</Pill>}
-                    </td>
-                    <td className="px-4 py-2.5">
+                    </Cell>
+                    <Cell label="Status" className="py-2.5">
                       <Pill tone={proofStatusTone(proof.status)}>
                         {proofStatusLabel(proof.status)}
                       </Pill>
@@ -106,8 +122,8 @@ export function PaymentsScreen(): ReactNode {
                           {durationLabel(proof.grantedMonths)}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
+                    </Cell>
+                    <Cell className="py-2.5 text-right">
                       <Button
                         variant={proof.status === "PENDING" ? "primary" : "secondary"}
                         onClick={() => {
@@ -117,8 +133,8 @@ export function PaymentsScreen(): ReactNode {
                       >
                         {proof.status === "PENDING" ? "Review" : "View"}
                       </Button>
-                    </td>
-                  </tr>
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
             )

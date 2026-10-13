@@ -2,6 +2,8 @@ import { availableOrderActions, type ShopOrderResponse } from "@print-automated/
 import {
   blockedReasonsOf,
   configurationSummary,
+  activeFilterCount,
+  EMPTY_QUERY,
   isQrAwaitingPayment,
   isSearching,
   parseOrdersQuery,
@@ -41,6 +43,22 @@ describe("searching vs grouping", () => {
     expect(isSearching(read("page=3"))).toBe(false);
     expect(isSearching(read("q=lease"))).toBe(true);
     expect(isSearching(read("priority=0"))).toBe(true);
+  });
+
+  it("counts the filters a phone's collapsed block would hide, not the search text", () => {
+    expect(activeFilterCount(EMPTY_QUERY)).toBe(0);
+    expect(activeFilterCount({ ...EMPTY_QUERY, q: "lease" })).toBe(0);
+    expect(activeFilterCount({ ...EMPTY_QUERY, group: "ready" })).toBe(0);
+    expect(activeFilterCount({ ...EMPTY_QUERY, page: 3 })).toBe(0);
+    expect(activeFilterCount({ ...EMPTY_QUERY, status: "PRINTING" })).toBe(1);
+    expect(
+      activeFilterCount({
+        ...EMPTY_QUERY,
+        status: "PRINTING",
+        from: "2026-09-25",
+        printerId: UUID,
+      }),
+    ).toBe(3);
   });
 
   it("round-trips through the URL and omits empty values", () => {

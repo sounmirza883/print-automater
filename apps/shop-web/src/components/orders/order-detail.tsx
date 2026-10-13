@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import type { ShopOrderDetail, ShopOrderResponse } from "@print-automated/api-client";
@@ -19,7 +18,16 @@ import { OrderHistoryPanel } from "@/components/orders/order-history";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
-import { EmptyState, LiveStatus, PageHeader, Panel, Pill } from "@/components/ui";
+import {
+  BackLink,
+  DetailGrid,
+  EmptyState,
+  LiveStatus,
+  Notice,
+  PageHeader,
+  Panel,
+  Pill,
+} from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDateTime, formatMoney, humanizeEnum, priorityLabel } from "@/lib/format";
 import { shouldSteerToReprint } from "@/lib/order-actions";
@@ -104,11 +112,7 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
 
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/orders" className="underline underline-offset-2">
-          &larr; Orders
-        </Link>
-      </p>
+      <BackLink href="/orders">Orders</BackLink>
       <PageHeader
         title={order?.publicOrderNumber ?? "Order"}
         subtitle={order !== null ? order.customerName : undefined}
@@ -122,85 +126,88 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
       />
       <ResourceBoundary state={state} what="this order">
         {(current) => (
-          <div className="grid gap-4">
-            <Panel>
-              <div className="flex flex-wrap items-center gap-2">
-                <Pill tone={orderStatusTone(current.orderStatus)}>
-                  {humanizeEnum(current.orderStatus)}
-                </Pill>
-                <Pill tone={paymentStatusTone(current.paymentStatus)}>
-                  Payment: {humanizeEnum(current.paymentStatus)}
-                </Pill>
-                <QrAwaitingPaymentPill order={current} />
-                {current.qualityCheckStatus !== null &&
-                  current.qualityCheckStatus !== "NOT_REQUIRED" && (
-                    <Pill tone={current.qualityCheckStatus === "PASSED" ? "good" : "caution"}>
-                      Quality check: {humanizeEnum(current.qualityCheckStatus)}
-                    </Pill>
-                  )}
-              </div>
-              {runner.error !== null && dialog === null && (
-                <p
-                  role="alert"
-                  className="mt-3 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-                >
-                  {runner.error}
-                </p>
-              )}
-              <div className="mt-3">
-                <OrderActionBar
-                  order={current}
-                  can={can}
-                  busy={runner.busy}
-                  onAction={(kind) => handleOrderAction(kind, current)}
-                />
-              </div>
-              {shouldSteerToReprint(current) && (
-                <p
-                  role="note"
-                  className="mt-3 rounded-md border border-caution/50 bg-caution-soft px-3 py-2 text-sm"
-                >
-                  A quality check failed on this order. Retrying will not print it again; use{" "}
-                  <strong>Reprint</strong> on the job that needs to be printed again.
-                </p>
-              )}
-            </Panel>
+          <>
+            <DetailGrid
+              main={
+                <>
+                  <Panel>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Pill tone={orderStatusTone(current.orderStatus)}>
+                        {humanizeEnum(current.orderStatus)}
+                      </Pill>
+                      <Pill tone={paymentStatusTone(current.paymentStatus)}>
+                        Payment: {humanizeEnum(current.paymentStatus)}
+                      </Pill>
+                      <QrAwaitingPaymentPill order={current} />
+                      {current.qualityCheckStatus !== null &&
+                        current.qualityCheckStatus !== "NOT_REQUIRED" && (
+                          <Pill tone={current.qualityCheckStatus === "PASSED" ? "good" : "caution"}>
+                            Quality check: {humanizeEnum(current.qualityCheckStatus)}
+                          </Pill>
+                        )}
+                    </div>
+                    {runner.error !== null && dialog === null && (
+                      <Notice tone="danger" role="alert" className="mt-3">
+                        {runner.error}
+                      </Notice>
+                    )}
+                    <div className="mt-3">
+                      <OrderActionBar
+                        order={current}
+                        can={can}
+                        busy={runner.busy}
+                        onAction={(kind) => handleOrderAction(kind, current)}
+                      />
+                    </div>
+                    {shouldSteerToReprint(current) && (
+                      <Notice tone="caution" role="note" className="mt-3">
+                        A quality check failed on this order. Retrying will not print it again; use{" "}
+                        <strong>Reprint</strong> on the job that needs to be printed again.
+                      </Notice>
+                    )}
+                  </Panel>
 
-            <OrderSummary order={current} />
+                  <OrderItems order={current} />
 
-            <OrderItems order={current} />
+                  <Panel title="Print jobs" aside={`${current.printJobs.length} live`} id="jobs">
+                    {current.printJobs.length === 0 ? (
+                      <EmptyState title="No print job yet">
+                        A job is created when the business accepts the order.
+                      </EmptyState>
+                    ) : (
+                      <ul className="grid gap-3">
+                        {current.printJobs.map((job) => (
+                          <JobCard
+                            key={job.id}
+                            job={job}
+                            order={current}
+                            can={can}
+                            busy={runner.busy}
+                            highlighted={job.id === focusJob}
+                            onAction={handleJobAction}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </Panel>
 
-            <Panel title="Print jobs" aside={`${current.printJobs.length} live`} id="jobs">
-              {current.printJobs.length === 0 ? (
-                <EmptyState title="No print job yet">
-                  A job is created when the business accepts the order.
-                </EmptyState>
-              ) : (
-                <ul className="grid gap-3">
-                  {current.printJobs.map((job) => (
-                    <JobCard
-                      key={job.id}
-                      job={job}
-                      order={current}
-                      can={can}
-                      busy={runner.busy}
-                      highlighted={job.id === focusJob}
-                      onAction={handleJobAction}
-                    />
-                  ))}
-                </ul>
-              )}
-            </Panel>
+                  <OrderHistoryPanel orderId={current.id} currency={currencyOf(current)} />
+                </>
+              }
+              aside={
+                <>
+                  <OrderSummary order={current} />
 
-            <DeliveryPanel
-              orderId={current.id}
-              orderStatus={current.orderStatus}
-              delivery={current.delivery}
-              currency={current.pricingSnapshot?.quote?.currency ?? "PKR"}
-              runner={runner}
+                  <DeliveryPanel
+                    orderId={current.id}
+                    orderStatus={current.orderStatus}
+                    delivery={current.delivery}
+                    currency={current.pricingSnapshot?.quote?.currency ?? "PKR"}
+                    runner={runner}
+                  />
+                </>
+              }
             />
-
-            <OrderHistoryPanel orderId={current.id} currency={currencyOf(current)} />
 
             <OrderDialogs
               dialog={dialog}
@@ -210,7 +217,7 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
               close={() => setDialog(null)}
               open={openDialog}
             />
-          </div>
+          </>
         )}
       </ResourceBoundary>
     </>
@@ -230,7 +237,7 @@ export function OrderSummary({ order }: { order: ShopOrderDetail }): ReactNode {
   const refunds = order.refunds;
   return (
     <Panel title="Order" id="summary">
-      <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-1">
         <Item label="Customer">
           {contact.name}
           <span className="ml-1 text-xs text-muted">
@@ -298,7 +305,7 @@ export function OrderSummary({ order }: { order: ShopOrderDetail }): ReactNode {
         )}
       </dl>
       {reasons.length > 0 && (
-        <div className="mt-4 grid gap-2 md:grid-cols-2">
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-1">
           {reasons.map((reason) => (
             <BlockedNote key={reason} reason={reason} />
           ))}

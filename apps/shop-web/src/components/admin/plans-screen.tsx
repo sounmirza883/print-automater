@@ -21,6 +21,7 @@ import {
   EmptyState,
   ForbiddenState,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
@@ -97,17 +98,14 @@ function PlansBody(): ReactNode {
         <PlanFeaturesPanel />
       ) : (
         <>
-          <p
-            role="note"
-            className="mb-4 rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-sm"
-          >
+          <Notice tone="accent" role="note" className="mb-4">
             There is no payment gateway: a plan&apos;s price records what the business pays, and you
             activate, renew or cancel a business&apos;s plan by hand from its own page or the
             Platform dashboard. Each activation adds the plan&apos;s billing period to the
             business&apos;s expiry date. Archive a plan to stop offering it without affecting the
             businesses already on it. What you enter here is also what the public pricing page
             shows.
-          </p>
+          </Notice>
           <ErrorBanner message={runner.error} />
           <ResourceBoundary state={list} what="plans">
             {(data) =>

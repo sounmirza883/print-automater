@@ -11,12 +11,14 @@ import { useSession } from "@/components/session-provider";
 import { useCurrency } from "@/components/use-currency";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   LiveStatus,
   PageHeader,
   Panel,
   Pill,
+  Row,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDate, formatMoney, humanizeEnum } from "@/lib/format";
@@ -92,34 +94,39 @@ function PoBody(): ReactNode {
               Create one to restock paper from a supplier, then receive it when it arrives.
             </EmptyState>
           ) : (
-            <Panel>
+            <Panel flushOnPhone>
               <DataTable
                 caption="Purchase orders"
                 head={["Number", "Supplier", "Status", "Payment", "Total", "Expected", "Created"]}
+                stackOnPhone
               >
                 {data.items.map((po) => (
-                  <tr key={po.id}>
-                    <td className="px-4 py-2">
+                  <Row key={po.id}>
+                    <Cell>
                       <Link
                         href={`/purchase-orders/${po.id}`}
                         className="num font-medium underline-offset-2 hover:underline"
                       >
                         {po.poNumber}
                       </Link>
-                    </td>
-                    <td className="px-4 py-2">{po.supplierName}</td>
-                    <td className="px-4 py-2">
+                    </Cell>
+                    <Cell label="Supplier">{po.supplierName}</Cell>
+                    <Cell label="Status">
                       <Pill tone={poStatusTone(po.status)}>{humanizeEnum(po.status)}</Pill>
-                    </td>
-                    <td className="px-4 py-2 text-muted">{humanizeEnum(po.paymentStatus)}</td>
-                    <td className="num px-4 py-2 text-right">
+                    </Cell>
+                    <Cell label="Payment" className="text-muted">
+                      {humanizeEnum(po.paymentStatus)}
+                    </Cell>
+                    <Cell label="Total" className="num text-right">
                       {formatMoney(po.totalCostMinor, currency)}
-                    </td>
-                    <td className="px-4 py-2 text-muted">
+                    </Cell>
+                    <Cell label="Expected" className="text-muted">
                       {po.expectedDeliveryAt ? formatDate(po.expectedDeliveryAt) : "-"}
-                    </td>
-                    <td className="px-4 py-2 text-muted">{formatDate(po.createdAt)}</td>
-                  </tr>
+                    </Cell>
+                    <Cell label="Created" className="text-muted">
+                      {formatDate(po.createdAt)}
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />

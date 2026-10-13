@@ -6,6 +6,7 @@ import type { OwnerDashboardResponse } from "@print-automated/types";
 import { Permission } from "@print-automated/types";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { StackedStatusBar } from "@/components/dashboard/stacked-status-bar";
+import { Segmented } from "@/components/segmented";
 import { useSession } from "@/components/session-provider";
 import {
   BarList,
@@ -94,25 +95,12 @@ function PeriodPicker({
   onChange: (next: RangePreset) => void;
 }): ReactNode {
   return (
-    <div
-      role="group"
-      aria-label="Reporting period"
-      className="flex rounded-md border border-line bg-panel p-0.5"
-    >
-      {RANGE_PRESETS.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={value === option.id}
-          onClick={() => onChange(option.id)}
-          className={`rounded px-3 py-1 text-sm font-medium ${
-            value === option.id ? "bg-accent text-white" : "text-muted hover:text-ink"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      value={value}
+      onChange={onChange}
+      ariaLabel="Reporting period"
+      options={RANGE_PRESETS.map((option) => ({ value: option.id, label: option.label }))}
+    />
   );
 }
 
@@ -147,7 +135,7 @@ export function OwnerDashboardView({
                 <li key={item.id}>
                   <Link
                     href={item.href}
-                    className="flex items-start justify-between gap-3 rounded-md border border-line bg-panel-2 px-3 py-2 hover:border-accent"
+                    className="flex items-start justify-between gap-3 rounded-md border border-line bg-panel-2 px-3 py-2 hover:border-line-strong"
                   >
                     <span>
                       <span className="block font-medium">{item.label}</span>

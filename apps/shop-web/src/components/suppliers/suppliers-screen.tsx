@@ -11,12 +11,14 @@ import { RequirePermission, ResourceBoundary } from "@/components/resource-bound
 import { useSession } from "@/components/session-provider";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   LiveStatus,
   PageHeader,
   Panel,
   Pill,
+  Row,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { isEmail, nullableText, optionalText } from "@/lib/form-values";
@@ -114,32 +116,37 @@ function SuppliersBody(): ReactNode {
                 : "Suppliers are who you buy paper and consumables from."}
             </EmptyState>
           ) : (
-            <Panel>
+            <Panel flushOnPhone>
               <DataTable
                 caption="Suppliers"
                 head={["Supplier", "Contact", "Phone", "Payment terms", "Status"]}
+                stackOnPhone
               >
                 {data.items.map((supplier) => (
-                  <tr key={supplier.id}>
-                    <td className="px-4 py-2">
+                  <Row key={supplier.id}>
+                    <Cell>
                       <Link
                         href={`/suppliers/${supplier.id}`}
                         className="font-medium underline-offset-2 hover:underline"
                       >
                         {supplier.name}
                       </Link>
-                    </td>
-                    <td className="px-4 py-2 text-muted">
+                    </Cell>
+                    <Cell label="Contact" className="text-muted">
                       {supplier.contactName ?? supplier.email ?? "-"}
-                    </td>
-                    <td className="num px-4 py-2">{supplier.phone ?? "-"}</td>
-                    <td className="px-4 py-2 text-muted">{supplier.paymentTerms ?? "-"}</td>
-                    <td className="px-4 py-2">
+                    </Cell>
+                    <Cell label="Phone" className="num">
+                      {supplier.phone ?? "-"}
+                    </Cell>
+                    <Cell label="Payment terms" className="text-muted">
+                      {supplier.paymentTerms ?? "-"}
+                    </Cell>
+                    <Cell label="Status">
                       <Pill tone={supplier.status === "ACTIVE" ? "good" : "neutral"}>
                         {supplier.status === "ACTIVE" ? "Active" : "Inactive"}
                       </Pill>
-                    </td>
-                  </tr>
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />

@@ -7,7 +7,7 @@ import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
-import { Button, DataTable, EmptyState, LiveStatus, Panel, Pill } from "@/components/ui";
+import { Button, DataTable, EmptyState, LiveStatus, Notice, Panel, Pill } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDateTime, formatMoney, humanizeEnum } from "@/lib/format";
 import { basisPointsToPercent } from "@/lib/form-values";
@@ -203,10 +203,10 @@ function RuleDialog({
           .then((o) => o === "ok" && onClose());
       }}
     >
-      <p className="rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-xs">
+      <Notice tone="accent" className="text-xs">
         This saves a NEW version for new quotes. Orders already confirmed keep the price they were
         quoted.
-      </p>
+      </Notice>
       <div className="grid gap-3 sm:grid-cols-2">
         <TextField
           label="Currency"

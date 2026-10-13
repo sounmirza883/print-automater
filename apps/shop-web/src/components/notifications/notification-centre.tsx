@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import type { NotificationItem } from "@print-automated/types";
+import { INPUT } from "@/components/form-kit";
+import { Segmented } from "@/components/segmented";
 import { useSession } from "@/components/session-provider";
 import {
   Button,
@@ -10,6 +12,7 @@ import {
   ErrorState,
   LiveStatus,
   LoadingGrid,
+  Notice,
   PageHeader,
   Pill,
   StaleBanner,
@@ -109,31 +112,18 @@ export function NotificationCentre(): ReactNode {
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div
-          role="group"
-          aria-label="Filter"
-          className="flex rounded-md border border-line bg-panel p-0.5"
-        >
-          {[
-            { label: "All", value: false },
-            { label: "Unread", value: true },
-          ].map((option) => (
-            <button
-              key={option.label}
-              type="button"
-              aria-pressed={unreadOnly === option.value}
-              onClick={() => {
-                setUnreadOnly(option.value);
-                setOffset(0);
-              }}
-              className={`rounded px-3 py-1 text-sm font-medium ${
-                unreadOnly === option.value ? "bg-accent text-white" : "text-muted hover:text-ink"
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          value={unreadOnly ? "unread" : "all"}
+          onChange={(next) => {
+            setUnreadOnly(next === "unread");
+            setOffset(0);
+          }}
+          ariaLabel="Filter"
+          options={[
+            { value: "all", label: "All" },
+            { value: "unread", label: "Unread" },
+          ]}
+        />
         {memberships.length > 1 && (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-muted">Business</span>
@@ -143,7 +133,7 @@ export function NotificationCentre(): ReactNode {
                 setBusinessId(event.target.value);
                 setOffset(0);
               }}
-              className="rounded-md border border-line bg-panel px-2 py-1.5"
+              className={INPUT}
             >
               <option value="">All my businesses</option>
               {memberships.map((membership) => (
@@ -157,12 +147,9 @@ export function NotificationCentre(): ReactNode {
       </div>
 
       {actionError !== null && (
-        <p
-          role="alert"
-          className="mb-4 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-        >
+        <Notice tone="danger" role="alert" className="mb-4">
           {actionError}
-        </p>
+        </Notice>
       )}
 
       {state.data === null ? (
@@ -245,9 +232,9 @@ function NotificationRow({
   const href = notificationHref(item.target);
   const linkLabel = notificationLinkLabel(item.target);
   return (
-    <li className={`flex gap-3 px-4 py-3 ${item.read ? "" : "bg-accent-soft"}`}>
+    <li className={`flex gap-3 px-4 py-3 ${item.read ? "" : "bg-panel-2"}`}>
       <span className="mt-1.5 w-2 shrink-0">
-        {!item.read && <span aria-hidden="true" className="block size-2 rounded-full bg-accent" />}
+        {!item.read && <span aria-hidden="true" className="block size-2 rounded-full bg-inv" />}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -269,7 +256,7 @@ function NotificationRow({
           <Link
             href={href}
             onClick={onOpen}
-            className="rounded-md border border-line bg-panel px-3 py-1.5 text-sm font-medium hover:border-accent"
+            className="rounded-md border border-line bg-panel px-3 py-1.5 text-sm font-medium hover:border-line-strong"
           >
             {linkLabel}
           </Link>

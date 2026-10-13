@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import type { AdminUser } from "@print-automated/api-client";
 import { UserRole, UserStatus } from "@print-automated/types";
@@ -8,7 +7,17 @@ import { SelectField } from "@/components/form-kit";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
-import { Button, ForbiddenState, LiveStatus, PageHeader, Panel, Pill } from "@/components/ui";
+import {
+  BackLink,
+  Button,
+  DetailGrid,
+  ForbiddenState,
+  LiveStatus,
+  Notice,
+  PageHeader,
+  Panel,
+  Pill,
+} from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { formatDate, humanizeEnum } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
@@ -49,11 +58,7 @@ function UserDetailBody({ userId }: { userId: string }): ReactNode {
   const state = useResource(() => getApi().admin.getUser(userId), [userId]);
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/admin/users" className="underline underline-offset-2">
-          &larr; Users
-        </Link>
-      </p>
+      <BackLink href="/admin/users">Users</BackLink>
       <PageHeader
         title={state.data?.name ?? "User"}
         actions={
@@ -90,117 +95,117 @@ function UserBody({
     isSelf && (status === UserStatus.SUSPENDED || status === UserStatus.DELETED);
 
   return (
-    <div className="grid gap-4">
-      <Panel title="Profile" id="profile">
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Email</dt>
-            <dd>{data.email}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Since</dt>
-            <dd>{formatDate(data.createdAt)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Current role</dt>
-            <dd>{roleLabel(data.role)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">
-              Current status
-            </dt>
-            <dd>
-              <Pill tone={USER_STATUS_TONE[data.status] ?? "neutral"}>
-                {humanizeEnum(data.status)}
-              </Pill>
-            </dd>
-          </div>
-        </dl>
-        {isSelf && <p className="mt-3 text-xs text-muted">This is your own account.</p>}
-      </Panel>
+    <DetailGrid
+      main={
+        <>
+          <Panel title="Profile" id="profile">
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs font-medium text-muted">Email</dt>
+                <dd>{data.email}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted">Since</dt>
+                <dd>{formatDate(data.createdAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted">Current role</dt>
+                <dd>{roleLabel(data.role)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted">Current status</dt>
+                <dd>
+                  <Pill tone={USER_STATUS_TONE[data.status] ?? "neutral"}>
+                    {humanizeEnum(data.status)}
+                  </Pill>
+                </dd>
+              </div>
+            </dl>
+            {isSelf && <p className="mt-3 text-xs text-muted">This is your own account.</p>}
+          </Panel>
 
-      <Panel title="Role" id="role">
-        {roleRunner.error !== null && (
-          <p
-            role="alert"
-            className="mb-3 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-          >
-            {roleRunner.error}
-          </p>
-        )}
-        <form
-          className="grid gap-3 text-sm sm:max-w-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void roleRunner.run(() => getApi().admin.updateUserRole(data.id, role));
-          }}
-        >
-          <SelectField
-            label="Role"
-            value={role}
-            onChange={(value) => setRole(value as UserRole)}
-            options={ROLE_OPTIONS}
-          />
-          {wouldRemoveOwnAdmin && (
-            <p className="text-xs text-danger-fg">
-              You cannot change your own role away from admin -- another admin has to do this for
-              you.
-            </p>
-          )}
-          <div>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={roleRunner.busy || role === data.role || wouldRemoveOwnAdmin}
+          <Panel title="Role" id="role">
+            {roleRunner.error !== null && (
+              <Notice tone="danger" role="alert" className="mb-3">
+                {roleRunner.error}
+              </Notice>
+            )}
+            <form
+              className="grid gap-3 text-sm sm:max-w-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void roleRunner.run(() => getApi().admin.updateUserRole(data.id, role));
+              }}
             >
-              {roleRunner.busy ? "Saving…" : "Change role"}
-            </Button>
-          </div>
-        </form>
-      </Panel>
-
-      <Panel title="Status" id="status">
-        {statusRunner.error !== null && (
-          <p
-            role="alert"
-            className="mb-3 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-          >
-            {statusRunner.error}
-          </p>
-        )}
-        <form
-          className="grid gap-3 text-sm sm:max-w-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void statusRunner.run(() => getApi().admin.updateUserStatus(data.id, status));
-          }}
-        >
-          <SelectField
-            label="Status"
-            value={status}
-            onChange={(value) => setStatus(value as UserStatus)}
-            options={USER_STATUS_OPTIONS}
-          />
-          <p className="text-xs text-muted">
-            Suspending or deleting an account also signs it out everywhere -- every refresh token it
-            holds is revoked immediately.
-          </p>
-          {wouldDeactivateSelf && (
-            <p className="text-xs text-danger-fg">
-              You cannot suspend or delete your own account -- another admin has to do this for you.
-            </p>
-          )}
-          <div>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={statusRunner.busy || status === data.status || wouldDeactivateSelf}
+              <SelectField
+                label="Role"
+                value={role}
+                onChange={(value) => setRole(value as UserRole)}
+                options={ROLE_OPTIONS}
+              />
+              {wouldRemoveOwnAdmin && (
+                <p className="text-xs text-danger-fg">
+                  You cannot change your own role away from admin -- another admin has to do this
+                  for you.
+                </p>
+              )}
+              <div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={roleRunner.busy || role === data.role || wouldRemoveOwnAdmin}
+                >
+                  {roleRunner.busy ? "Saving…" : "Change role"}
+                </Button>
+              </div>
+            </form>
+          </Panel>
+        </>
+      }
+      aside={
+        <>
+          <Panel title="Status" id="status">
+            {statusRunner.error !== null && (
+              <Notice tone="danger" role="alert" className="mb-3">
+                {statusRunner.error}
+              </Notice>
+            )}
+            <form
+              className="grid gap-3 text-sm sm:max-w-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void statusRunner.run(() => getApi().admin.updateUserStatus(data.id, status));
+              }}
             >
-              {statusRunner.busy ? "Saving…" : "Save status"}
-            </Button>
-          </div>
-        </form>
-      </Panel>
-    </div>
+              <SelectField
+                label="Status"
+                value={status}
+                onChange={(value) => setStatus(value as UserStatus)}
+                options={USER_STATUS_OPTIONS}
+              />
+              <p className="text-xs text-muted">
+                Suspending or deleting an account also signs it out everywhere -- every refresh
+                token it holds is revoked immediately.
+              </p>
+              {wouldDeactivateSelf && (
+                <p className="text-xs text-danger-fg">
+                  You cannot suspend or delete your own account -- another admin has to do this for
+                  you.
+                </p>
+              )}
+              <div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={statusRunner.busy || status === data.status || wouldDeactivateSelf}
+                >
+                  {statusRunner.busy ? "Saving…" : "Save status"}
+                </Button>
+              </div>
+            </form>
+          </Panel>
+        </>
+      }
+    />
   );
 }

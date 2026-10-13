@@ -7,6 +7,7 @@ import { Pager } from "@/components/form-kit";
 import { ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
 import {
+  Cell,
   DataTable,
   EmptyState,
   ForbiddenState,
@@ -14,6 +15,7 @@ import {
   PageHeader,
   Panel,
   Pill,
+  Row,
   type Tone,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
@@ -76,27 +78,35 @@ function UsersBody(): ReactNode {
           data.items.length === 0 ? (
             <EmptyState title="No users yet">Accounts appear here once they register.</EmptyState>
           ) : (
-            <Panel>
-              <DataTable caption="Users" head={["Name", "Email", "Role", "Status", "Since"]}>
+            <Panel flushOnPhone>
+              <DataTable
+                caption="Users"
+                head={["Name", "Email", "Role", "Status", "Since"]}
+                stackOnPhone
+              >
                 {data.items.map((user) => (
-                  <tr key={user.id}>
-                    <td className="px-4 py-2 font-medium">
+                  <Row key={user.id}>
+                    <Cell className="font-medium">
                       <Link
                         href={`/admin/users/${user.id}`}
                         className="underline underline-offset-2"
                       >
                         {user.name}
                       </Link>
-                    </td>
-                    <td className="px-4 py-2 text-muted">{user.email}</td>
-                    <td className="px-4 py-2">{roleLabel(user.role)}</td>
-                    <td className="px-4 py-2">
+                    </Cell>
+                    <Cell label="Email" className="text-muted">
+                      {user.email}
+                    </Cell>
+                    <Cell label="Role">{roleLabel(user.role)}</Cell>
+                    <Cell label="Status">
                       <Pill tone={USER_STATUS_TONE[user.status] ?? "neutral"}>
                         {humanizeEnum(user.status)}
                       </Pill>
-                    </td>
-                    <td className="px-4 py-2 text-muted">{formatDate(user.createdAt)}</td>
-                  </tr>
+                    </Cell>
+                    <Cell label="Since" className="text-muted">
+                      {formatDate(user.createdAt)}
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />

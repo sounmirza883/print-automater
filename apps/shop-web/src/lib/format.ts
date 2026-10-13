@@ -96,6 +96,24 @@ export function formatAge(iso: string | null, now: number = Date.now()): string 
   return `${Math.round(hours / 24)} d ago`;
 }
 
+/** Up to two initials for an avatar: the first letter of the first two words,
+ * or the first two letters of a single word. `Array.from` keeps a non-Latin
+ * letter (or an emoji) whole instead of cutting a surrogate pair. Never empty. */
+export function initialsOf(name: string): string {
+  const [first, second] = name
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word !== "");
+  if (first === undefined) {
+    return "?";
+  }
+  const letters =
+    second === undefined
+      ? Array.from(first).slice(0, 2)
+      : [...Array.from(first).slice(0, 1), ...Array.from(second).slice(0, 1)];
+  return letters.join("").toUpperCase();
+}
+
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en", {
     dateStyle: "medium",

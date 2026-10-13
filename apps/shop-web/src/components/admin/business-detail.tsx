@@ -9,9 +9,12 @@ import { useActionRunner } from "@/components/orders/use-action-runner";
 import { ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
 import {
+  BackLink,
   Button,
+  DetailGrid,
   ForbiddenState,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
@@ -42,11 +45,7 @@ function BusinessDetailBody({ businessId }: { businessId: string }): ReactNode {
   const state = useResource(() => getApi().admin.getBusiness(businessId), [businessId]);
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/admin/businesses" className="underline underline-offset-2">
-          &larr; Businesses
-        </Link>
-      </p>
+      <BackLink href="/admin/businesses">Businesses</BackLink>
       <PageHeader
         title={state.data?.name ?? "Business"}
         actions={
@@ -98,15 +97,15 @@ export function OwnerPanel({
       <div className="grid gap-3 text-sm">
         <dl className="grid gap-3 sm:grid-cols-3">
           <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Name</dt>
+            <dt className="text-xs font-medium text-muted">Name</dt>
             <dd>{owner.name}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Email</dt>
+            <dt className="text-xs font-medium text-muted">Email</dt>
             <dd className="break-all">{owner.email}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Account</dt>
+            <dt className="text-xs font-medium text-muted">Account</dt>
             <dd>
               {owner.activationPending ? (
                 <Pill tone="caution">Activation pending</Pill>
@@ -146,12 +145,9 @@ export function OwnerPanel({
           </p>
         )}
         {runner.error !== null && (
-          <p
-            role="alert"
-            className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-          >
+          <Notice tone="danger" role="alert">
             {runner.error}
-          </p>
+          </Notice>
         )}
       </div>
     </Panel>
@@ -224,24 +220,24 @@ export function PlanPanelBody({
     <div className="grid gap-4 text-sm">
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <dt className="text-xs font-medium tracking-wide text-muted uppercase">Plan</dt>
+          <dt className="text-xs font-medium text-muted">Plan</dt>
           <dd className="flex flex-wrap items-center gap-2">
             {assignedPlanName(current)}
             {assigned?.archived && <Pill>Archived</Pill>}
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium tracking-wide text-muted uppercase">Price</dt>
+          <dt className="text-xs font-medium text-muted">Price</dt>
           <dd className="num">{assigned === null ? "Not set" : planPriceLabel(assigned)}</dd>
         </div>
         <div>
-          <dt className="text-xs font-medium tracking-wide text-muted uppercase">Status</dt>
+          <dt className="text-xs font-medium text-muted">Status</dt>
           <dd>
             <PlanStatePill plan={current} />
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium tracking-wide text-muted uppercase">
+          <dt className="text-xs font-medium text-muted">
             {current.active ? "Active until" : current.expiresAt === null ? "Expiry" : "Ended"}
           </dt>
           <dd>{current.expiresAt === null ? "Never activated" : formatDate(current.expiresAt)}</dd>
@@ -277,12 +273,9 @@ function BusinessBody({
   return (
     <div className="grid gap-4">
       {runner.error !== null && (
-        <p
-          role="alert"
-          className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-        >
+        <Notice tone="danger" role="alert">
           {runner.error}
-        </p>
+        </Notice>
       )}
 
       <StatGrid>
@@ -291,83 +284,92 @@ function BusinessBody({
         <Stat label="Printers" value={formatCount(data.counts.printers)} />
       </StatGrid>
 
-      <Panel title="Profile" id="profile">
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Address</dt>
-            <dd>{data.address}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Phone</dt>
-            <dd>{data.phone ?? "Not set"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Since</dt>
-            <dd>{formatDate(data.createdAt)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">
-              Current status
-            </dt>
-            <dd>
-              <Pill tone={STATUS_TONE[data.status] ?? "neutral"}>{humanizeEnum(data.status)}</Pill>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium tracking-wide text-muted uppercase">Prices</dt>
-            <dd>
-              {data.hasPricingRule ? (
-                <Pill tone="good">Set</Pill>
-              ) : (
-                <Pill tone="caution">Not set yet</Pill>
-              )}
-            </dd>
-          </div>
-        </dl>
-      </Panel>
+      <DetailGrid
+        main={
+          <>
+            <Panel title="Profile" id="profile">
+              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-medium text-muted">Address</dt>
+                  <dd>{data.address}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-muted">Phone</dt>
+                  <dd>{data.phone ?? "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-muted">Since</dt>
+                  <dd>{formatDate(data.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-muted">Current status</dt>
+                  <dd>
+                    <Pill tone={STATUS_TONE[data.status] ?? "neutral"}>
+                      {humanizeEnum(data.status)}
+                    </Pill>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-muted">Prices</dt>
+                  <dd>
+                    {data.hasPricingRule ? (
+                      <Pill tone="good">Set</Pill>
+                    ) : (
+                      <Pill tone="caution">Not set yet</Pill>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </Panel>
 
-      <OwnerPanel businessId={data.id} owner={data.owner} onChanged={onChanged} />
+            <OwnerPanel businessId={data.id} owner={data.owner} onChanged={onChanged} />
 
-      <BusinessPlanPanel businessId={data.id} businessName={data.name} />
+            <BusinessPlanPanel businessId={data.id} businessName={data.name} />
+          </>
+        }
+        aside={
+          <>
+            <Panel title="Status" id="status">
+              <form
+                className="grid gap-3 text-sm sm:max-w-sm"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void runner.run(() => getApi().admin.updateBusinessStatus(data.id, status));
+                }}
+              >
+                <SelectField
+                  label="Status"
+                  value={status}
+                  onChange={(value) => setStatus(value as ShopStatus)}
+                  options={STATUS_OPTIONS}
+                />
+                <p className="text-xs text-muted">
+                  This overrides the business&apos;s own open/close setting -- use it to suspend a
+                  business for abuse, or to reopen one on its behalf.
+                </p>
+                <div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={runner.busy || status === data.status}
+                  >
+                    {runner.busy ? "Saving…" : "Save status"}
+                  </Button>
+                </div>
+              </form>
+            </Panel>
 
-      {/* Fix wave 1: until the business has a price list, EVERY order to it is refused
-          (409 SHOP_PRICING_NOT_CONFIGURED), so the code is withheld rather than handed
-          out looking ready. */}
-      <ShopQrCode
-        shopId={data.id}
-        shopName={data.name}
-        notReady={data.hasPricingRule ? undefined : QR_NOT_READY_WITHOUT_PRICES}
+            {/* Fix wave 1: until the business has a price list, EVERY order to it is refused
+                (409 SHOP_PRICING_NOT_CONFIGURED), so the code is withheld rather than handed
+                out looking ready. */}
+            <ShopQrCode
+              shopId={data.id}
+              shopName={data.name}
+              notReady={data.hasPricingRule ? undefined : QR_NOT_READY_WITHOUT_PRICES}
+            />
+          </>
+        }
       />
-
-      <Panel title="Status" id="status">
-        <form
-          className="grid gap-3 text-sm sm:max-w-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void runner.run(() => getApi().admin.updateBusinessStatus(data.id, status));
-          }}
-        >
-          <SelectField
-            label="Status"
-            value={status}
-            onChange={(value) => setStatus(value as ShopStatus)}
-            options={STATUS_OPTIONS}
-          />
-          <p className="text-xs text-muted">
-            This overrides the business&apos;s own open/close setting -- use it to suspend a
-            business for abuse, or to reopen one on its behalf.
-          </p>
-          <div>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={runner.busy || status === data.status}
-            >
-              {runner.busy ? "Saving…" : "Save status"}
-            </Button>
-          </div>
-        </form>
-      </Panel>
     </div>
   );
 }

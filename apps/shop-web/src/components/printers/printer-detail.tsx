@@ -5,15 +5,19 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import type { PrinterResponse, UpdatePrinterInput } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
+import { INPUT } from "@/components/form-kit";
 import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { CapabilityToggles } from "@/components/printers/printers-screen";
 import { usePrinterRows } from "@/components/printers/use-printer-rows";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import {
+  BackLink,
   Button,
+  DetailGrid,
   LiveStatus,
   Meter,
+  Notice,
   PageHeader,
   Panel,
   Pill,
@@ -33,8 +37,6 @@ import {
   type PrinterRow,
 } from "@/lib/printers-view";
 import type { ActionOutcome } from "@/components/orders/use-action-runner";
-
-const FIELD = "rounded-md border border-line bg-panel px-2 py-1.5 text-sm";
 
 interface Runner {
   busy: boolean;
@@ -62,11 +64,7 @@ function PrinterDetailBody({ printerId }: { printerId: string }): ReactNode {
 
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/printers" className="underline underline-offset-2">
-          &larr; Printers
-        </Link>
-      </p>
+      <BackLink href="/printers">Printers</BackLink>
       <PageHeader
         title={row?.printer.name ?? "Printer"}
         actions={
@@ -104,12 +102,9 @@ function PrinterBody({ row, runner }: { row: PrinterRow; runner: Runner }): Reac
   return (
     <div className="grid gap-4">
       {runner.error !== null && (
-        <p
-          role="alert"
-          className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-        >
+        <Notice tone="danger" role="alert">
           {runner.error}
-        </p>
+        </Notice>
       )}
 
       <StatGrid>
@@ -155,69 +150,74 @@ function PrinterBody({ row, runner }: { row: PrinterRow; runner: Runner }): Reac
         />
       </StatGrid>
 
-      {live?.currentJob != null && (
-        <Panel title="Current job" id="current">
-          <Link
-            href={`/orders/${encodeURIComponent(live.currentJob.orderId)}?job=${encodeURIComponent(live.currentJob.id)}`}
-            className="num font-semibold underline"
-          >
-            {live.currentJob.publicOrderNumber}
-          </Link>{" "}
-          <Pill tone="accent">{humanizeEnum(live.currentJob.status)}</Pill>
-        </Panel>
-      )}
-      {live?.maintenanceStatus != null && (
-        <Panel title="Maintenance" tone="caution">
-          {live.maintenanceStatus}
-        </Panel>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ProfileForm key={`name:${printer.name}`} printer={printer} runner={runner} />
-        <CapabilitiesForm
-          key={`caps:${JSON.stringify(printer.capabilities)}`}
-          printer={printer}
-          runner={runner}
-        />
-        <LimitForm
-          key={`limit:${printer.pageLimit}:${printer.pageLimitEnabled}:${printer.pageLimitPeriod}`}
-          printer={printer}
-          runner={runner}
-          fraction={fraction}
-          standing={standing}
-        />
-        <Panel title="Availability and rules" id="availability">
-          <div className="grid gap-3 text-sm">
-            <p>
-              {disabled
-                ? "This printer is disabled: no job is sent to it until it is enabled again."
-                : "Disabling stops new jobs going to this printer. Jobs already queued on it are re-evaluated."}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                disabled={runner.busy}
-                onClick={() =>
-                  void runner.run(() => getApi().printers.update(printer.id, { enabled: disabled }))
-                }
-              >
-                {disabled ? "Enable printer" : "Disable printer"}
-              </Button>
-              <RemovePrinter printer={printer} runner={runner} />
-            </div>
-            <p className="text-xs text-muted">
-              Which printer new jobs prefer or avoid is set in{" "}
-              <Link href="/settings/printer-rules" className="underline">
-                Settings, printer rules
-              </Link>
-              .
-            </p>
-            <p className="text-xs text-muted">
-              Added {formatDateTime(printer.createdAt)}. Capabilities:{" "}
-              {supportedCapabilities(printer.capabilities).join(", ") || "not set"}.
-            </p>
-          </div>
-        </Panel>
-      </div>
+      <DetailGrid
+        main={
+          <>
+            {live?.currentJob != null && (
+              <Panel title="Current job" id="current">
+                <Link
+                  href={`/orders/${encodeURIComponent(live.currentJob.orderId)}?job=${encodeURIComponent(live.currentJob.id)}`}
+                  className="num font-semibold underline"
+                >
+                  {live.currentJob.publicOrderNumber}
+                </Link>{" "}
+                <Pill tone="accent">{humanizeEnum(live.currentJob.status)}</Pill>
+              </Panel>
+            )}
+            {live?.maintenanceStatus != null && (
+              <Panel title="Maintenance" tone="caution">
+                {live.maintenanceStatus}
+              </Panel>
+            )}
+            <Panel title="Availability and rules" id="availability">
+              <div className="grid gap-3 text-sm">
+                <p>
+                  {disabled
+                    ? "This printer is disabled: no job is sent to it until it is enabled again."
+                    : "Disabling stops new jobs going to this printer. Jobs already queued on it are re-evaluated."}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={runner.busy}
+                    onClick={() =>
+                      void runner.run(() =>
+                        getApi().printers.update(printer.id, { enabled: disabled }),
+                      )
+                    }
+                  >
+                    {disabled ? "Enable printer" : "Disable printer"}
+                  </Button>
+                  <RemovePrinter printer={printer} runner={runner} />
+                </div>
+                <p className="text-xs text-muted">
+                  Which printer new jobs prefer or avoid is set in{" "}
+                  <Link href="/settings/printer-rules" className="underline">
+                    Settings, printer rules
+                  </Link>
+                  .
+                </p>
+                <p className="text-xs text-muted">
+                  Added {formatDateTime(printer.createdAt)}. Capabilities:{" "}
+                  {supportedCapabilities(printer.capabilities).join(", ") || "not set"}.
+                </p>
+              </div>
+            </Panel>
+            <CapabilitiesForm
+              key={`caps:${JSON.stringify(printer.capabilities)}`}
+              printer={printer}
+              runner={runner}
+            />
+            <LimitForm
+              key={`limit:${printer.pageLimit}:${printer.pageLimitEnabled}:${printer.pageLimitPeriod}`}
+              printer={printer}
+              runner={runner}
+              fraction={fraction}
+              standing={standing}
+            />
+          </>
+        }
+        aside={<ProfileForm key={`name:${printer.name}`} printer={printer} runner={runner} />}
+      />
     </div>
   );
 }
@@ -248,17 +248,13 @@ function ProfileForm({ printer, runner }: { printer: PrinterResponse; runner: Ru
             value={name}
             maxLength={200}
             onChange={(event) => setName(event.target.value)}
-            className={`${FIELD} font-normal`}
+            className={`${INPUT} font-normal`}
           />
         </label>
         <div>
-          <button
-            type="submit"
-            disabled={runner.busy || !changed}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
+          <Button type="submit" variant="primary" disabled={runner.busy || !changed}>
             Save name
-          </button>
+          </Button>
         </div>
       </form>
     </Panel>
@@ -289,13 +285,9 @@ function CapabilitiesForm({
           Jobs are only allocated to printers that support their paper size, colour and sides.
         </p>
         <div>
-          <button
-            type="submit"
-            disabled={runner.busy || !changed}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
+          <Button type="submit" variant="primary" disabled={runner.busy || !changed}>
             Save capabilities
-          </button>
+          </Button>
         </div>
       </form>
     </Panel>
@@ -372,7 +364,7 @@ function LimitForm({
               onChange={(event) => setLimit(event.target.value)}
               aria-invalid={invalid}
               placeholder="No limit"
-              className={`${FIELD} num font-normal`}
+              className={`${INPUT} num font-normal`}
             />
             {invalid && (
               <span className="text-xs text-danger-fg">Enter a whole number, or leave blank.</span>
@@ -383,7 +375,7 @@ function LimitForm({
             <select
               value={period}
               onChange={(event) => setPeriod(event.target.value as typeof period)}
-              className={`${FIELD} font-normal`}
+              className={`${INPUT} font-normal`}
             >
               <option value="DAILY">Day</option>
               <option value="WEEKLY">Week (from Monday, UTC)</option>
@@ -396,13 +388,9 @@ function LimitForm({
           assignment ignores the limit. Changing the period starts a fresh allowance.
         </p>
         <div>
-          <button
-            type="submit"
-            disabled={runner.busy || !changed}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
+          <Button type="submit" variant="primary" disabled={runner.busy || !changed}>
             Save page limit
-          </button>
+          </Button>
         </div>
       </form>
     </Panel>

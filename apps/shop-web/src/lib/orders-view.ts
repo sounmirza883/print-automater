@@ -94,6 +94,21 @@ export function isSearching(query: OrdersQuery): boolean {
   );
 }
 
+/** How many filters besides the search text are set: what the phone's
+ * collapsed "Filters" block would be hiding. */
+export function activeFilterCount(query: OrdersQuery): number {
+  return [
+    query.status,
+    query.paymentStatus,
+    query.from,
+    query.to,
+    query.printerId,
+    query.operatorId,
+    query.customerId,
+    query.priority,
+  ].filter((value) => value !== "").length;
+}
+
 export function toSearchString(query: OrdersQuery): string {
   const params = new URLSearchParams();
   const entries: Array<[string, string]> = [

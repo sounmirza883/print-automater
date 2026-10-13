@@ -11,13 +11,16 @@ import { ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   ForbiddenState,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
+  Row,
   type Tone,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
@@ -98,26 +101,34 @@ function BusinessesBody(): ReactNode {
               Add the first one to get a shop onto the platform.
             </EmptyState>
           ) : (
-            <Panel>
-              <DataTable caption="Businesses" head={["Name", "Address", "Status", "Since"]}>
+            <Panel flushOnPhone>
+              <DataTable
+                caption="Businesses"
+                head={["Name", "Address", "Status", "Since"]}
+                stackOnPhone
+              >
                 {data.items.map((business) => (
-                  <tr key={business.id}>
-                    <td className="px-4 py-2 font-medium">
+                  <Row key={business.id}>
+                    <Cell className="font-medium">
                       <Link
                         href={`/admin/businesses/${business.id}`}
                         className="underline underline-offset-2"
                       >
                         {business.name}
                       </Link>
-                    </td>
-                    <td className="px-4 py-2 text-muted">{business.address}</td>
-                    <td className="px-4 py-2">
+                    </Cell>
+                    <Cell label="Address" className="text-muted">
+                      {business.address}
+                    </Cell>
+                    <Cell label="Status">
                       <Pill tone={STATUS_TONE[business.status] ?? "neutral"}>
                         {humanizeEnum(business.status)}
                       </Pill>
-                    </td>
-                    <td className="px-4 py-2 text-muted">{formatDate(business.createdAt)}</td>
-                  </tr>
+                    </Cell>
+                    <Cell label="Since" className="text-muted">
+                      {formatDate(business.createdAt)}
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />
@@ -149,9 +160,10 @@ export function BusinessCreatedNotice({
   onDismiss: () => void;
 }): ReactNode {
   return (
-    <div
+    <Notice
+      tone="good"
       role="status"
-      className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-md border border-good/50 bg-good-soft px-3 py-2"
+      className="mb-4 flex flex-wrap items-start justify-between gap-3"
     >
       <div className="grid gap-1 text-sm">
         <p className="font-medium">
@@ -170,7 +182,7 @@ export function BusinessCreatedNotice({
         </p>
       </div>
       <Button onClick={onDismiss}>Dismiss</Button>
-    </div>
+    </Notice>
   );
 }
 

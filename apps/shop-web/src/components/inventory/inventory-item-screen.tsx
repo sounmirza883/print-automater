@@ -12,8 +12,10 @@ import { RequirePermission, ResourceBoundary } from "@/components/resource-bound
 import { useSession } from "@/components/session-provider";
 import { useCurrency } from "@/components/use-currency";
 import {
+  BackLink,
   Button,
   DataTable,
+  DetailGrid,
   EmptyState,
   LiveStatus,
   PageHeader,
@@ -66,11 +68,7 @@ function ItemBody({ itemId }: { itemId: string }): ReactNode {
 
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/inventory" className="underline underline-offset-2">
-          &larr; Inventory
-        </Link>
-      </p>
+      <BackLink href="/inventory">Inventory</BackLink>
       <PageHeader
         title={item.data?.name ?? "Stock item"}
         subtitle={item.data?.sku ?? undefined}
@@ -114,97 +112,111 @@ function ItemBody({ itemId }: { itemId: string }): ReactNode {
                 }
               />
             </StatGrid>
-            <Panel title="Details" id="details">
-              <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
-                <Detail label="Paper">
-                  {[data.paperSize, data.paperType]
-                    .filter(Boolean)
-                    .map((v) => humanizeEnum(v as string))
-                    .join(" · ") || "Not set"}
-                </Detail>
-                <Detail label="Weight">
-                  {data.weightGsm === null ? "Not set" : `${data.weightGsm} gsm`}
-                </Detail>
-                <Detail label="Location">{data.location ?? "Not set"}</Detail>
-                <Detail label="Status">
-                  {data.active ? "Active" : "Inactive (hidden from allocation)"}
-                </Detail>
-                <Detail label="Updated">{formatDateTime(data.updatedAt)}</Detail>
-              </dl>
-              {canManage && (
-                <div className="mt-3">
-                  <Button
-                    disabled={runner.busy}
-                    onClick={() =>
-                      void runner.run(() =>
-                        getApi().inventory.updateItem(data.id, { active: !data.active }),
-                      )
-                    }
+            <DetailGrid
+              main={
+                <>
+                  <Panel
+                    title="Stock movements"
+                    id="movements"
+                    aside={movements.data ? `${movements.data.total} total` : undefined}
                   >
-                    {data.active ? "Deactivate item" : "Reactivate item"}
-                  </Button>
-                  {runner.error !== null && (
-                    <p role="alert" className="mt-2 text-danger-fg">
-                      {runner.error}
-                    </p>
-                  )}
-                </div>
-              )}
-            </Panel>
-
-            <Panel
-              title="Stock movements"
-              id="movements"
-              aside={movements.data ? `${movements.data.total} total` : undefined}
-            >
-              <ResourceBoundary state={movements} what="movements">
-                {(list) =>
-                  list.items.length === 0 ? (
-                    <EmptyState title="No movements yet" />
-                  ) : (
-                    <>
-                      <DataTable
-                        caption="Stock movements, newest first"
-                        head={["When", "Type", "Change", "Balance", "Reason"]}
-                      >
-                        {list.items.map((move) => (
-                          <tr key={move.id}>
-                            <td className="px-4 py-2 whitespace-nowrap">
-                              {formatDateTime(move.createdAt)}
-                            </td>
-                            <td className="px-4 py-2">
-                              <Pill tone={move.type === "CONSUMPTION" ? "accent" : "neutral"}>
-                                {humanizeEnum(move.type)}
-                              </Pill>
-                            </td>
-                            <td
-                              className={`num px-4 py-2 text-right ${move.quantityDelta < 0 ? "text-danger-fg" : "text-good-fg"}`}
+                    <ResourceBoundary state={movements} what="movements">
+                      {(list) =>
+                        list.items.length === 0 ? (
+                          <EmptyState title="No movements yet" />
+                        ) : (
+                          <>
+                            <DataTable
+                              caption="Stock movements, newest first"
+                              head={["When", "Type", "Change", "Balance", "Reason"]}
                             >
-                              {move.quantityDelta > 0 ? "+" : ""}
-                              {formatCount(move.quantityDelta)}
-                            </td>
-                            <td className="num px-4 py-2 text-right">
-                              {formatCount(move.quantityAfter)}
-                            </td>
-                            <td className="px-4 py-2 text-muted">
-                              {move.reason ?? (move.printJobId ? "Used by a print job" : "")}
-                            </td>
-                          </tr>
-                        ))}
-                      </DataTable>
-                      <Pager page={page} pageSize={PAGE} total={list.total} onPage={setPage} />
-                    </>
-                  )
-                }
-              </ResourceBoundary>
-              <p className="mt-3 text-xs text-muted">
-                Printing uses stock automatically (&ldquo;Consumption&rdquo;). If a job used more
-                than was on hand, the balance stops at zero and the shortfall is recorded for
-                follow-up.
-              </p>
-            </Panel>
+                              {list.items.map((move) => (
+                                <tr key={move.id}>
+                                  <td className="px-4 py-2 whitespace-nowrap">
+                                    {formatDateTime(move.createdAt)}
+                                  </td>
+                                  <td className="px-4 py-2">
+                                    <Pill tone={move.type === "CONSUMPTION" ? "accent" : "neutral"}>
+                                      {humanizeEnum(move.type)}
+                                    </Pill>
+                                  </td>
+                                  <td
+                                    className={`num px-4 py-2 text-right ${move.quantityDelta < 0 ? "text-danger-fg" : "text-good-fg"}`}
+                                  >
+                                    {move.quantityDelta > 0 ? "+" : ""}
+                                    {formatCount(move.quantityDelta)}
+                                  </td>
+                                  <td className="num px-4 py-2 text-right">
+                                    {formatCount(move.quantityAfter)}
+                                  </td>
+                                  <td className="px-4 py-2 text-muted">
+                                    {move.reason ?? (move.printJobId ? "Used by a print job" : "")}
+                                  </td>
+                                </tr>
+                              ))}
+                            </DataTable>
+                            <Pager
+                              page={page}
+                              pageSize={PAGE}
+                              total={list.total}
+                              onPage={setPage}
+                            />
+                          </>
+                        )
+                      }
+                    </ResourceBoundary>
+                    <p className="mt-3 text-xs text-muted">
+                      Printing uses stock automatically (&ldquo;Consumption&rdquo;). If a job used
+                      more than was on hand, the balance stops at zero and the shortfall is recorded
+                      for follow-up.
+                    </p>
+                  </Panel>
 
-            {can(Permission.MANAGE_SUPPLIERS) && <SuppliersOfItem itemId={itemId} />}
+                  {can(Permission.MANAGE_SUPPLIERS) && <SuppliersOfItem itemId={itemId} />}
+                </>
+              }
+              aside={
+                <>
+                  <Panel title="Details" id="details">
+                    <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-3 xl:grid-cols-1">
+                      <Detail label="Paper">
+                        {[data.paperSize, data.paperType]
+                          .filter(Boolean)
+                          .map((v) => humanizeEnum(v as string))
+                          .join(" · ") || "Not set"}
+                      </Detail>
+                      <Detail label="Weight">
+                        {data.weightGsm === null ? "Not set" : `${data.weightGsm} gsm`}
+                      </Detail>
+                      <Detail label="Location">{data.location ?? "Not set"}</Detail>
+                      <Detail label="Status">
+                        {data.active ? "Active" : "Inactive (hidden from allocation)"}
+                      </Detail>
+                      <Detail label="Updated">{formatDateTime(data.updatedAt)}</Detail>
+                    </dl>
+                    {canManage && (
+                      <div className="mt-3">
+                        <Button
+                          disabled={runner.busy}
+                          onClick={() =>
+                            void runner.run(() =>
+                              getApi().inventory.updateItem(data.id, { active: !data.active }),
+                            )
+                          }
+                        >
+                          {data.active ? "Deactivate item" : "Reactivate item"}
+                        </Button>
+                        {runner.error !== null && (
+                          <p role="alert" className="mt-2 text-danger-fg">
+                            {runner.error}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </Panel>
+                </>
+              }
+            />
           </div>
         )}
       </ResourceBoundary>

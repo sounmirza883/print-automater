@@ -9,14 +9,18 @@ import { useActionRunner } from "@/components/orders/use-action-runner";
 import { PricingTab } from "@/components/products/pricing-tab";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
+import { Tabs } from "@/components/tabs";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
+  Row,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { humanizeEnum } from "@/lib/format";
@@ -36,10 +40,10 @@ const PAGE = 25;
 /** The section 82 promise, stated wherever prices can be changed. */
 export function PriceChangeNotice(): ReactNode {
   return (
-    <p role="note" className="rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-sm">
+    <Notice tone="accent" role="note">
       Changing a price or a rule never changes an order that is already confirmed: each order keeps
       the price it was quoted. New prices apply to new orders only.
-    </p>
+    </Notice>
   );
 }
 
@@ -61,27 +65,15 @@ function ProductsBody(): ReactNode {
       <div className="mb-4">
         <PriceChangeNotice />
       </div>
-      <div role="tablist" aria-label="Sections" className="mb-4 flex gap-1 border-b border-line">
-        {(
-          [
-            ["products", "Products"],
-            ["pricing", "Pricing rules"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            role="tab"
-            type="button"
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
-              tab === id ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="Sections"
+        activeId={tab}
+        items={[
+          { id: "products", label: "Products" },
+          { id: "pricing", label: "Pricing rules" },
+        ]}
+        onSelect={(id) => setTab(id === "pricing" ? "pricing" : "products")}
+      />
       {tab === "products" ? <ProductsTab /> : <PricingTab />}
     </>
   );
@@ -144,12 +136,9 @@ function ProductsTab(): ReactNode {
         />
       </SearchForm>
       {runner.error !== null && (
-        <p
-          role="alert"
-          className="mb-3 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-        >
+        <Notice tone="danger" role="alert" className="mb-3">
           {runner.error}
-        </p>
+        </Notice>
       )}
       <ResourceBoundary state={list} what="products">
         {(data) =>
@@ -160,28 +149,35 @@ function ProductsTab(): ReactNode {
                 : "Add the services you sell, like copies or posters."}
             </EmptyState>
           ) : (
-            <Panel>
+            <Panel flushOnPhone>
               <DataTable
                 caption="Products"
                 head={["Product", "Category", "Unit", "Tax", "Needs", "Availability", ""]}
+                stackOnPhone
               >
                 {data.items.map((product) => (
-                  <tr key={product.id}>
-                    <td className="px-4 py-2 font-medium">{product.name}</td>
-                    <td className="px-4 py-2 text-muted">{product.category ?? "-"}</td>
-                    <td className="px-4 py-2 text-muted">{product.unit ?? "-"}</td>
-                    <td className="num px-4 py-2 text-right">
+                  <Row key={product.id}>
+                    <Cell className="font-medium">{product.name}</Cell>
+                    <Cell label="Category" className="text-muted">
+                      {product.category ?? "-"}
+                    </Cell>
+                    <Cell label="Unit" className="text-muted">
+                      {product.unit ?? "-"}
+                    </Cell>
+                    <Cell label="Tax" className="num text-right">
                       {product.taxRateBasisPoints === null
                         ? "-"
                         : `${basisPointsToPercent(product.taxRateBasisPoints)}%`}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted">{requirementSummary(product)}</td>
-                    <td className="px-4 py-2">
+                    </Cell>
+                    <Cell label="Needs" className="text-xs text-muted">
+                      {requirementSummary(product)}
+                    </Cell>
+                    <Cell label="Availability">
                       <Pill tone={product.available ? "good" : "neutral"}>
                         {product.available ? "Available" : "Hidden"}
                       </Pill>
-                    </td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                    </Cell>
+                    <Cell className="text-right whitespace-nowrap">
                       <Button
                         variant="ghost"
                         disabled={runner.busy}
@@ -200,8 +196,8 @@ function ProductsTab(): ReactNode {
                       >
                         {product.available ? "Hide" : "Make available"}
                       </Button>
-                    </td>
-                  </tr>
+                    </Cell>
+                  </Row>
                 ))}
               </DataTable>
               <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} />

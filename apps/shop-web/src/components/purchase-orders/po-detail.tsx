@@ -10,9 +10,12 @@ import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useCurrency } from "@/components/use-currency";
 import {
+  BackLink,
   Button,
   DataTable,
+  DetailGrid,
   LiveStatus,
+  Notice,
   PageHeader,
   Panel,
   Pill,
@@ -55,11 +58,7 @@ function PoBody({ orderId }: { orderId: string }): ReactNode {
 
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/purchase-orders" className="underline underline-offset-2">
-          &larr; Purchase orders
-        </Link>
-      </p>
+      <BackLink href="/purchase-orders">Purchase orders</BackLink>
       <PageHeader
         title={po.data?.poNumber ?? "Purchase order"}
         subtitle={po.data?.supplierName}
@@ -82,12 +81,9 @@ function PoBody({ orderId }: { orderId: string }): ReactNode {
                   <Pill>Payment: {humanizeEnum(data.paymentStatus)}</Pill>
                 </div>
                 {runner.error !== null && dialog === null && (
-                  <p
-                    role="alert"
-                    className="mt-3 rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-danger-fg"
-                  >
+                  <Notice tone="danger" role="alert" className="mt-3">
                     {runner.error}
-                  </p>
+                  </Notice>
                 )}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {actions.place && (
@@ -135,61 +131,74 @@ function PoBody({ orderId }: { orderId: string }): ReactNode {
                 />
               </StatGrid>
 
-              <Panel title="Lines" id="lines">
-                <DataTable
-                  caption="Purchase order lines"
-                  head={["Item", "Ordered", "Received", "Unit cost", "Line total"]}
-                >
-                  {data.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="px-4 py-2">
-                        <Link
-                          href={`/inventory/${line.inventoryItemId}`}
-                          className="font-medium underline"
-                        >
-                          {line.itemName}
-                        </Link>
-                      </td>
-                      <td className="num px-4 py-2 text-right">
-                        {formatCount(line.quantityOrdered)}
-                      </td>
-                      <td className="num px-4 py-2 text-right">
-                        {line.quantityReceived === null ? "-" : formatCount(line.quantityReceived)}
-                      </td>
-                      <td className="num px-4 py-2 text-right">
-                        {formatMoney(line.unitCostMinor, currency)}
-                      </td>
-                      <td className="num px-4 py-2 text-right">
-                        {formatMoney(line.quantityOrdered * line.unitCostMinor, currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </DataTable>
-                {data.notes !== null && (
-                  <p className="mt-3 text-sm text-muted">Notes: {data.notes}</p>
-                )}
-              </Panel>
-
-              {actions.setPayment && (
-                <Panel title="Payment" id="payment">
-                  <div className="flex flex-wrap items-end gap-3">
-                    <SelectField
-                      label="Payment status"
-                      value={data.paymentStatus}
-                      onChange={(value) =>
-                        void runner.run(() => getApi().purchaseOrders.setPayment(data.id, value))
-                      }
-                      options={PO_PAYMENT_STATUSES.map((value) => ({
-                        value,
-                        label: humanizeEnum(value),
-                      }))}
-                    />
-                    <p className="text-xs text-muted">
-                      Recording payment does not move any money; it is your own record.
-                    </p>
-                  </div>
-                </Panel>
-              )}
+              <DetailGrid
+                main={
+                  <>
+                    <Panel title="Lines" id="lines">
+                      <DataTable
+                        caption="Purchase order lines"
+                        head={["Item", "Ordered", "Received", "Unit cost", "Line total"]}
+                      >
+                        {data.lines.map((line) => (
+                          <tr key={line.id}>
+                            <td className="px-4 py-2">
+                              <Link
+                                href={`/inventory/${line.inventoryItemId}`}
+                                className="font-medium underline"
+                              >
+                                {line.itemName}
+                              </Link>
+                            </td>
+                            <td className="num px-4 py-2 text-right">
+                              {formatCount(line.quantityOrdered)}
+                            </td>
+                            <td className="num px-4 py-2 text-right">
+                              {line.quantityReceived === null
+                                ? "-"
+                                : formatCount(line.quantityReceived)}
+                            </td>
+                            <td className="num px-4 py-2 text-right">
+                              {formatMoney(line.unitCostMinor, currency)}
+                            </td>
+                            <td className="num px-4 py-2 text-right">
+                              {formatMoney(line.quantityOrdered * line.unitCostMinor, currency)}
+                            </td>
+                          </tr>
+                        ))}
+                      </DataTable>
+                      {data.notes !== null && (
+                        <p className="mt-3 text-sm text-muted">Notes: {data.notes}</p>
+                      )}
+                    </Panel>
+                  </>
+                }
+                aside={
+                  <>
+                    {actions.setPayment && (
+                      <Panel title="Payment" id="payment">
+                        <div className="flex flex-wrap items-end gap-3">
+                          <SelectField
+                            label="Payment status"
+                            value={data.paymentStatus}
+                            onChange={(value) =>
+                              void runner.run(() =>
+                                getApi().purchaseOrders.setPayment(data.id, value),
+                              )
+                            }
+                            options={PO_PAYMENT_STATUSES.map((value) => ({
+                              value,
+                              label: humanizeEnum(value),
+                            }))}
+                          />
+                          <p className="text-xs text-muted">
+                            Recording payment does not move any money; it is your own record.
+                          </p>
+                        </div>
+                      </Panel>
+                    )}
+                  </>
+                }
+              />
 
               {dialog === "place" && (
                 <PlaceDialog po={data} runner={runner} onClose={() => setDialog(null)} />

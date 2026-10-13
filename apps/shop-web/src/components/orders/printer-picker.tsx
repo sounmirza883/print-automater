@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { ShopOrderResponse } from "@print-automated/api-client";
+import { INPUT } from "@/components/form-kit";
 import { getApi, isForbidden } from "@/lib/api";
 import { capabilityProblems } from "@/lib/order-actions";
 import { humanizeEnum } from "@/lib/format";
@@ -47,11 +48,7 @@ export function PrinterPicker({
   return (
     <label className="grid gap-1 text-sm font-medium">
       {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-md border border-line bg-panel px-2 py-1.5 font-normal"
-      >
+      <select value={value} onChange={(event) => onChange(event.target.value)} className={INPUT}>
         {emptyLabel !== undefined ? (
           <option value="">{emptyLabel}</option>
         ) : (

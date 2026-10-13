@@ -1,5 +1,13 @@
 import { UserRole } from "@print-automated/types";
-import { activeNavItem, visibleNavItems, NAV_ITEMS } from "./nav";
+import {
+  activeNavItem,
+  bottomTabs,
+  groupedNav,
+  visibleNavItems,
+  NAV_GROUPS,
+  NAV_ITEMS,
+  type NavItem,
+} from "./nav";
 import { serverPermissionsFor } from "@/components/test-role-permissions";
 
 function idsFor(userRole: UserRole, businessRole: UserRole | null): string[] {
@@ -56,6 +64,7 @@ describe("visibleNavItems", () => {
       "admin-users",
       "admin-plans",
       "admin-payments",
+      "admin-reports",
     ]);
   });
 
@@ -63,6 +72,7 @@ describe("visibleNavItems", () => {
     for (const role of [UserRole.SHOP_OWNER, UserRole.SHOP_MANAGER, UserRole.OPERATOR]) {
       expect(idsFor(role, role)).not.toContain("admin-plans");
       expect(idsFor(role, role)).not.toContain("admin-payments");
+      expect(idsFor(role, role)).not.toContain("admin-reports");
     }
   });
 
@@ -97,5 +107,96 @@ describe("activeNavItem", () => {
     expect(activeNavItem("/admin/users/abc", NAV_ITEMS)?.id).toBe("admin-users");
     expect(activeNavItem("/admin/plans", NAV_ITEMS)?.id).toBe("admin-plans");
     expect(activeNavItem("/admin", NAV_ITEMS)?.id).toBe("admin");
+  });
+});
+
+function visibleFor(userRole: UserRole, businessRole: UserRole | null): NavItem[] {
+  return visibleNavItems({
+    userRole,
+    businessRole,
+    permissions: new Set(businessRole ? serverPermissionsFor(businessRole) : []),
+  });
+}
+
+function shape(items: NavItem[]): Array<[string | null, string[]]> {
+  return groupedNav(items).map((group) => [group.label, group.items.map((item) => item.id)]);
+}
+
+describe("groupedNav", () => {
+  it("arranges an owner's screens under the business headings, in order", () => {
+    expect(shape(visibleFor(UserRole.SHOP_OWNER, UserRole.SHOP_OWNER))).toEqual([
+      [null, ["dashboard", "notifications"]],
+      ["Production", ["orders", "printers", "customers"]],
+      ["Stock", ["inventory", "suppliers", "purchase-orders"]],
+      ["Catalogue", ["products"]],
+      ["Business", ["staff", "reports", "settings", "billing"]],
+    ]);
+  });
+
+  it("drops a heading when the role sees none of its screens", () => {
+    expect(shape(visibleFor(UserRole.SHOP_COUNTER, UserRole.SHOP_COUNTER))).toEqual([
+      [null, ["notifications"]],
+      ["Production", ["orders", "customers"]],
+    ]);
+  });
+
+  it("gives a platform admin the Platform heading and nothing business-scoped", () => {
+    expect(shape(visibleFor(UserRole.ADMIN, null))).toEqual([
+      [null, ["notifications"]],
+      [
+        "Platform",
+        [
+          "admin",
+          "admin-businesses",
+          "admin-users",
+          "admin-plans",
+          "admin-payments",
+          "admin-reports",
+        ],
+      ],
+    ]);
+  });
+
+  it("puts every nav item in exactly one known group", () => {
+    const known = NAV_GROUPS.map((group) => group.id);
+    for (const item of NAV_ITEMS) {
+      expect(known).toContain(item.group);
+    }
+    expect(groupedNav(NAV_ITEMS).flatMap((group) => group.items)).toHaveLength(NAV_ITEMS.length);
+  });
+
+  it("is empty when there is nothing to show", () => {
+    expect(groupedNav([])).toEqual([]);
+  });
+});
+
+describe("bottomTabs", () => {
+  it("gives an owner the four busiest screens under short labels", () => {
+    expect(bottomTabs(visibleFor(UserRole.SHOP_OWNER, UserRole.SHOP_OWNER))).toEqual([
+      { id: "dashboard", href: "/dashboard", label: "Home" },
+      { id: "orders", href: "/orders", label: "Orders" },
+      { id: "printers", href: "/printers", label: "Printers" },
+      { id: "inventory", href: "/inventory", label: "Stock" },
+    ]);
+  });
+
+  it("fills only from what the role can see, even if that is two tabs", () => {
+    expect(
+      bottomTabs(visibleFor(UserRole.SHOP_COUNTER, UserRole.SHOP_COUNTER)).map((tab) => tab.id),
+    ).toEqual(["orders", "customers"]);
+  });
+
+  it("gives a platform admin the platform screens", () => {
+    expect(bottomTabs(visibleFor(UserRole.ADMIN, null)).map((tab) => tab.id)).toEqual([
+      "admin",
+      "admin-businesses",
+      "admin-payments",
+      "admin-users",
+    ]);
+  });
+
+  it("never returns more than four, and nothing for nothing", () => {
+    expect(bottomTabs(NAV_ITEMS)).toHaveLength(4);
+    expect(bottomTabs([])).toEqual([]);
   });
 });

@@ -134,7 +134,7 @@ export function JobCard({
     <li
       id={`job-${job.id}`}
       className={`grid gap-2 rounded-lg border bg-panel px-4 py-3 ${
-        highlighted ? "border-accent ring-2 ring-accent/40" : "border-line"
+        highlighted ? "border-ink ring-2 ring-ink/15" : "border-line"
       }`}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

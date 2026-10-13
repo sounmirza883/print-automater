@@ -6,7 +6,7 @@ import { CheckField, ErrorBanner, NumberField, TextField } from "@/components/fo
 import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { ResourceBoundary } from "@/components/resource-boundary";
-import { Button, DataTable, EmptyState, Panel, Pill } from "@/components/ui";
+import { Button, DataTable, EmptyState, Notice, Panel, Pill } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { parseWholeNumber } from "@/lib/form-values";
 import { MAX_SORT_ORDER } from "@/lib/plan-form";
@@ -23,14 +23,11 @@ export function PlanFeaturesPanel(): ReactNode {
 
   return (
     <>
-      <p
-        role="note"
-        className="mb-4 rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-sm"
-      >
+      <Notice tone="accent" role="note" className="mb-4">
         These rows make up the Compare plans table on the public pricing page. Add a row here, then
         give each plan a value for it when you edit the plan. Rows that are marked &ldquo;On
         card&rdquo; also appear as bullets on each plan&apos;s pricing card.
-      </p>
+      </Notice>
       <div className="mb-3 flex justify-end">
         <Button variant="primary" onClick={() => setEditing("new")}>
           Add feature

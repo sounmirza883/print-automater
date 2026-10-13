@@ -140,7 +140,7 @@ export function ReviewProofDialog({
                 <label
                   key={option.id}
                   className={`inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 ${
-                    preset === option.id ? "border-accent bg-accent-soft" : "border-line"
+                    preset === option.id ? "border-ink bg-panel-2 text-ink" : "border-line"
                   }`}
                 >
                   <input
@@ -156,7 +156,7 @@ export function ReviewProofDialog({
               ))}
               <label
                 className={`inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 ${
-                  preset === "custom" ? "border-accent bg-accent-soft" : "border-line"
+                  preset === "custom" ? "border-ink bg-panel-2 text-ink" : "border-line"
                 }`}
               >
                 <input

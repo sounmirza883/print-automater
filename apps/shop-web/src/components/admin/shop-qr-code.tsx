@@ -110,6 +110,7 @@ export function ShopQrCode({
           Print this and post it at the counter. Scanning it opens the upload page for walk-in
           customers ordering without an account.
         </p>
+        {/* A QR code needs a white quiet zone to scan, in either theme. */}
         <div className="w-fit rounded-md border border-line bg-white p-3">
           <QRCodeCanvas
             ref={canvasRef}

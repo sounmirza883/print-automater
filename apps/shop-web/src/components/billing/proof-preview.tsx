@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Skeleton } from "@/components/ui";
+import { Notice, Skeleton } from "@/components/ui";
 import { previewKind } from "@/lib/billing-view";
 
 /** Shows a stored payment proof: an image inline, a PDF in a frame. The file comes through
@@ -62,12 +62,9 @@ function LoadedProof({
 
   if (failed) {
     return (
-      <p
-        role="alert"
-        className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-sm"
-      >
+      <Notice tone="danger" role="alert">
         The file could not be loaded. Try again in a moment.
-      </p>
+      </Notice>
     );
   }
   if (url === null) {

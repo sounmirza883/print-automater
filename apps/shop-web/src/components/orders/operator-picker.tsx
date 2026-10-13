@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { INPUT } from "@/components/form-kit";
 import { getApi } from "@/lib/api";
 import { useResource } from "@/lib/use-resource";
 
@@ -14,7 +15,7 @@ export function OperatorPicker({
   onChange,
   emptyLabel,
   label = "Operator",
-  className = "rounded-md border border-line bg-panel px-2 py-1.5 font-normal",
+  className = INPUT,
   labelClassName = "grid gap-1 text-sm font-medium",
 }: {
   shopId: string;

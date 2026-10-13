@@ -3,6 +3,7 @@ import {
   formatBytes,
   formatMoney,
   humanizeEnum,
+  initialsOf,
   minorToInput,
   parseMoneyToMinor,
   priorityLabel,
@@ -72,5 +73,30 @@ describe("minorToInput", () => {
     expect(minorToInput(12550, "PKR")).toBe("125.50");
     expect(minorToInput(1500, "JPY")).toBe("1500");
     expect(parseMoneyToMinor(minorToInput(29, "USD"), "USD")).toBe(29);
+  });
+});
+
+describe("initialsOf", () => {
+  it("takes the first letter of the first two words, upper-cased", () => {
+    expect(initialsOf("Ayesha Khan")).toBe("AK");
+    expect(initialsOf("sample print shop")).toBe("SP");
+  });
+
+  it("takes two letters of a single word", () => {
+    expect(initialsOf("Ali")).toBe("AL");
+    expect(initialsOf("X")).toBe("X");
+  });
+
+  it("ignores padding and repeated spaces", () => {
+    expect(initialsOf("  Bilal   Ahmed  ")).toBe("BA");
+  });
+
+  it("keeps non-Latin letters whole instead of splitting them", () => {
+    expect(initialsOf("علی حسن")).toBe("عح");
+  });
+
+  it("never returns an empty string", () => {
+    expect(initialsOf("")).toBe("?");
+    expect(initialsOf("   ")).toBe("?");
   });
 });

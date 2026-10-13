@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type { PairingCode } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
+import { INPUT } from "@/components/form-kit";
 import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { usePrinterRows } from "@/components/printers/use-printer-rows";
@@ -20,8 +21,6 @@ import {
   usageStanding,
   type PrinterRow,
 } from "@/lib/printers-view";
-
-const FIELD = "rounded-md border border-line bg-panel px-2 py-1.5 text-sm";
 
 /** PRD 109 (fleet view): every printer with its state, queue, pages used
  * against its limit and what it can do; add a printer; open one to manage
@@ -82,7 +81,7 @@ function PrintersBody(): ReactNode {
                     type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    className={`${FIELD} w-64`}
+                    className={`${INPUT} w-64`}
                   />
                 </label>
                 <label className="grid gap-1 text-xs font-medium text-muted">
@@ -90,7 +89,7 @@ function PrintersBody(): ReactNode {
                   <select
                     value={status}
                     onChange={(event) => setStatus(event.target.value)}
-                    className={FIELD}
+                    className={INPUT}
                   >
                     <option value="">Any</option>
                     {[
@@ -315,7 +314,7 @@ function AddPrinterDialog({
           value={name}
           maxLength={200}
           onChange={(event) => setName(event.target.value)}
-          className={`${FIELD} font-normal`}
+          className={`${INPUT} font-normal`}
         />
       </label>
       <CapabilityToggles value={caps} onChange={setCaps} />

@@ -32,7 +32,7 @@ export function NotificationBell(): ReactNode {
     <Link
       href="/notifications"
       aria-label={label}
-      className="relative grid size-9 place-items-center rounded-md border border-line bg-panel hover:border-muted"
+      className="relative grid size-9 place-items-center rounded-md border border-line bg-panel text-ink hover:border-line-strong hover:bg-panel-2 max-lg:size-11"
     >
       <svg
         aria-hidden="true"

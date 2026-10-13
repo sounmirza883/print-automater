@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
+import { AuthFrame } from "@/components/auth-frame";
+import { INPUT_LG } from "@/components/form-kit";
 import { rememberSelectedBusiness } from "@/components/session-provider";
+import { Button, Notice } from "@/components/ui";
 
-const FIELD = "rounded-md border border-line bg-panel px-3 py-2 text-base font-normal";
 const MIN_PASSWORD = 8;
 
 /** Fix wave 1: where the owner of a business a platform administrator created sets
@@ -69,106 +71,97 @@ export default function SetUpAccountPage(): ReactNode {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-12">
-      <section className="flex w-full max-w-md flex-col gap-6">
-        <span className="grid size-9 place-items-center rounded-md bg-accent font-bold text-white">
-          PA
-        </span>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Set up your account</h1>
-          <p className="mt-1 text-muted">
-            For the owner of a business a Print Automated administrator has set up. Enter the email
-            address the code was sent to and the code from that email, then choose your password.
-            You are signed in straight away.
-          </p>
-        </div>
-        <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-4">
-          <label htmlFor="email" className="flex flex-col gap-1 text-sm font-medium">
-            Email
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className={FIELD}
-            />
-          </label>
-          <label htmlFor="code" className="flex flex-col gap-1 text-sm font-medium">
-            Code from the email
-            <input
-              id="code"
-              name="code"
-              type="text"
-              autoComplete="one-time-code"
-              spellCheck={false}
-              required
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              className={`${FIELD} num`}
-            />
-          </label>
-          <label htmlFor="password" className="flex flex-col gap-1 text-sm font-medium">
-            Choose a password
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={MIN_PASSWORD}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className={FIELD}
-            />
-            <span className="text-xs font-normal text-muted">
-              At least {MIN_PASSWORD} characters.
-            </span>
-          </label>
-          <label htmlFor="confirm" className="flex flex-col gap-1 text-sm font-medium">
-            Confirm password
-            <input
-              id="confirm"
-              name="confirm"
-              type="password"
-              autoComplete="new-password"
-              required
-              value={confirm}
-              onChange={(event) => setConfirm(event.target.value)}
-              className={FIELD}
-            />
-          </label>
-          {error !== null && (
-            <p
-              role="alert"
-              className="rounded-md border border-danger bg-danger-soft px-3 py-2 text-danger-fg"
-            >
-              {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-md bg-accent px-4 py-2.5 font-semibold text-white disabled:opacity-60"
-          >
-            {submitting ? "Setting up…" : "Set password and sign in"}
-          </button>
-        </form>
-        <div className="flex flex-col gap-2 text-sm text-muted">
+    <AuthFrame
+      title="Set up your account"
+      intro={
+        <>
+          For the owner of a business a Print Automated administrator has set up. Enter the email
+          address the code was sent to and the code from that email, then choose your password. You
+          are signed in straight away.
+        </>
+      }
+      footer={
+        <>
           <p>
             The code works for 7 days. If it has expired or never arrived, ask your Print Automated
             administrator to send a new one; only the newest code works.
           </p>
           <p>
             Already set your password?{" "}
-            <Link href="/login" className="font-medium text-accent underline">
+            <Link href="/login" className="font-medium text-accent-fg underline">
               Sign in
             </Link>
           </p>
-        </div>
-      </section>
-    </main>
+        </>
+      }
+    >
+      <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-4">
+        <label htmlFor="email" className="flex flex-col gap-1 text-sm font-medium">
+          Email
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className={INPUT_LG}
+          />
+        </label>
+        <label htmlFor="code" className="flex flex-col gap-1 text-sm font-medium">
+          Code from the email
+          <input
+            id="code"
+            name="code"
+            type="text"
+            autoComplete="one-time-code"
+            spellCheck={false}
+            required
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            className={`${INPUT_LG} num`}
+          />
+        </label>
+        <label htmlFor="password" className="flex flex-col gap-1 text-sm font-medium">
+          Choose a password
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={MIN_PASSWORD}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className={INPUT_LG}
+          />
+          <span className="text-xs font-normal text-muted">
+            At least {MIN_PASSWORD} characters.
+          </span>
+        </label>
+        <label htmlFor="confirm" className="flex flex-col gap-1 text-sm font-medium">
+          Confirm password
+          <input
+            id="confirm"
+            name="confirm"
+            type="password"
+            autoComplete="new-password"
+            required
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
+            className={INPUT_LG}
+          />
+        </label>
+        {error !== null && (
+          <Notice tone="danger" role="alert">
+            {error}
+          </Notice>
+        )}
+        <Button type="submit" variant="primary" disabled={submitting} size="lg" className="w-full">
+          {submitting ? "Setting up…" : "Set password and sign in"}
+        </Button>
+      </form>
+    </AuthFrame>
   );
 }

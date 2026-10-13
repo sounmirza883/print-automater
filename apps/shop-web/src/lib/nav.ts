@@ -1,5 +1,9 @@
 import { Permission, UserRole } from "@print-automated/types";
 
+/** The sidebar section an entry sits under. */
+export type NavGroupId =
+  "overview" | "production" | "stock" | "catalogue" | "business" | "platform";
+
 /** One entry of the console's navigation. `anyOf` empty = always shown
  * to a signed-in user; otherwise shown when the effective role holds at
  * least one listed permission. `scope` says whether the entry needs a
@@ -10,6 +14,8 @@ export interface NavItem {
   label: string;
   href: string;
   scope: "business" | "platform" | "any";
+  /** Which sidebar section lists it. */
+  group: NavGroupId;
   anyOf: readonly Permission[];
   /** One line shown on screens that are not built yet. */
   blurb: string;
@@ -21,6 +27,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Dashboard",
     href: "/dashboard",
     scope: "business",
+    group: "overview",
     anyOf: [
       Permission.VIEW_DASHBOARD,
       Permission.VIEW_OPERATOR_DASHBOARD,
@@ -30,9 +37,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   {
     id: "orders",
-    label: "Orders / Queue",
+    label: "Orders & queue",
     href: "/orders",
     scope: "business",
+    group: "production",
     anyOf: [Permission.VIEW_ORDERS],
     blurb: "The production queue and every order the business has received.",
   },
@@ -41,6 +49,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Printers",
     href: "/printers",
     scope: "business",
+    group: "production",
     anyOf: [Permission.MANAGE_PRINTERS],
     blurb: "Register printers and manage their capabilities, limits and agents.",
   },
@@ -49,6 +58,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Inventory",
     href: "/inventory",
     scope: "business",
+    group: "stock",
     anyOf: [Permission.VIEW_INVENTORY],
     blurb: "Paper stock, movements and low-stock alerts.",
   },
@@ -57,6 +67,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Suppliers",
     href: "/suppliers",
     scope: "business",
+    group: "stock",
     anyOf: [Permission.MANAGE_SUPPLIERS],
     blurb: "Supplier records and the products they provide.",
   },
@@ -65,6 +76,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Purchase orders",
     href: "/purchase-orders",
     scope: "business",
+    group: "stock",
     anyOf: [Permission.MANAGE_INVENTORY],
     blurb: "Restock orders, receiving and supplier payments.",
   },
@@ -73,6 +85,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Products & pricing",
     href: "/products",
     scope: "business",
+    group: "catalogue",
     anyOf: [Permission.MANAGE_PRICES],
     blurb: "The catalogue of print products and the pricing rules behind them.",
   },
@@ -81,6 +94,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Customers",
     href: "/customers",
     scope: "business",
+    group: "production",
     anyOf: [Permission.CREATE_ORDERS, Permission.EDIT_ORDERS],
     blurb: "Walk-in and repeat customers for counter orders.",
   },
@@ -89,6 +103,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Staff",
     href: "/staff",
     scope: "business",
+    group: "business",
     anyOf: [Permission.MANAGE_USERS],
     blurb: "Who works at the business and what each person may do.",
   },
@@ -97,6 +112,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Reports",
     href: "/reports",
     scope: "business",
+    group: "business",
     anyOf: [Permission.VIEW_REPORTS],
     blurb: "Orders, revenue, printing volume, printer usage, workload and purchasing.",
   },
@@ -105,6 +121,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Settings",
     href: "/settings",
     scope: "business",
+    group: "business",
     anyOf: [Permission.VIEW_SETTINGS],
     blurb: "Business details, automation switches and printer rules.",
   },
@@ -113,6 +130,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Billing",
     href: "/billing",
     scope: "business",
+    group: "business",
     anyOf: [Permission.MANAGE_SETTINGS],
     blurb: "Pay for your plan and send proof of payment.",
   },
@@ -121,14 +139,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Notifications",
     href: "/notifications",
     scope: "any",
+    group: "overview",
     anyOf: [],
     blurb: "Alerts about jobs, printers and stock.",
   },
   {
     id: "admin",
-    label: "Platform",
+    label: "Overview",
     href: "/admin",
     scope: "platform",
+    group: "platform",
     anyOf: [],
     blurb: "Platform-wide health, businesses and security events.",
   },
@@ -137,6 +157,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Businesses",
     href: "/admin/businesses",
     scope: "platform",
+    group: "platform",
     anyOf: [],
     blurb: "Every business on the platform: create one, view detail, change status.",
   },
@@ -145,6 +166,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Users",
     href: "/admin/users",
     scope: "platform",
+    group: "platform",
     anyOf: [],
     blurb: "Every user on the platform: view detail, change role or status.",
   },
@@ -153,6 +175,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Plans",
     href: "/admin/plans",
     scope: "platform",
+    group: "platform",
     anyOf: [],
     blurb: "The plans businesses are put on: name, price, billing period, and who is on each.",
   },
@@ -161,8 +184,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Payments",
     href: "/admin/payments",
     scope: "platform",
+    group: "platform",
     anyOf: [],
     blurb: "Payment proofs from businesses: check each one, then approve or reject it.",
+  },
+  {
+    id: "admin-reports",
+    label: "Reports",
+    href: "/admin/reports",
+    scope: "platform",
+    group: "platform",
+    anyOf: [],
+    blurb: "Money received and not accepted over any period, with CSV and Excel export.",
   },
 ];
 
@@ -195,4 +228,65 @@ export function activeNavItem(pathname: string, items: readonly NavItem[]): NavI
   return [...items]
     .sort((a, b) => b.href.length - a.href.length)
     .find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+}
+
+/** The sidebar's sections, in display order. `label: null` is the unlabelled
+ * first section. */
+export const NAV_GROUPS: ReadonlyArray<{ id: NavGroupId; label: string | null }> = [
+  { id: "overview", label: null },
+  { id: "production", label: "Production" },
+  { id: "stock", label: "Stock" },
+  { id: "catalogue", label: "Catalogue" },
+  { id: "business", label: "Business" },
+  { id: "platform", label: "Platform" },
+];
+
+export interface NavGroupView {
+  id: NavGroupId;
+  label: string | null;
+  items: NavItem[];
+}
+
+/** The given (already permission-filtered) items arranged into sections.
+ * A section with nothing in it is dropped, so no role sees an empty heading. */
+export function groupedNav(items: readonly NavItem[]): NavGroupView[] {
+  return NAV_GROUPS.map((group) => ({
+    ...group,
+    items: items.filter((item) => item.group === group.id),
+  })).filter((group) => group.items.length > 0);
+}
+
+export interface BottomTab {
+  id: string;
+  href: string;
+  /** Short enough for a phone tab ("Orders & queue" does not fit). */
+  label: string;
+}
+
+/** Candidates for the phone's bottom bar, most used first. */
+const BOTTOM_TAB_ORDER: ReadonlyArray<{ id: string; label: string }> = [
+  { id: "dashboard", label: "Home" },
+  { id: "orders", label: "Orders" },
+  { id: "printers", label: "Printers" },
+  { id: "inventory", label: "Stock" },
+  { id: "customers", label: "Customers" },
+  { id: "admin", label: "Overview" },
+  { id: "admin-businesses", label: "Businesses" },
+  { id: "admin-payments", label: "Payments" },
+  { id: "admin-users", label: "Users" },
+];
+
+const BOTTOM_TAB_LIMIT = 4;
+
+/** Up to four tabs for the phone's bottom bar, taken in priority order from
+ * what this role can see. Everything else is reached through "More". */
+export function bottomTabs(items: readonly NavItem[]): BottomTab[] {
+  const tabs: BottomTab[] = [];
+  for (const candidate of BOTTOM_TAB_ORDER) {
+    const item = items.find((entry) => entry.id === candidate.id);
+    if (item !== undefined && tabs.length < BOTTOM_TAB_LIMIT) {
+      tabs.push({ id: item.id, href: item.href, label: candidate.label });
+    }
+  }
+  return tabs;
 }

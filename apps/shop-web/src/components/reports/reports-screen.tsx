@@ -14,6 +14,7 @@ import {
   type RevenueReport,
   type SupplierPurchasesReport,
 } from "@print-automated/types";
+import { INPUT } from "@/components/form-kit";
 import { ColumnChart } from "@/components/reports/column-chart";
 import { RequirePermission } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
@@ -91,7 +92,6 @@ async function loadReport(
   }
 }
 
-const FIELD = "rounded-md border border-line bg-panel px-2 py-1.5 text-sm font-normal";
 const LABEL = "grid gap-1 text-xs font-medium text-muted";
 
 /** PRD 72-74 (23.29). Owner and manager (VIEW_REPORTS). One filter row scopes everything
@@ -149,8 +149,8 @@ function ReportsBody(): ReactNode {
               onClick={() => go({ ...query, report: report.name })}
               className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
                 current
-                  ? "border-accent bg-accent-soft text-accent-fg"
-                  : "border-line bg-panel hover:border-muted"
+                  ? "border-ink bg-panel-2 text-ink"
+                  : "border-line bg-panel hover:border-line-strong"
               }`}
             >
               {report.title}
@@ -243,7 +243,7 @@ function Filters({
           <select
             value={query.range}
             onChange={(event) => setRange(event.target.value as RangePreset)}
-            className={FIELD}
+            className={INPUT}
           >
             {RANGE_PRESETS.map((preset) => (
               <option key={preset.value} value={preset.value}>
@@ -270,7 +270,7 @@ function Filters({
               onChange={(event) =>
                 onChange({ ...query, groupBy: event.target.value as ReportGroupBy })
               }
-              className={FIELD}
+              className={INPUT}
             >
               <option value="day">Day</option>
               <option value="week">Week (from Monday)</option>
@@ -284,7 +284,7 @@ function Filters({
             <select
               value={query.currency}
               onChange={(event) => onChange({ ...query, currency: event.target.value })}
-              className={FIELD}
+              className={INPUT}
             >
               <option value="">
                 Main ({query.currency === "" ? view.data.currency : "default"})
@@ -342,7 +342,7 @@ function CustomRange({
           type="date"
           value={from}
           onChange={(event) => setFrom(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </label>
       <label className={LABEL}>
@@ -351,7 +351,7 @@ function CustomRange({
           type="date"
           value={to}
           onChange={(event) => setTo(event.target.value)}
-          className={FIELD}
+          className={INPUT}
         />
       </label>
       <Button type="submit" disabled={problem !== null}>

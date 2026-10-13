@@ -20,12 +20,14 @@ import { useSession } from "@/components/session-provider";
 import { useCurrency } from "@/components/use-currency";
 import {
   Button,
+  Cell,
   DataTable,
   EmptyState,
   LiveStatus,
   PageHeader,
   Panel,
   Pill,
+  Row,
   Stat,
   StatGrid,
 } from "@/components/ui";
@@ -255,10 +257,11 @@ function InventoryBody(): ReactNode {
                 : "Add the paper you keep so stock can be tracked."}
             </EmptyState>
           ) : (
-            <Panel>
+            <Panel flushOnPhone>
               <DataTable
                 caption="Stock items"
                 head={["Item", "Paper", "On hand", "Minimum", "Location", "Unit cost", "Status"]}
+                stackOnPhone
               >
                 {data.items.map((item) => (
                   <ItemRow key={item.id} item={item} currency={currency} />
@@ -284,8 +287,8 @@ function InventoryBody(): ReactNode {
 
 function ItemRow({ item, currency }: { item: InventoryItem; currency: string }): ReactNode {
   return (
-    <tr>
-      <td className="px-4 py-2">
+    <Row>
+      <Cell>
         <Link
           href={`/inventory/${item.id}`}
           className="font-medium underline-offset-2 hover:underline"
@@ -293,21 +296,27 @@ function ItemRow({ item, currency }: { item: InventoryItem; currency: string }):
           {item.name}
         </Link>
         {item.sku !== null && <span className="num ml-2 text-xs text-muted">{item.sku}</span>}
-      </td>
-      <td className="px-4 py-2 text-muted">
+      </Cell>
+      <Cell label="Paper" className="text-muted">
         {[item.paperSize, item.paperType].filter(Boolean).join(" ") || "-"}
         {item.weightGsm !== null && ` ${item.weightGsm} gsm`}
-      </td>
-      <td className="num px-4 py-2 text-right">{formatCount(item.quantity)}</td>
-      <td className="num px-4 py-2 text-right text-muted">{formatCount(item.minQuantity)}</td>
-      <td className="px-4 py-2 text-muted">{item.location ?? "-"}</td>
-      <td className="num px-4 py-2 text-right">
+      </Cell>
+      <Cell label="On hand" className="num text-right">
+        {formatCount(item.quantity)}
+      </Cell>
+      <Cell label="Minimum" className="num text-right text-muted">
+        {formatCount(item.minQuantity)}
+      </Cell>
+      <Cell label="Location" className="text-muted">
+        {item.location ?? "-"}
+      </Cell>
+      <Cell label="Unit cost" className="num text-right">
         {item.unitCostMinor === null ? "-" : formatMoney(item.unitCostMinor, currency)}
-      </td>
-      <td className="px-4 py-2">
+      </Cell>
+      <Cell label="Status">
         <Pill tone={stockTone(item)}>{stockLabel(item)}</Pill>
-      </td>
-    </tr>
+      </Cell>
+    </Row>
   );
 }
 

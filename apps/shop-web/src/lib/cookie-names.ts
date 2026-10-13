@@ -13,3 +13,6 @@ export const REFRESH_TOKEN_COOKIE = "shop_refresh_token";
  * bearer token, and the effective role comes from the API's own
  * membership list. */
 export const SESSION_USER_COOKIE = "shop_session_user";
+/** The person's Light / Dark / System choice. Read by the root layout so the
+ * first paint is already in the right theme; display-only, like the cookie above. */
+export const THEME_COOKIE = "shop_theme";

@@ -12,8 +12,10 @@ import { useSession } from "@/components/session-provider";
 import { SupplierDialog } from "@/components/suppliers/suppliers-screen";
 import { useCurrency } from "@/components/use-currency";
 import {
+  BackLink,
   Button,
   DataTable,
+  DetailGrid,
   EmptyState,
   LiveStatus,
   PageHeader,
@@ -55,11 +57,7 @@ function SupplierBody({ supplierId }: { supplierId: string }): ReactNode {
 
   return (
     <>
-      <p className="mb-3 text-sm">
-        <Link href="/suppliers" className="underline underline-offset-2">
-          &larr; Suppliers
-        </Link>
-      </p>
+      <BackLink href="/suppliers">Suppliers</BackLink>
       <PageHeader
         title={supplier.data?.name ?? "Supplier"}
         subtitle={supplier.data?.paymentTerms ?? undefined}
@@ -73,112 +71,123 @@ function SupplierBody({ supplierId }: { supplierId: string }): ReactNode {
       />
       <ResourceBoundary state={supplier} what="this supplier">
         {(data) => (
-          <div className="grid gap-4">
-            <Panel
-              title="Details"
-              id="details"
-              aside={
-                <Pill tone={data.status === "ACTIVE" ? "good" : "neutral"}>
-                  {data.status === "ACTIVE" ? "Active" : "Inactive"}
-                </Pill>
-              }
-            >
-              <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-                <Item label="Contact">{data.contactName ?? "-"}</Item>
-                <Item label="Phone">{data.phone ?? "-"}</Item>
-                <Item label="Email">{data.email ?? "-"}</Item>
-                <Item label="Address">{data.address ?? "-"}</Item>
-                <Item label="Notes">{data.notes ?? "-"}</Item>
-              </dl>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button onClick={() => setEditing(true)} disabled={runner.busy}>
-                  Edit supplier
-                </Button>
-                <Button
-                  disabled={runner.busy}
-                  onClick={() =>
-                    void runner.run(() =>
-                      getApi().suppliers.update(data.id, {
-                        status: data.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-                      }),
-                    )
+          <DetailGrid
+            main={
+              <>
+                <Panel
+                  title="Items this supplier provides"
+                  id="items"
+                  aside={
+                    <Button onClick={() => setLinking(true)} disabled={runner.busy}>
+                      Link an item
+                    </Button>
                   }
                 >
-                  {data.status === "ACTIVE" ? "Deactivate supplier" : "Reactivate supplier"}
-                </Button>
-              </div>
-              {data.status === "INACTIVE" && (
-                <p className="mt-2 text-xs text-muted">
-                  An inactive supplier keeps its history but cannot be chosen for new purchase
-                  orders.
-                </p>
-              )}
-              {runner.error !== null && (
-                <p role="alert" className="mt-2 text-danger-fg">
-                  {runner.error}
-                </p>
-              )}
-            </Panel>
-
-            <Panel
-              title="Items this supplier provides"
-              id="items"
-              aside={
-                <Button onClick={() => setLinking(true)} disabled={runner.busy}>
-                  Link an item
-                </Button>
-              }
-            >
-              <ResourceBoundary state={links} what="linked items">
-                {(list) =>
-                  list.items.length === 0 ? (
-                    <EmptyState title="No items linked">
-                      Link the stock items this supplier sells, with their price and lead time.
-                    </EmptyState>
-                  ) : (
-                    <DataTable
-                      caption="Items this supplier provides"
-                      head={["Item", "Their SKU", "Unit price", "Lead time", "Status", ""]}
+                  <ResourceBoundary state={links} what="linked items">
+                    {(list) =>
+                      list.items.length === 0 ? (
+                        <EmptyState title="No items linked">
+                          Link the stock items this supplier sells, with their price and lead time.
+                        </EmptyState>
+                      ) : (
+                        <DataTable
+                          caption="Items this supplier provides"
+                          head={["Item", "Their SKU", "Unit price", "Lead time", "Status", ""]}
+                        >
+                          {list.items.map((link) => (
+                            <tr key={link.id}>
+                              <td className="px-4 py-2">
+                                <Link
+                                  href={`/inventory/${link.inventoryItemId}`}
+                                  className="font-medium underline"
+                                >
+                                  {link.itemName}
+                                </Link>
+                              </td>
+                              <td className="num px-4 py-2">{link.supplierSku ?? "-"}</td>
+                              <td className="num px-4 py-2 text-right">
+                                {link.unitPriceMinor === null
+                                  ? "-"
+                                  : formatMoney(link.unitPriceMinor, currency)}
+                              </td>
+                              <td className="px-4 py-2">
+                                {link.leadTimeDays === null ? "-" : `${link.leadTimeDays} days`}
+                              </td>
+                              <td className="px-4 py-2">
+                                {link.active ? (
+                                  <Pill tone="good">Active</Pill>
+                                ) : (
+                                  <Pill>Inactive</Pill>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => setEditLink(link)}
+                                  disabled={runner.busy}
+                                >
+                                  Edit
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </DataTable>
+                      )
+                    }
+                  </ResourceBoundary>
+                </Panel>
+              </>
+            }
+            aside={
+              <>
+                <Panel
+                  title="Details"
+                  id="details"
+                  aside={
+                    <Pill tone={data.status === "ACTIVE" ? "good" : "neutral"}>
+                      {data.status === "ACTIVE" ? "Active" : "Inactive"}
+                    </Pill>
+                  }
+                >
+                  <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2 xl:grid-cols-1">
+                    <Item label="Contact">{data.contactName ?? "-"}</Item>
+                    <Item label="Phone">{data.phone ?? "-"}</Item>
+                    <Item label="Email">{data.email ?? "-"}</Item>
+                    <Item label="Address">{data.address ?? "-"}</Item>
+                    <Item label="Notes">{data.notes ?? "-"}</Item>
+                  </dl>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button onClick={() => setEditing(true)} disabled={runner.busy}>
+                      Edit supplier
+                    </Button>
+                    <Button
+                      disabled={runner.busy}
+                      onClick={() =>
+                        void runner.run(() =>
+                          getApi().suppliers.update(data.id, {
+                            status: data.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
+                          }),
+                        )
+                      }
                     >
-                      {list.items.map((link) => (
-                        <tr key={link.id}>
-                          <td className="px-4 py-2">
-                            <Link
-                              href={`/inventory/${link.inventoryItemId}`}
-                              className="font-medium underline"
-                            >
-                              {link.itemName}
-                            </Link>
-                          </td>
-                          <td className="num px-4 py-2">{link.supplierSku ?? "-"}</td>
-                          <td className="num px-4 py-2 text-right">
-                            {link.unitPriceMinor === null
-                              ? "-"
-                              : formatMoney(link.unitPriceMinor, currency)}
-                          </td>
-                          <td className="px-4 py-2">
-                            {link.leadTimeDays === null ? "-" : `${link.leadTimeDays} days`}
-                          </td>
-                          <td className="px-4 py-2">
-                            {link.active ? <Pill tone="good">Active</Pill> : <Pill>Inactive</Pill>}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <Button
-                              variant="ghost"
-                              onClick={() => setEditLink(link)}
-                              disabled={runner.busy}
-                            >
-                              Edit
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </DataTable>
-                  )
-                }
-              </ResourceBoundary>
-            </Panel>
-          </div>
+                      {data.status === "ACTIVE" ? "Deactivate supplier" : "Reactivate supplier"}
+                    </Button>
+                  </div>
+                  {data.status === "INACTIVE" && (
+                    <p className="mt-2 text-xs text-muted">
+                      An inactive supplier keeps its history but cannot be chosen for new purchase
+                      orders.
+                    </p>
+                  )}
+                  {runner.error !== null && (
+                    <p role="alert" className="mt-2 text-danger-fg">
+                      {runner.error}
+                    </p>
+                  )}
+                </Panel>
+              </>
+            }
+          />
         )}
       </ResourceBoundary>
 

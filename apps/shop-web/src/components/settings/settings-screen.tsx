@@ -9,7 +9,7 @@ import { CheckField, ErrorBanner, INPUT, TextField } from "@/components/form-kit
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
-import { Button, LiveStatus, PageHeader, Panel, Pill } from "@/components/ui";
+import { Button, LiveStatus, Notice, PageHeader, Panel, Pill } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { errorCodeOf } from "@/lib/error-copy";
 import { formatDateTime } from "@/lib/format";
@@ -138,12 +138,9 @@ function SettingsForm({
     <div className="grid gap-4">
       <ErrorBanner message={runner.error} />
       {notice !== null && (
-        <p
-          role="status"
-          className="rounded-md border border-caution/50 bg-caution-soft px-3 py-2 text-sm"
-        >
+        <Notice tone="caution" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
 
       <Panel
@@ -222,7 +219,7 @@ function SettingsForm({
         )}
       </Panel>
 
-      <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-panel/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+      <div className="sticky bottom-[var(--bottom-nav)] -mx-4 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-panel/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
         <span className="text-xs text-muted">
           Version {data.version}, last saved {formatDateTime(data.updatedAt)}
         </span>
