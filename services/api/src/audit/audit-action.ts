@@ -97,6 +97,8 @@ export const AuditAction = {
   PAYMENT_PROOF_SUBMITTED: "PAYMENT_PROOF_SUBMITTED",
   PAYMENT_PROOF_APPROVED: "PAYMENT_PROOF_APPROVED",
   PAYMENT_PROOF_REJECTED: "PAYMENT_PROOF_REJECTED",
+  // An admin downloading the payment report (resource = the report; metadata = range, format).
+  PAYMENT_REPORT_EXPORTED: "PAYMENT_REPORT_EXPORTED",
   // The admin-edited payment-instructions text (resource = the singleton settings row).
   PAYMENT_INSTRUCTIONS_UPDATED: "PAYMENT_INSTRUCTIONS_UPDATED",
   // HISTORICAL ONLY: written by the public self-service signup

@@ -1,6 +1,7 @@
 import type { BillingPlanOption, PaymentProofResponse } from "@print-automated/types";
 import {
   MAX_GRANT_MONTHS,
+  MAX_PROOF_AMOUNT_MINOR,
   PROOF_MAX_BYTES,
   durationLabel,
   fileToBase64,
@@ -69,6 +70,21 @@ describe("validateSubmission", () => {
     );
     expect(Object.keys(result.errors).sort()).toEqual(["file", "plan", "transactionRef"]);
     expect(result.amountMinor).toBeNull();
+  });
+
+  it("refuses an amount above the limit the API accepts, with a message naming the limit", () => {
+    // The case that failed live: PKR 36,000,000 is 3.6 billion minor units.
+    const tooBig = validateSubmission({ ...valid, amountText: "36000000" }, [plan]);
+    expect(tooBig.errors.amount).toMatch(/cannot be more than PKR 20,000,000\.00/);
+    expect(tooBig.amountMinor).toBeNull();
+    // Exactly the limit is still fine.
+    const atLimit = validateSubmission({ ...valid, amountText: "20000000" }, [plan]);
+    expect(atLimit.errors.amount).toBeUndefined();
+    expect(atLimit.amountMinor).toBe(MAX_PROOF_AMOUNT_MINOR);
+    // The largest figure the field's own parser accepts (9 digits) is also caught.
+    expect(validateSubmission({ ...valid, amountText: "999999999" }, [plan]).errors.amount).toMatch(
+      /cannot be more than/,
+    );
   });
 
   it("refuses a zero or unparseable amount", () => {

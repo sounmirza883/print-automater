@@ -61,3 +61,40 @@ export const updatePaymentInstructionsSchema = z.object({
   paymentInstructions: z.string().trim().max(5000),
 });
 export type UpdatePaymentInstructionsInput = z.infer<typeof updatePaymentInstructionsSchema>;
+
+/** Longest range one payment report may cover (5 years). */
+export const MAX_PAYMENT_REPORT_DAYS = 1830;
+const DAY_MS = 86_400_000;
+export const PAYMENT_REPORT_GROUP_BY = ["day", "month"] as const;
+export const PAYMENT_REPORT_FORMATS = ["csv", "xlsx"] as const;
+
+/** `GET /admin/payment-reports`. `from` is inclusive and `to` exclusive (instants: the browser
+ * sends local midnights). `tzOffsetMinutes` is the viewer's offset from UTC (Pakistan = 300), so
+ * "per day" means the viewer's day, not a UTC day. `groupBy` defaults to day for ranges of up to
+ * 62 days and month for longer ones. */
+const paymentReportShape = {
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  groupBy: z.enum(PAYMENT_REPORT_GROUP_BY).optional(),
+  tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).default(0),
+};
+
+function checkRange(value: { from: Date; to: Date }, ctx: z.RefinementCtx): void {
+  if (value.from >= value.to) {
+    ctx.addIssue({ code: "custom", path: ["from"], message: "`from` must be before `to`." });
+  } else if (value.to.getTime() - value.from.getTime() > MAX_PAYMENT_REPORT_DAYS * DAY_MS) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["from"],
+      message: `The range may not exceed ${MAX_PAYMENT_REPORT_DAYS} days.`,
+    });
+  }
+}
+
+export const paymentReportQuerySchema = z.object(paymentReportShape).superRefine(checkRange);
+export type PaymentReportQueryInput = z.infer<typeof paymentReportQuerySchema>;
+
+export const paymentReportExportQuerySchema = z
+  .object({ ...paymentReportShape, format: z.enum(PAYMENT_REPORT_FORMATS).default("csv") })
+  .superRefine(checkRange);
+export type PaymentReportExportQueryInput = z.infer<typeof paymentReportExportQuerySchema>;

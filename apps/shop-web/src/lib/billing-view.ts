@@ -1,5 +1,5 @@
 import type { BillingPlanOption, PaymentProofResponse } from "@print-automated/types";
-import { parseMoneyToMinor } from "@/lib/format";
+import { formatMoney, parseMoneyToMinor } from "@/lib/format";
 
 /** Manual plan billing (owner Billing screen + admin Payments screen): the pure rules
  * both screens share -- file checks, the duration an admin grants, status wording -- kept
@@ -8,6 +8,11 @@ import { parseMoneyToMinor } from "@/lib/format";
 export const PROOF_ACCEPTED_TYPES = ["image/jpeg", "image/png", "application/pdf"] as const;
 export type ProofContentType = (typeof PROOF_ACCEPTED_TYPES)[number];
 export const PROOF_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Largest amount one proof may carry, in minor units. Mirrors the API schema and the database's
+ * 32-bit `amount_minor` column (2,000,000,000 = PKR 20,000,000): above it the API answers with a
+ * bare "Validation failed", so the form says so up front instead. */
+export const MAX_PROOF_AMOUNT_MINOR = 2_000_000_000;
 export const PROOF_ACCEPT_ATTRIBUTE = PROOF_ACCEPTED_TYPES.join(",");
 
 /** Longest approval an admin can grant in one go (mirrors the API's 10 years). */
@@ -73,6 +78,8 @@ export function validateSubmission(
   const amountMinor = plan === undefined ? null : parseMoneyToMinor(form.amountText, plan.currency);
   if (plan !== undefined && (amountMinor === null || amountMinor <= 0)) {
     errors.amount = "Enter the amount you paid, e.g. 6000.";
+  } else if (plan !== undefined && amountMinor !== null && amountMinor > MAX_PROOF_AMOUNT_MINOR) {
+    errors.amount = `The amount cannot be more than ${formatMoney(MAX_PROOF_AMOUNT_MINOR, plan.currency)}. Check the number of zeros.`;
   }
   if (form.transactionRef.trim().length === 0) {
     errors.transactionRef = "Enter the transaction or reference number.";

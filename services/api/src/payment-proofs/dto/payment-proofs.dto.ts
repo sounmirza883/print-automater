@@ -3,6 +3,8 @@ import {
   adminListPaymentProofsQuerySchema,
   approvePaymentProofSchema,
   listShopPaymentProofsQuerySchema,
+  paymentReportExportQuerySchema,
+  paymentReportQuerySchema,
   rejectPaymentProofSchema,
   submitPaymentProofSchema,
   updatePaymentInstructionsSchema,
@@ -16,3 +18,5 @@ export class AdminListPaymentProofsQueryDto extends createZodDto(
 export class ApprovePaymentProofDto extends createZodDto(approvePaymentProofSchema) {}
 export class RejectPaymentProofDto extends createZodDto(rejectPaymentProofSchema) {}
 export class UpdatePaymentInstructionsDto extends createZodDto(updatePaymentInstructionsSchema) {}
+export class PaymentReportQueryDto extends createZodDto(paymentReportQuerySchema) {}
+export class PaymentReportExportQueryDto extends createZodDto(paymentReportExportQuerySchema) {}

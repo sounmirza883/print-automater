@@ -51,3 +51,43 @@ export interface PaymentInstructionsResponse {
   paymentInstructions: string;
   updatedAt: string;
 }
+
+/** One bucket (a day or a month) of a payment report, in one currency. */
+export interface PaymentReportPeriod {
+  /** `YYYY-MM-DD`: the bucket's first day in the viewer's time zone. */
+  period: string;
+  receivedMinor: number;
+  receivedCount: number;
+  rejectedMinor: number;
+  rejectedCount: number;
+}
+
+export interface PaymentReportPlanLine {
+  planName: string;
+  receivedMinor: number;
+  receivedCount: number;
+}
+
+/** Money is never summed across currencies: each currency gets its own block. */
+export interface PaymentReportCurrency {
+  currency: string;
+  /** Approved payments, counted on the day they were approved. */
+  receivedMinor: number;
+  receivedCount: number;
+  /** Rejected payments, counted on the day they were rejected. */
+  rejectedMinor: number;
+  rejectedCount: number;
+  /** Submitted in the range and still waiting for review (in neither total above). */
+  waitingMinor: number;
+  waitingCount: number;
+  periods: PaymentReportPeriod[];
+  /** Received money by the plan the owner paid for, largest first. */
+  byPlan: PaymentReportPlanLine[];
+}
+
+export interface PaymentReportResponse {
+  from: string;
+  to: string;
+  groupBy: "day" | "month";
+  currencies: PaymentReportCurrency[];
+}

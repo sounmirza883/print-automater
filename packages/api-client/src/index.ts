@@ -65,6 +65,8 @@ export {
   type SubmitPaymentProofBody,
   type ApprovePaymentProofBody,
   type AdminListPaymentProofsQuery,
+  type PaymentReportQuery,
+  type PaymentReportFormat,
 } from "./resources/payment-proofs.resource.js";
 export {
   PlanResource,

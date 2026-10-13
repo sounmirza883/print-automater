@@ -19,6 +19,7 @@ import type {
   PaymentInstructionsResponse,
   PaymentProofListResponse,
   PaymentProofResponse,
+  PaymentReportResponse,
 } from "@print-automated/types";
 import { JwtAuthGuard, type RequestWithUser } from "../auth/jwt-auth.guard.js";
 import { RolesGuard } from "../auth/roles.guard.js";
@@ -30,11 +31,14 @@ import {
   AdminListPaymentProofsQueryDto,
   ApprovePaymentProofDto,
   ListShopPaymentProofsQueryDto,
+  PaymentReportExportQueryDto,
+  PaymentReportQueryDto,
   RejectPaymentProofDto,
   SubmitPaymentProofDto,
   UpdatePaymentInstructionsDto,
 } from "./dto/payment-proofs.dto.js";
 import { PaymentProofsService, type ProofFile } from "./payment-proofs.service.js";
+import { PaymentReportsService, type ReportFile } from "./payment-reports.service.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -175,5 +179,33 @@ export class AdminPaymentProofsController {
     @Body() dto: UpdatePaymentInstructionsDto,
   ): Promise<PaymentInstructionsResponse> {
     return this.proofs.updateInstructions(req.user!.id, dto.paymentInstructions);
+  }
+}
+
+/** Platform-admin payment reports: totals of money received (approved) and not accepted
+ * (rejected) over a range, and the same data as a CSV or Excel download. */
+@Controller("admin/payment-reports")
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
+export class AdminPaymentReportsController {
+  constructor(private readonly reports: PaymentReportsService) {}
+
+  @Get()
+  report(@Query() query: PaymentReportQueryDto): Promise<PaymentReportResponse> {
+    return this.reports.report(query);
+  }
+
+  @Get("export")
+  async export(
+    @Req() req: RequestWithUser,
+    @Query() query: PaymentReportExportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const file: ReportFile = await this.reports.export(query, req.user!.id);
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.fileName}"`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    return new StreamableFile(file.bytes);
   }
 }

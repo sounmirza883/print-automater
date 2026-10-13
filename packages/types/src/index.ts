@@ -86,4 +86,8 @@ export type {
   PaymentProofListResponse,
   BillingPlanOption,
   PaymentInstructionsResponse,
+  PaymentReportPeriod,
+  PaymentReportPlanLine,
+  PaymentReportCurrency,
+  PaymentReportResponse,
 } from "./payment-proofs.js";

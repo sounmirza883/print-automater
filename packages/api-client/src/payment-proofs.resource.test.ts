@@ -119,4 +119,28 @@ describe("PaymentProofsResource", () => {
       },
     );
   });
+
+  it("adminReport sends the range and the viewer's offset; export adds the format and returns the file", async () => {
+    await withClient(
+      (req) =>
+        req.url?.includes("/export")
+          ? { status: 200, body: null, raw: Buffer.from("a,b"), type: "text/csv" }
+          : { status: 200, body: { from: "x", to: "y", groupBy: "day", currencies: [] } },
+      async (client, seen) => {
+        const query = {
+          from: "2026-10-01T00:00:00.000Z",
+          to: "2026-11-01T00:00:00.000Z",
+          tzOffsetMinutes: 300,
+        };
+        await client.paymentProofs.adminReport({ ...query, groupBy: "month" });
+        const blob = await client.paymentProofs.adminExportReport(query, "csv");
+        expect(await blob.text()).toBe("a,b");
+        expect(seen[0]?.url).toBe(
+          "/v1/admin/payment-reports?from=2026-10-01T00%3A00%3A00.000Z&to=2026-11-01T00%3A00%3A00.000Z&tzOffsetMinutes=300&groupBy=month",
+        );
+        expect(seen[1]?.url).toContain("/v1/admin/payment-reports/export?");
+        expect(seen[1]?.url).toContain("format=csv");
+      },
+    );
+  });
 });

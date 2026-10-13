@@ -130,6 +130,23 @@ Admin: a review queue at `app/(console)/admin/payments`.
 
 View logic lives in `lib/*-view.ts` with colocated tests, like `plan-view.ts`.
 
+## Admin payment reports (added 2026-10-12)
+
+`/admin/reports` shows money **received** (approved proofs, counted on the day approved) and **not
+accepted** (rejected proofs, counted on the day rejected) for any period, plus proofs still
+**waiting** (counted by submission date, in neither total). Totals are per currency, never summed
+across currencies; there is also a per-day or per-month table and a received-by-plan table.
+
+- API: `GET /v1/admin/payment-reports?from&to&groupBy&tzOffsetMinutes` (`from` inclusive, `to`
+  exclusive, max 5 years) and `.../export?...&format=csv|xlsx` (admin only; exports are audited as
+  `PAYMENT_REPORT_EXPORTED`). `tzOffsetMinutes` is the viewer's offset from UTC so a "day" is theirs.
+  `groupBy` defaults to day up to 62 days, month beyond.
+- Export: one row per payment (CSV has a UTF-8 BOM so Excel reads it correctly; formula-looking text is
+  neutralised). Excel adds a Summary sheet. The `.xlsx` is written by a small dependency-free writer
+  (`services/api/src/payment-proofs/xlsx.ts`) and was verified by reading it back with openpyxl.
+- "Money out" means rejected payments. Refunds/expenses are not recorded anywhere, so a true
+  in/out/net view would need a way to enter them.
+
 ## Out of scope
 
 Payment gateway, automatic renewal and dunning, expiry reminder emails, plan-limit

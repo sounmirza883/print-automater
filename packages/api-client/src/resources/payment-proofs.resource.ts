@@ -4,6 +4,7 @@ import type {
   PaymentProofListResponse,
   PaymentProofResponse,
   PaymentProofStatus,
+  PaymentReportResponse,
 } from "@print-automated/types";
 import type { HttpClient } from "../http-client.js";
 
@@ -33,6 +34,18 @@ export interface AdminListPaymentProofsQuery {
   limit?: number;
   offset?: number;
 }
+
+/** `from` inclusive, `to` exclusive (ISO instants). `tzOffsetMinutes` is the viewer's offset from
+ * UTC (Pakistan = 300) so "per day" means their day. `groupBy` defaults on the server: day for
+ * ranges of up to ~2 months, month beyond. */
+export interface PaymentReportQuery {
+  from: string;
+  to: string;
+  groupBy?: "day" | "month";
+  tzOffsetMinutes?: number;
+}
+
+export type PaymentReportFormat = "csv" | "xlsx";
 
 /** Manual plan billing. The owner methods need the SHOP_OWNER role of the given
  * business; every `admin*` method needs the ADMIN role. Proof files are kept forever, so
@@ -103,6 +116,20 @@ export class PaymentProofsResource {
     return this.http.request<PaymentInstructionsResponse>("/v1/admin/payment-instructions", {
       method: "PUT",
       body: { paymentInstructions },
+    });
+  }
+
+  /** Money received (approved) vs not accepted (rejected) over a range, per currency. */
+  adminReport(query: PaymentReportQuery): Promise<PaymentReportResponse> {
+    return this.http.request<PaymentReportResponse>("/v1/admin/payment-reports", {
+      query: { ...query },
+    });
+  }
+
+  /** The same range as a CSV or Excel file, one row per payment. */
+  adminExportReport(query: PaymentReportQuery, format: PaymentReportFormat): Promise<Blob> {
+    return this.http.requestBlob("/v1/admin/payment-reports/export", {
+      query: { ...query, format },
     });
   }
 }
