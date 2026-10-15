@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { toCssVariablesText } from "@print-automated/design-tokens";
 // Fix wave 1: nothing server-side calls the API any more (the QR flow's
@@ -9,6 +9,7 @@ import { toCssVariablesText } from "@print-automated/design-tokens";
 // fails the build instead of shipping calls to relative paths.
 import "@/env";
 import "./globals.css";
+import { geistMono, geistSans } from "./fonts";
 
 export const metadata: Metadata = {
   title: "Print Automated",
@@ -16,9 +17,15 @@ export const metadata: Metadata = {
     "Upload a document, configure your print job, and pick it up at a nearby print shop.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  colorScheme: "light dark",
+};
+
 export default function RootLayout({ children }: { children: ReactNode }): ReactNode {
   return (
-    <html lang="en">
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <head>
         {/* Generated fresh from @print-automated/design-tokens (§94) on
             every render -- the single source of truth for every
@@ -26,7 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }): React
             hand-copied into this file. */}
         <style dangerouslySetInnerHTML={{ __html: toCssVariablesText() }} />
       </head>
-      <body>{children}</body>
+      <body className="min-h-screen bg-surface text-ink antialiased">{children}</body>
     </html>
   );
 }
