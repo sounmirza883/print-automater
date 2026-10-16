@@ -21,6 +21,7 @@
     "@print-automated/types": "workspace:*",
     "@print-automated/validation": "workspace:*",
     "next": "15",
+    "qrcode.react": "^4.2.0",
     "react": "19",
     "react-dom": "19"
   },

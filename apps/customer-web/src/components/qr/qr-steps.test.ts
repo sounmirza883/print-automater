@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ColorMode, Orientation, PaperSize, PaperType, Sides } from "@print-automated/types";
-import type { PublicOrderResult } from "@/lib/public-order";
+import { fetchPublicInvoice, type PublicOrderResult } from "@/lib/public-order";
 import { ConfigureStep, type WizardStep } from "@/components/qr/configure-step";
 import { ConfirmationScreen } from "@/components/qr/confirmation";
 import { GuestDetailsStep } from "@/components/qr/details-step";
@@ -164,7 +164,9 @@ describe("ConfirmationScreen", () => {
   };
 
   it("shows the order number, the shop, the total and what to do next", () => {
-    const html = renderToStaticMarkup(createElement(ConfirmationScreen, { order }));
+    const html = renderToStaticMarkup(
+      createElement(ConfirmationScreen, { order, onOrderAgain: () => undefined }),
+    );
     expect(html).toContain("PA-1042");
     expect(html).toContain("Corner Copy");
     expect(html).toContain("Total");
@@ -172,5 +174,47 @@ describe("ConfirmationScreen", () => {
     expect(html).toContain("Show this order number to the shop when you collect your prints.");
     expect(html).toContain('role="status"');
     expect(html).not.toContain("aria-current");
+  });
+
+  it("offers the counter QR, the invoice download and a way to order again", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConfirmationScreen, { order, onOrderAgain: () => undefined }),
+    );
+    expect(html).toContain("<svg");
+    expect(html).toContain("QR code for order PA-1042");
+    expect(html).toContain("Download invoice (PDF)");
+    expect(html).toContain("Place another order");
+  });
+});
+
+describe("fetchPublicInvoice", () => {
+  const ref = { id: "o1", shopId: "shop-1", publicOrderNumber: "PA-1042" };
+
+  it("asks the public invoice route and names the file after the order", async () => {
+    const fetchImpl = jest.fn(async (_url: string) => new Response("%PDF", { status: 200 }));
+    const { blob, filename } = await fetchPublicInvoice(ref, fetchImpl as unknown as typeof fetch);
+    expect(String(fetchImpl.mock.calls[0]![0])).toMatch(
+      /\/v1\/public\/shops\/shop-1\/orders\/o1\/invoice$/,
+    );
+    expect(filename).toBe("invoice-PA-1042.pdf");
+    expect(blob.size).toBe(4);
+  });
+
+  it("turns a refusal into the backend's own message", async () => {
+    const fetchImpl = jest.fn(
+      async () => new Response(JSON.stringify({ message: "Order not found." }), { status: 404 }),
+    );
+    await expect(fetchPublicInvoice(ref, fetchImpl as unknown as typeof fetch)).rejects.toThrow(
+      "Order not found.",
+    );
+  });
+
+  it("says the service is unreachable when the request gets no answer", async () => {
+    const fetchImpl = jest.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    await expect(fetchPublicInvoice(ref, fetchImpl as unknown as typeof fetch)).rejects.toThrow(
+      "Could not reach the print service",
+    );
   });
 });

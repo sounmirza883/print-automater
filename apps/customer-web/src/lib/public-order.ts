@@ -72,3 +72,26 @@ export async function createPublicOrder(
   }
   return (await response.json()) as PublicOrderResult;
 }
+
+/** The PDF receipt for an order this guest just placed
+ * (`GET /public/shops/:shopId/orders/:orderId/invoice`). Resolves to the file
+ * and the name to save it under; the caller turns it into a download. A plain
+ * fetch rather than a link, so a failure (rate limit, network) can be shown on
+ * the confirmation screen instead of navigating the guest to a JSON error. */
+export async function fetchPublicInvoice(
+  order: Pick<PublicOrderResult, "id" | "shopId" | "publicOrderNumber">,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ blob: Blob; filename: string }> {
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      publicApiUrl(`/v1/public/shops/${order.shopId}/orders/${order.id}/invoice`),
+    );
+  } catch {
+    throw new Error(UNREACHABLE_MESSAGE);
+  }
+  if (!response.ok) {
+    throw new Error(await publicErrorMessage(response, "Could not download the invoice."));
+  }
+  return { blob: await response.blob(), filename: `invoice-${order.publicOrderNumber}.pdf` };
+}

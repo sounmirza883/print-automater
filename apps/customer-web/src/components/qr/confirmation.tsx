@@ -1,19 +1,56 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
-import { Card, Notice, SiteFrame } from "@/components/ui";
+import { useEffect, useState, type ReactNode } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { Button, Card, Notice, SiteFrame } from "@/components/ui";
 import { formatMoney, summarizeConfiguration } from "@/lib/order-formatting";
-import type { PublicOrderResult } from "@/lib/public-order";
+import { fetchPublicInvoice, type PublicOrderResult } from "@/lib/public-order";
+
+/** Saves a blob under `filename` through a throwaway link. */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 /** Step 4: the guest's order number, to show at the counter, plus the real
  * total, seen here for the first time (no quote preview exists earlier in
- * this flow). No link onward: there is no account or session for this guest
- * to track the order under, so this screen is the end of the flow. */
-export function ConfirmationScreen({ order }: { order: PublicOrderResult }): ReactNode {
+ * this flow). The order number is also shown as a QR code the shop can scan
+ * at the counter, and the guest can download a PDF invoice. There is no link
+ * onward to track the order: there is no account or session for this guest to
+ * track it under. `onOrderAgain` starts a fresh order from the upload step. */
+export function ConfirmationScreen({
+  order,
+  onOrderAgain,
+}: {
+  order: PublicOrderResult;
+  onOrderAgain: () => void;
+}): ReactNode {
   const quote = order.pricingSnapshot.quote;
+  const [downloading, setDownloading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
   // The order can be placed from anywhere on the long options form (the phone
   // submit bar follows the scroll), and this screen would open at that depth.
-  useEffect(() => window.scrollTo(0, 0), []);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
+  function downloadInvoice(): void {
+    setDownloading(true);
+    setInvoiceError(null);
+    fetchPublicInvoice(order)
+      .then(({ blob, filename }) => saveBlob(blob, filename))
+      .catch((error: unknown) => {
+        setInvoiceError(error instanceof Error ? error.message : "Could not download the invoice.");
+      })
+      .finally(() => setDownloading(false));
+  }
+
   return (
     <SiteFrame width="narrow">
       <div className="grid gap-6">
@@ -59,9 +96,39 @@ export function ConfirmationScreen({ order }: { order: PublicOrderResult }): Rea
           </div>
         </Card>
 
+        <Card className="grid justify-items-center gap-3 text-center">
+          {/* A QR code needs a white quiet zone to scan, in either theme. */}
+          <div className="rounded-md bg-white p-3">
+            <QRCodeSVG
+              value={order.publicOrderNumber}
+              size={176}
+              level="M"
+              marginSize={1}
+              title={`QR code for order ${order.publicOrderNumber}`}
+            />
+          </div>
+          <p className="text-sm text-muted">
+            Show this QR code at the counter. The shop scans it to find your order and take payment.
+          </p>
+        </Card>
+
         <Notice tone="accent">
           Show this order number to the shop when you collect your prints.
         </Notice>
+
+        <div className="grid gap-3">
+          <Button block onClick={downloadInvoice} disabled={downloading}>
+            {downloading ? "Preparing invoice…" : "Download invoice (PDF)"}
+          </Button>
+          {invoiceError !== null && (
+            <p role="alert" className="text-sm text-danger-fg">
+              {invoiceError}
+            </p>
+          )}
+          <Button block variant="primary" onClick={onOrderAgain}>
+            Place another order
+          </Button>
+        </div>
       </div>
     </SiteFrame>
   );

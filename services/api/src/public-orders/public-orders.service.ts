@@ -11,6 +11,7 @@ import {
 import { AuditAction } from "../audit/audit-action.js";
 import { PasswordService } from "../auth/password.service.js";
 import { maskName, maskPhone } from "../common/mask.js";
+import { InvoicesService, type InvoiceResult } from "../invoices/invoices.service.js";
 import {
   DocumentsService,
   type CreateDocumentResult,
@@ -53,6 +54,7 @@ export class PublicOrdersService {
     private readonly ordersService: OrdersService,
     private readonly passwordService: PasswordService,
     private readonly audit: AuditService,
+    private readonly invoicesService: InvoicesService,
   ) {}
 
   /** Step 1 of the upload: a presigned PUT URL, exactly as `POST /documents`.
@@ -129,6 +131,23 @@ export class PublicOrdersService {
     });
 
     return order;
+  }
+
+  /** `GET /public/shops/:shopId/orders/:orderId/invoice`: the guest's PDF
+   * receipt for the order they just placed. The order must be a QR order of
+   * THIS shop: any other id (another shop's, or an account customer's order)
+   * is the same 404 as a missing one, so this route can never read an order a
+   * guest did not place. The order id is a random UUID the guest got back
+   * from placing the order; a read, so the shop need not be OPEN. */
+  async getInvoice(shopId: string, orderId: string): Promise<InvoiceResult> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, shopId, creationSource: OrderCreationSource.QR },
+      select: { id: true },
+    });
+    if (!order) {
+      throw new NotFoundException("Order not found.");
+    }
+    return this.invoicesService.generateForOrder(order.id, null);
   }
 
   private async requireShop(shopId: string): Promise<ShopForQr> {

@@ -7,10 +7,11 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { IdempotencyInterceptor } from "../idempotency/idempotency.interceptor.js";
 import { RateLimit, type RateLimitOptions } from "../rate-limit/rate-limit.decorator.js";
 import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
@@ -35,6 +36,8 @@ export const PUBLIC_RATE_LIMITS = {
   confirmUpload: { perIpAndShop: 30, perIp: 100, windowMs: HOUR_MS },
   getDocumentStatus: { perIpAndShop: 60, perIp: 180, windowMs: MINUTE_MS },
   createOrder: { perIpAndShop: 20, perIp: 60, windowMs: HOUR_MS },
+  // A PDF render per call, but the guest taps it once or twice per order.
+  getInvoice: { perIpAndShop: 30, perIp: 90, windowMs: HOUR_MS },
 } as const;
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -134,5 +137,26 @@ export class PublicOrdersController {
     @Body() dto: CreatePublicOrderDto,
   ): Promise<OrderResponse> {
     return this.publicOrdersService.createOrder(shopId, dto);
+  }
+
+  /** The guest's PDF receipt for an order they placed here. Same body and
+   * headers as the shop/customer invoice routes, except `attachment`: the
+   * confirmation page offers it as a download. */
+  @Get("orders/:orderId/invoice")
+  @RateLimit(ipAndShopBuckets(PUBLIC_RATE_LIMITS.getInvoice))
+  async getInvoice(
+    @Param("shopId", ParseUUIDPipe) shopId: string,
+    @Param("orderId", ParseUUIDPipe) orderId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.publicOrdersService.getInvoice(shopId, orderId);
+    res
+      .status(HttpStatus.OK)
+      .set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+        "Content-Length": String(buffer.length),
+      })
+      .send(buffer);
   }
 }

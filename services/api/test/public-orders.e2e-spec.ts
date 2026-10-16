@@ -255,6 +255,53 @@ describe("Public QR ordering (24.1, e2e)", () => {
     expect(new Set(orders.map((o) => o.customerRecordId)).size).toBe(2);
   });
 
+  it("GET /public/shops/:shopId/orders/:orderId/invoice hands the guest a PDF of their own QR order, and nothing else", async () => {
+    // Reads an order an earlier test placed (placing one here would change
+    // the order counts the test above asserts).
+    const order = await prisma.order.findFirstOrThrow({
+      where: { shopId: openShop.id, creationSource: "QR" },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/v1/public/shops/${openShop.id}/orders/${order.id}/invoice`)
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/pdf");
+    expect(res.headers["content-disposition"]).toContain(
+      `attachment; filename="invoice-${order.publicOrderNumber}.pdf"`,
+    );
+    expect((res.body as Buffer).subarray(0, 4).toString()).toBe("%PDF");
+
+    // Another shop's route cannot reach it, and a made-up id is the same 404.
+    const otherShop = await request(app.getHttpServer()).get(
+      `/v1/public/shops/${otherOpenShop.id}/orders/${order.id}/invoice`,
+    );
+    expect(otherShop.status).toBe(404);
+    const missing = await request(app.getHttpServer()).get(
+      `/v1/public/shops/${openShop.id}/orders/${randomUUID()}/invoice`,
+    );
+    expect(missing.status).toBe(404);
+
+    // An order that is not a QR order (an account customer's) is out of reach.
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { creationSource: "CUSTOMER_WEB" },
+    });
+    try {
+      const notQr = await request(app.getHttpServer()).get(
+        `/v1/public/shops/${openShop.id}/orders/${order.id}/invoice`,
+      );
+      expect(notQr.status).toBe(404);
+    } finally {
+      await prisma.order.update({ where: { id: order.id }, data: { creationSource: "QR" } });
+    }
+  });
+
   it("concurrent first requests to a fresh shop still provision exactly one SYSTEM user", async () => {
     const results = await Promise.all(
       [1, 2, 3, 4].map(() =>

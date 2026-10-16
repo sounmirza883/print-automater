@@ -58,7 +58,18 @@ function QrOrderWizard({ shopId }: { shopId: string }): ReactNode {
   }
 
   if (step.name === "confirmed") {
-    return <ConfirmationScreen order={step.order} />;
+    return (
+      <ConfirmationScreen
+        order={step.order}
+        onOrderAgain={() => {
+          // The guest's name and phone stay, so the next order starts at the
+          // upload. A fresh key: reusing the old one would make the backend
+          // replay the order just placed instead of creating a new one.
+          idempotencyKey.current = crypto.randomUUID();
+          setStep({ name: "upload" });
+        }}
+      />
+    );
   }
 
   return (
