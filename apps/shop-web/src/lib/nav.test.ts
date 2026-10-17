@@ -129,8 +129,15 @@ describe("groupedNav", () => {
       ["Production", ["orders", "printers", "customers"]],
       ["Stock", ["inventory", "suppliers", "purchase-orders"]],
       ["Catalogue", ["products"]],
-      ["Business", ["staff", "reports", "settings", "billing"]],
+      ["Business", ["staff", "branches", "reports", "settings", "billing"]],
     ]);
+  });
+
+  it("keeps Branches to owners: a manager has no business settings access", () => {
+    const business = shape(visibleFor(UserRole.SHOP_MANAGER, UserRole.SHOP_MANAGER)).find(
+      ([heading]) => heading === "Business",
+    );
+    expect(business?.[1]).not.toContain("branches");
   });
 
   it("drops a heading when the role sees none of its screens", () => {

@@ -38,6 +38,12 @@ describe("errorMessageFor", () => {
     ["RULE_ORDER_MISMATCH", /reorder again/],
     ["RULE_PRINTER_INVALID", /does not belong/],
     ["CANNOT_REMOVE_LAST_OWNER", /must always have an owner/],
+    ["BRANCH_NAME_TAKEN", /already has that name/],
+    ["BRANCH_HAS_STAFF", /Move or remove the people/],
+    ["LAST_BRANCH", /at least one branch/],
+    ["BRANCH_ARCHIVED", /archived/],
+    ["BRANCH_REQUIRED", /Choose which branch/],
+    ["BRANCH_NOT_FOUND", /no longer exists/],
     ["OWNER_EMAIL_IN_USE", /already has an account.*different email address/],
     ["OWNER_ALREADY_ACTIVE", /already set their password.*sign in normally/],
   ])("gives %s its own precise copy", (code, pattern) => {

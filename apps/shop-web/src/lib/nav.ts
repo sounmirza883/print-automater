@@ -108,6 +108,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
     blurb: "Who works at the business and what each person may do.",
   },
   {
+    id: "branches",
+    label: "Branches",
+    href: "/branches",
+    scope: "business",
+    group: "business",
+    anyOf: [Permission.MANAGE_SETTINGS],
+    blurb: "The business's locations, who manages each, and which are open.",
+  },
+  {
     id: "reports",
     label: "Reports",
     href: "/reports",

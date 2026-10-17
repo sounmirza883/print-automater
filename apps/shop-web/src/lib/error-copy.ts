@@ -98,6 +98,14 @@ const COPY: Record<string, string> = {
     "That invitation was already accepted or cancelled. The list has been refreshed.",
   CANNOT_REMOVE_LAST_OWNER:
     "A business must always have an owner. Make someone else an owner before removing or changing this person.",
+  BRANCH_NAME_TAKEN:
+    "Another branch of this business already has that name. Choose a different name.",
+  BRANCH_HAS_STAFF:
+    "Move or remove the people who work at this branch before archiving it. Open the Staff page and change their branch.",
+  LAST_BRANCH: "A business must keep at least one branch, so this one cannot be archived.",
+  BRANCH_ARCHIVED: "That branch is archived, so it cannot be changed or chosen.",
+  BRANCH_REQUIRED: "Choose which branch this person works at.",
+  BRANCH_NOT_FOUND: "That branch no longer exists. The list has been refreshed.",
   OWNER_EMAIL_IN_USE:
     "That email address already has an account, so it cannot be used for a new business's owner. Enter a different email address for the owner.",
   OWNER_ALREADY_ACTIVE:
@@ -133,6 +141,9 @@ const STALE_STATE_CODES = new Set([
   "SHOP_STAFF_INVITE_NOT_PENDING",
   "OWNER_ALREADY_ACTIVE",
   "PAYMENT_PROOF_ALREADY_REVIEWED",
+  "BRANCH_ARCHIVED",
+  "BRANCH_NOT_FOUND",
+  "BRANCH_HAS_STAFF",
 ]);
 
 function coded(error: unknown): CodedError {
