@@ -8,6 +8,8 @@ import {
   canCancelInvite,
   grantableRoles,
   looksLikeEmail,
+  resolveBranchChoice,
+  withCurrentBranch,
   withInviteCopy,
 } from "./staff-view";
 
@@ -115,5 +117,60 @@ describe("branchLabel and branchToWire", () => {
   it("turns the picker's empty value into null (all branches) for the API", () => {
     expect(branchToWire(ALL_BRANCHES)).toBeNull();
     expect(branchToWire("b")).toBe("b");
+  });
+});
+
+describe("choosing a branch is always deliberate", () => {
+  const two = [
+    { value: "a", label: "Main" },
+    { value: "b", label: "Gulberg" },
+    { value: ALL_BRANCHES, label: "All branches" },
+  ];
+
+  it("keeps 'nothing chosen' distinct from 'all branches'", () => {
+    expect(ALL_BRANCHES).not.toBe("");
+  });
+
+  it("starts with nothing chosen when there is a real choice, even for an owner", () => {
+    expect(resolveBranchChoice(two, "")).toBe("");
+  });
+
+  it("keeps a choice that is still on offer", () => {
+    expect(resolveBranchChoice(two, "b")).toBe("b");
+    expect(resolveBranchChoice(two, ALL_BRANCHES)).toBe(ALL_BRANCHES);
+  });
+
+  it("drops a choice that is no longer on offer (the role changed)", () => {
+    expect(
+      resolveBranchChoice(
+        [
+          { value: "a", label: "Main" },
+          { value: "b", label: "Gulberg" },
+        ],
+        ALL_BRANCHES,
+      ),
+    ).toBe("");
+  });
+
+  it("picks the only branch when there is just one, so a branch manager never has to choose", () => {
+    expect(resolveBranchChoice([{ value: "a", label: "Main" }], "")).toBe("a");
+  });
+});
+
+describe("withCurrentBranch", () => {
+  const options = [
+    { value: "a", label: "Main" },
+    { value: "b", label: "Gulberg" },
+  ];
+
+  it("leaves the options alone when the current branch is among them", () => {
+    expect(withCurrentBranch(options, { value: "a", label: "Main" })).toEqual(options);
+  });
+
+  it("adds the current branch when it is not on offer, so it shows as selected (all branches for a manager who may not grant it)", () => {
+    expect(withCurrentBranch(options, { value: ALL_BRANCHES, label: "All branches" })).toEqual([
+      ...options,
+      { value: ALL_BRANCHES, label: "All branches" },
+    ]);
   });
 });

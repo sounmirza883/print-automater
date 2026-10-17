@@ -10,7 +10,13 @@ import { Button } from "@/components/ui";
 import { getApi } from "@/lib/api";
 import { roleLabel } from "@/lib/permissions";
 import { PERMISSION_GROUPS, disabledReason, isCustom, toggled } from "@/lib/permission-groups";
-import { ALL_BRANCHES, branchOptions, branchToWire } from "@/lib/staff-view";
+import {
+  ALL_BRANCHES,
+  branchLabel,
+  branchOptions,
+  branchToWire,
+  withCurrentBranch,
+} from "@/lib/staff-view";
 
 /** Per-person branch and access: where they work, then the role's defaults with individual
  * permissions ticked on or off. The API decides what is allowed (nobody gives what they lack,
@@ -46,7 +52,12 @@ export function EditDialog({
   const [branch, setBranch] = useState(startingBranch);
   const isOwner = member.role === UserRole.SHOP_OWNER;
   const locked = isSelf || isOwner;
-  const options = branchOptions(editor, branches, { forRole: member.role });
+  // The person's current branch is always among the options so the select shows it as chosen,
+  // even when this editor may not hand it out (all branches, for a manager who is not an owner).
+  const options = withCurrentBranch(branchOptions(editor, branches, { forRole: member.role }), {
+    value: startingBranch,
+    label: branchLabel(member.branchName),
+  });
   // A one-location business has nothing to choose, so it never sees the field.
   const showBranch = branches.length > 1 && !isOwner;
   const permissionsChanged =

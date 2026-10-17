@@ -212,7 +212,11 @@ describe("Staff branch assignment (e2e)", () => {
     it("refuses a branch of another business, and an archived branch", async () => {
       const otherShop = await makeShop("other");
       const foreign = await prisma.branch.findFirstOrThrow({ where: { shopId: otherShop.id } });
-      expect((await invite(owner, { branchId: foreign.id })).status).toBe(400);
+      // Named, not just "400": the business has several branches, so a request that lost its
+      // branchId would also be a 400 (BRANCH_REQUIRED) and a bare status check would pass.
+      const foreignRes = await invite(owner, { branchId: foreign.id });
+      expect(foreignRes.status).toBe(400);
+      expect(foreignRes.body.error_code).toBe("BRANCH_NOT_FOUND");
 
       const spare = await prisma.branch.create({
         data: { shopId, name: `Spare ${randomUUID()}`, address: "3 Spare Road" },

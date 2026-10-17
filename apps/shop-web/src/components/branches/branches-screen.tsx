@@ -21,7 +21,12 @@ import {
   Row,
 } from "@/components/ui";
 import { getApi } from "@/lib/api";
-import { branchStatus, canOpenClose, validateBranchForm } from "@/lib/branch-view";
+import {
+  branchStatus,
+  canOpenClose,
+  changedBranchFields,
+  validateBranchForm,
+} from "@/lib/branch-view";
 import { useResource } from "@/lib/use-resource";
 
 type Dialog =
@@ -219,7 +224,7 @@ function BranchFormDialog({
   const [address, setAddress] = useState(branch?.address ?? "");
   const [phone, setPhone] = useState(branch?.phone ?? "");
   const [touched, setTouched] = useState(false);
-  const errors = validateBranchForm({ name, address });
+  const errors = validateBranchForm({ name, address, city, phone });
   return (
     <FormDialog
       title={branch ? `Edit ${branch.name}` : "Add a branch"}
@@ -229,23 +234,27 @@ function BranchFormDialog({
       onCancel={onClose}
       onSubmit={() => {
         setTouched(true);
-        if (errors.name || errors.address) return;
-        const body = {
-          name: name.trim(),
-          address: address.trim(),
-          city: city.trim() === "" ? undefined : city.trim(),
-          phone: phone.trim() === "" ? undefined : phone.trim(),
-        };
+        if (errors.name || errors.address || errors.city || errors.phone) return;
+        if (branch) {
+          // Only what changed is sent, so a field left alone can never make the save fail.
+          const changes = changedBranchFields(branch, { name, city, address, phone });
+          if (Object.keys(changes).length === 0) {
+            onClose();
+            return;
+          }
+          void runner
+            .run(() => getApi().branches.update(branch.id, changes))
+            .then((outcome) => outcome === "ok" && onClose());
+          return;
+        }
         void runner
           .run(() =>
-            branch
-              ? getApi().branches.update(branch.id, {
-                  name: body.name,
-                  address: body.address,
-                  city: body.city ?? null,
-                  phone: body.phone ?? null,
-                })
-              : getApi().branches.create(shopId, body),
+            getApi().branches.create(shopId, {
+              name: name.trim(),
+              address: address.trim(),
+              city: city.trim() === "" ? undefined : city.trim(),
+              phone: phone.trim() === "" ? undefined : phone.trim(),
+            }),
           )
           .then((outcome) => outcome === "ok" && onClose());
       }}
@@ -256,14 +265,24 @@ function BranchFormDialog({
         onChange={setName}
         error={touched ? (errors.name ?? null) : null}
       />
-      <TextField label="City" value={city} onChange={setCity} />
+      <TextField
+        label="City"
+        value={city}
+        onChange={setCity}
+        error={touched ? (errors.city ?? null) : null}
+      />
       <TextField
         label="Address"
         value={address}
         onChange={setAddress}
         error={touched ? (errors.address ?? null) : null}
       />
-      <TextField label="Phone" value={phone} onChange={setPhone} />
+      <TextField
+        label="Phone"
+        value={phone}
+        onChange={setPhone}
+        error={touched ? (errors.phone ?? null) : null}
+      />
     </FormDialog>
   );
 }

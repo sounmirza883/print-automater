@@ -143,6 +143,7 @@ export function SelectField({
   emptyLabel,
   hint,
   disabled = false,
+  error,
 }: {
   label: string;
   value: string;
@@ -151,9 +152,10 @@ export function SelectField({
   emptyLabel?: string;
   hint?: string;
   disabled?: boolean;
+  error?: string | null;
 }): ReactNode {
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} error={error}>
       <select
         value={value}
         disabled={disabled}

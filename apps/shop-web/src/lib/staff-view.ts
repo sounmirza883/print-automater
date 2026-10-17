@@ -78,8 +78,10 @@ export function roleOptions(roles: readonly UserRole[]): Array<{ value: string; 
   return roles.map((role) => ({ value: role, label: roleLabel(role) }));
 }
 
-/** The branch picker's value for "All branches" (a native select cannot hold null). */
-export const ALL_BRANCHES = "";
+/** The branch picker's value for "All branches" (a native select cannot hold null). Never the
+ * empty string: "" means nothing has been chosen yet, so "All branches" is always a deliberate
+ * pick and never what a person gets by leaving the field alone. */
+export const ALL_BRANCHES = "__all__";
 
 export function branchLabel(branchName: string | null): string {
   return branchName ?? "All branches";
@@ -108,4 +110,28 @@ export function branchOptions(
   return actor.role === UserRole.SHOP_OWNER
     ? [...own, { value: ALL_BRANCHES, label: "All branches" }]
     : own;
+}
+
+/** The branch to show as chosen: the person's pick while it is still on offer; the only branch when
+ * there is just one (a branch manager never has to choose); otherwise "" (nothing chosen yet, and
+ * the dialog will not send until something is). */
+export function resolveBranchChoice(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  chosen: string,
+): string {
+  if (options.some((option) => option.value === chosen) && chosen !== "") {
+    return chosen;
+  }
+  return options.length === 1 ? options[0]!.value : "";
+}
+
+/** The options with the person's current branch included, so a select can show it as selected
+ * even when this editor may not hand it out (all branches, for a manager who is not an owner). */
+export function withCurrentBranch(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  current: { value: string; label: string },
+): Array<{ value: string; label: string }> {
+  return options.some((option) => option.value === current.value)
+    ? [...options]
+    : [...options, current];
 }

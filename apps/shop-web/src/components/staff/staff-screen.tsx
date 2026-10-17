@@ -38,6 +38,7 @@ import {
   canCancelInvite,
   grantableRoles,
   looksLikeEmail,
+  resolveBranchChoice,
   roleOptions,
   withInviteCopy,
 } from "@/lib/staff-view";
@@ -377,9 +378,11 @@ function InviteDialog({
   });
   const showBranch = branches.length > 1 && options.length > 0;
   const [branchChoice, setBranchChoice] = useState("");
-  const branch = options.some((option) => option.value === branchChoice)
-    ? branchChoice
-    : (options[0]?.value ?? "");
+  // Nothing is pre-chosen when there is a real choice (even for an owner, for whom "All branches"
+  // is an option): the person has to pick, so "All branches" is never what you get by default.
+  const branch = resolveBranchChoice(options, branchChoice);
+  const branchError =
+    showBranch && branch === "" ? "Choose which branch this person works at." : null;
   const emailError = looksLikeEmail(email) ? null : "Enter the person's email address.";
   return (
     <FormDialog
@@ -390,7 +393,7 @@ function InviteDialog({
       onCancel={onClose}
       onSubmit={() => {
         setTouched(true);
-        if (emailError) return;
+        if (emailError || branchError) return;
         const address = email.trim();
         void runner
           .run(async () => {
@@ -428,7 +431,9 @@ function InviteDialog({
           value={branch}
           onChange={setBranchChoice}
           options={options}
+          emptyLabel="Choose a branch"
           disabled={options.length <= 1}
+          error={touched ? branchError : null}
         />
       )}
       <p className="text-xs text-muted">

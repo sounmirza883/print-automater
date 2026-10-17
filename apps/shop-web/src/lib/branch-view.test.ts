@@ -1,5 +1,5 @@
 import { Permission, UserRole } from "@print-automated/types";
-import { branchStatus, canOpenClose, validateBranchForm } from "./branch-view";
+import { branchStatus, canOpenClose, changedBranchFields, validateBranchForm } from "./branch-view";
 
 const owner = {
   permissions: new Set<Permission>([Permission.MANAGE_SETTINGS, Permission.MANAGE_USERS]),
@@ -66,8 +66,66 @@ describe("validateBranchForm", () => {
     expect(errors.address).toMatch(/address/i);
   });
 
-  it("keeps the name within 80 characters", () => {
-    expect(validateBranchForm({ name: "x".repeat(81), address: "a" }).name).toMatch(/80/);
-    expect(validateBranchForm({ name: "x".repeat(80), address: "a" }).name).toBeUndefined();
+  it("keeps the fields within the same limits as the business", () => {
+    expect(validateBranchForm({ name: "x".repeat(201), address: "a" }).name).toMatch(/200/);
+    expect(validateBranchForm({ name: "x".repeat(200), address: "a" }).name).toBeUndefined();
+    expect(validateBranchForm({ name: "n", address: "a".repeat(501) }).address).toMatch(/500/);
+    expect(validateBranchForm({ name: "n", address: "a".repeat(500) }).address).toBeUndefined();
+    expect(validateBranchForm({ name: "n", address: "a", phone: "9".repeat(51) }).phone).toMatch(
+      /50/,
+    );
+    expect(
+      validateBranchForm({ name: "n", address: "a", phone: "9".repeat(50) }).phone,
+    ).toBeUndefined();
+  });
+});
+
+describe("changedBranchFields", () => {
+  const branch = { name: "Main", city: "Lahore", address: "1 Mall Road", phone: "0300 111" };
+
+  it("sends nothing when nothing changed, so an untouched field can never fail", () => {
+    expect(
+      changedBranchFields(branch, {
+        name: "Main",
+        city: "Lahore",
+        address: "1 Mall Road",
+        phone: "0300 111",
+      }),
+    ).toEqual({});
+  });
+
+  it("sends only the fields that changed", () => {
+    expect(
+      changedBranchFields(branch, {
+        name: "Main Branch",
+        city: "Lahore",
+        address: "1 Mall Road",
+        phone: "0300 111",
+      }),
+    ).toEqual({ name: "Main Branch" });
+  });
+
+  it("trims what was typed before comparing", () => {
+    expect(
+      changedBranchFields(branch, {
+        name: "  Main  ",
+        city: " Lahore",
+        address: "1 Mall Road ",
+        phone: "0300 111",
+      }),
+    ).toEqual({});
+  });
+
+  it("sends null to clear an optional field that was emptied", () => {
+    expect(
+      changedBranchFields(branch, { name: "Main", city: "", address: "1 Mall Road", phone: "  " }),
+    ).toEqual({ city: null, phone: null });
+  });
+
+  it("treats a branch with no city or phone as unchanged when they stay empty", () => {
+    const bare = { name: "Main", city: null, address: "1 Mall Road", phone: null };
+    expect(
+      changedBranchFields(bare, { name: "Main", city: "", address: "1 Mall Road", phone: "" }),
+    ).toEqual({});
   });
 });

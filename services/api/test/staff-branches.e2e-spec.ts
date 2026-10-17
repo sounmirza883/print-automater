@@ -28,6 +28,7 @@ describe("Staff and branches (e2e)", () => {
   let branchB: { id: string; name: string };
   let owner: Member;
   let managerA: Member;
+  let counterA: Member;
   let counterB: Member;
   let roamingManager: Member;
 
@@ -80,7 +81,7 @@ describe("Staff and branches (e2e)", () => {
 
     owner = await makeMember(UserRole.SHOP_OWNER, null, "Sb Owner");
     managerA = await makeMember(UserRole.SHOP_MANAGER, branchA.id, "Sb Manager A");
-    await makeMember(UserRole.SHOP_COUNTER, branchA.id, "Sb Counter A");
+    counterA = await makeMember(UserRole.SHOP_COUNTER, branchA.id, "Sb Counter A");
     counterB = await makeMember(UserRole.SHOP_COUNTER, branchB.id, "Sb Counter B");
     roamingManager = await makeMember(UserRole.SHOP_MANAGER, null, "Sb Roaming Manager");
 
@@ -170,6 +171,30 @@ describe("Staff and branches (e2e)", () => {
         .set(as(managerA));
       expect(own.status).toBe(200);
       expect(names(own)).toEqual(["Sb Counter A", "Sb Manager A"]);
+    });
+  });
+
+  describe("the staff directory (names for pickers)", () => {
+    const directory = (member: Member) =>
+      http().get("/v1/shop/staff/directory").query({ shopId, limit: 100 }).set(as(member));
+
+    it("gives a branch-bound person, whatever their role, only their own branch's people", async () => {
+      for (const member of [managerA, counterA]) {
+        const res = await directory(member);
+        expect(res.status).toBe(200);
+        expect(names(res)).toEqual(["Sb Counter A", "Sb Manager A"]);
+        expect(res.body.total).toBe(2);
+      }
+    });
+
+    it("gives an all-branches person everyone", async () => {
+      for (const member of [owner, roamingManager]) {
+        const res = await directory(member);
+        expect(res.status).toBe(200);
+        expect(names(res)).toEqual(
+          expect.arrayContaining(["Sb Counter A", "Sb Counter B", "Sb Manager A", "Sb Owner"]),
+        );
+      }
     });
   });
 

@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { operatingHoursSchema } from "../shop-settings/shop-settings.schema.js";
 
-const name = z.string().trim().min(1).max(80);
+// The same limits as the business itself (admin/create-business.schema.ts): a business's first
+// branch is created from its name, address and phone, so it must accept all of them.
+const name = z.string().trim().min(1).max(200);
 const city = z.string().trim().min(1).max(80);
-const address = z.string().trim().min(1).max(200);
-const phone = z.string().trim().min(1).max(40);
+const address = z.string().trim().min(1).max(500);
+const phone = z.string().trim().min(1).max(50);
 
 /** `GET /shop/branches?shopId=&includeArchived=`: the business's branches (a branch-bound person
  * only ever gets their own). Archived ones are hidden unless asked for. */

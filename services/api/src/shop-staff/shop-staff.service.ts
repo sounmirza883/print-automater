@@ -173,9 +173,13 @@ export class ShopStaffService {
     ) {
       throw new ForbiddenException("You cannot filter the staff directory by that role.");
     }
+    // A branch-bound person's pickers only list their own branch's people, not other branches'
+    // staff (the directory is names for pickers, but those names still belong to a branch).
+    const branchId = resolveBranchScope(actor.branchId, undefined);
     const where: Prisma.ShopStaffWhereInput = {
       shopId: query.shopId,
       status: ShopStaffStatus.ACTIVE,
+      ...(branchId ? { branchId } : {}),
       ...(query.role ? { role: query.role } : {}),
       ...(query.q ? { user: { name: ilike(query.q) } } : {}),
     };
