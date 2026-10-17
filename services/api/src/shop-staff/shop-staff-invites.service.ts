@@ -26,6 +26,7 @@ import { hashToken } from "../common/crypto.util.js";
 import { maskEmail } from "../common/mask.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { canonicalAddress } from "./email-address.js";
+import { resolveBranchScope } from "./branch-scope.js";
 import { roleRank } from "./role-rank.js";
 import { ShopStaffService } from "./shop-staff.service.js";
 
@@ -54,6 +55,9 @@ export interface StaffInviteListItem {
   invitedBy: string | null;
   createdAt: Date;
   expiresAt: Date;
+  /** Where the invited person will work; null = "All branches". */
+  branchId: string | null;
+  branchName: string | null;
 }
 
 /** Fix wave 1: what activation answers -- a signed-in session (the same shape as login) plus
@@ -391,12 +395,18 @@ export class ShopStaffInvitesService {
     actorId: string,
     query: ListStaffInvitesQueryInput,
   ): Promise<Page<StaffInviteListItem>> {
-    await this.assertMember(query.shopId, actorId);
+    const access = await this.shopMembership.getAccess(query.shopId, actorId);
+    if (!access) {
+      throw new ForbiddenException("You do not have access to this shop's staff.");
+    }
+    // A branch-bound person only ever sees their own branch's invitations.
+    const branchId = resolveBranchScope(access.branchId, query.branchId);
     const where = {
       shopId: query.shopId,
       acceptedAt: null,
       revokedAt: null,
       expiresAt: { gt: new Date() },
+      ...(branchId ? { branchId } : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.shopStaffInvite.findMany({
@@ -411,11 +421,18 @@ export class ShopStaffInvitesService {
           invitedBy: true,
           createdAt: true,
           expiresAt: true,
+          branchId: true,
+          branch: { select: { name: true } },
         },
       }),
       this.prisma.shopStaffInvite.count({ where }),
     ]);
-    return { items: rows, total, limit: query.limit, offset: query.offset };
+    return {
+      items: rows.map(({ branch, ...row }) => ({ ...row, branchName: branch?.name ?? null })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   /** Cancels a pending invitation. A non-owner cannot cancel one for a role above their own. */
@@ -449,12 +466,6 @@ export class ShopStaffInvitesService {
       resourceId: inviteId,
       metadata: { shopId: invite.shopId, role: invite.role },
     });
-  }
-
-  private async assertMember(shopId: string, userId: string): Promise<void> {
-    if (!(await this.shopMembership.isActiveStaff(shopId, userId))) {
-      throw new ForbiddenException("You do not have access to this shop's staff.");
-    }
   }
 
   /** Records (or refreshes in place -- one row per business+address) a pending invitation

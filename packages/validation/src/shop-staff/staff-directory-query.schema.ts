@@ -15,9 +15,10 @@ export const staffDirectoryQuerySchema = z
 
 export type StaffDirectoryQueryInput = z.infer<typeof staffDirectoryQuerySchema>;
 
-/** 23.15 `GET /shop/staff/invites?shopId=`: pending invitations, paged. */
+/** 23.15 `GET /shop/staff/invites?shopId=`: pending invitations, paged; `branchId` narrows to one
+ * branch (a branch-bound caller can only ever ask for their own). */
 export const listStaffInvitesQuerySchema = z
-  .object({ shopId: z.string().uuid() })
+  .object({ shopId: z.string().uuid(), branchId: z.string().uuid().optional() })
   .merge(paginationQuerySchema);
 
 export type ListStaffInvitesQueryInput = z.infer<typeof listStaffInvitesQuerySchema>;

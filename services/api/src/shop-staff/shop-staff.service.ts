@@ -19,6 +19,7 @@ import type {
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 import { ilike } from "../common/search.js";
+import { resolveBranchScope } from "./branch-scope.js";
 import { roleRank } from "./role-rank.js";
 
 export interface MyShopMembership {
@@ -34,6 +35,9 @@ export interface MyShopMembership {
    * the catalog. Display only: the
    * server still authorizes every request. */
   permissions: Permission[];
+  /** The branch this person works at here; null = "All branches". */
+  branchId: string | null;
+  branchName: string | null;
 }
 
 /** 23.15: `GET /shop/staff/me`. */
@@ -85,6 +89,9 @@ export interface ShopStaffListItem extends ShopStaffMemberResponse {
   permissions: Permission[];
   /** What their role alone would give them, so a client never keeps a copy of that table. */
   defaultPermissions: Permission[];
+  /** The branch this person works at; null = "All branches". */
+  branchId: string | null;
+  branchName: string | null;
   /** True when the person's access differs from their role's defaults. */
   customised: boolean;
 }
@@ -113,7 +120,10 @@ export class ShopStaffService {
   async myShops(userId: string): Promise<MyShopMembership[]> {
     const memberships = await this.prisma.shopStaff.findMany({
       where: { userId, status: ShopStaffStatus.ACTIVE },
-      include: { shop: { select: { id: true, name: true } } },
+      include: {
+        shop: { select: { id: true, name: true } },
+        branch: { select: { name: true } },
+      },
       orderBy: { createdAt: "asc" },
     });
     return memberships.map((membership) => ({
@@ -121,6 +131,8 @@ export class ShopStaffService {
       name: membership.shop.name,
       role: membership.role,
       permissions: effectivePermissions(membership.role, membership),
+      branchId: membership.branchId,
+      branchName: membership.branch?.name ?? null,
     }));
   }
 
@@ -187,10 +199,16 @@ export class ShopStaffService {
     actorId: string,
     query: ListShopStaffQueryInput,
   ): Promise<Page<ShopStaffListItem>> {
-    await this.assertMember(query.shopId, actorId);
+    const access = await this.shopMembership.getAccess(query.shopId, actorId);
+    if (!access) {
+      throw new ForbiddenException("You do not have access to this shop's staff.");
+    }
+    // A branch-bound person only ever sees their own branch's people.
+    const branchId = resolveBranchScope(access.branchId, query.branchId);
     const where: Prisma.ShopStaffWhereInput = {
       shopId: query.shopId,
       status: query.status ?? { not: ShopStaffStatus.REMOVED },
+      ...(branchId ? { branchId } : {}),
       ...(query.role ? { role: query.role } : {}),
       ...(query.q
         ? {
@@ -206,7 +224,10 @@ export class ShopStaffService {
         orderBy: [{ user: { name: "asc" } }, { id: "asc" }],
         take: query.limit,
         skip: query.offset,
-        include: { user: { select: { name: true, email: true } } },
+        include: {
+          user: { select: { name: true, email: true } },
+          branch: { select: { name: true } },
+        },
       }),
       this.prisma.shopStaff.count({ where }),
     ]);
@@ -220,6 +241,8 @@ export class ShopStaffService {
         name: row.user.name,
         email: row.user.email,
         createdAt: row.createdAt,
+        branchId: row.branchId,
+        branchName: row.branch?.name ?? null,
         permissions: effectivePermissions(row.role, row),
         defaultPermissions: [...(ROLE_PERMISSIONS[row.role] ?? [])],
         customised: row.extraPermissions.length + row.removedPermissions.length > 0,

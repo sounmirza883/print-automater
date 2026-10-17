@@ -10,6 +10,8 @@ export const listShopStaffQuerySchema = z
     q: z.string().min(1).max(100).optional(),
     role: z.nativeEnum(UserRole).optional(),
     status: z.enum(["ACTIVE", "SUSPENDED", "REMOVED"]).optional(),
+    /** Narrow to one branch. A branch-bound caller can only ever ask for their own. */
+    branchId: z.string().uuid().optional(),
   })
   .merge(paginationQuerySchema);
 
