@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { ShopStaffStatus, ShopStatus, UserRole } from "@prisma/client";
-import { PrismaService, notifyShopStaff } from "@print-automated/backend-shared";
+import { PrismaService, ROLE_PERMISSIONS, notifyShopStaff } from "@print-automated/backend-shared";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
@@ -241,6 +241,201 @@ describe("Shop staff access overrides (e2e)", () => {
         .query({ shopId })
         .set(as(operator));
       expect(readAll.body.updated).toBe(0);
+    });
+  });
+
+  describe("editing a person's access (PATCH /v1/shop/staff/:id)", () => {
+    const edit = (actor: Member, target: Member, permissions: string[]) =>
+      request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${target.membershipId}`)
+        .set(as(actor))
+        .send({ permissions });
+    const counterDefaults = (): string[] => [...ROLE_PERMISSIONS.SHOP_COUNTER];
+
+    it("lets an owner tick a permission on for a counter, and it takes effect", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+
+      const res = await edit(owner, counter, [...counterDefaults(), "VIEW_INVENTORY"]);
+      expect(res.status).toBe(200);
+      expect(res.body.permissions).toContain("VIEW_INVENTORY");
+
+      const stored = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: counter.membershipId },
+      });
+      expect(stored.extraPermissions).toEqual(["VIEW_INVENTORY"]);
+      expect(stored.removedPermissions).toEqual([]);
+
+      const stock = await request(app.getHttpServer())
+        .get("/v1/shop/inventory/items")
+        .query({ shopId })
+        .set(as(counter));
+      expect(stock.status).toBe(200);
+    });
+
+    it("lets an owner take a permission away from a manager", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const manager = await makeMember(UserRole.SHOP_MANAGER);
+      const without = ROLE_PERMISSIONS.SHOP_MANAGER.filter((p) => p !== "VIEW_REPORTS");
+
+      expect((await edit(owner, manager, [...without])).status).toBe(200);
+      const stored = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: manager.membershipId },
+      });
+      expect(stored.removedPermissions).toEqual(["VIEW_REPORTS"]);
+    });
+
+    it("does not let anyone edit their own access", async () => {
+      const manager = await makeMember(UserRole.SHOP_MANAGER);
+      const res = await edit(manager, manager, [...ROLE_PERMISSIONS.SHOP_MANAGER]);
+      expect(res.status).toBe(403);
+    });
+
+    it("does not let anyone edit an owner's access", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const otherOwner = await makeMember(UserRole.SHOP_OWNER);
+      const res = await edit(owner, otherOwner, [...ROLE_PERMISSIONS.SHOP_OWNER]);
+      expect(res.status).toBe(403);
+    });
+
+    it("does not let a manager grant a permission they do not hold themselves", async () => {
+      const manager = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+      const res = await edit(manager, counter, [...counterDefaults(), "VIEW_REPORTS"]);
+      expect(res.status).toBe(403);
+      expect(JSON.stringify(res.body)).toContain("VIEW_REPORTS");
+    });
+
+    it("lets an editor keep a permission the person already had even if the editor lacks it", async () => {
+      const manager = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const counter = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_REPORTS"],
+      });
+      const res = await edit(manager, counter, [
+        ...counterDefaults(),
+        "VIEW_REPORTS",
+        "VIEW_INVENTORY",
+      ]);
+      expect(res.status).toBe(200);
+      expect(res.body.permissions).toEqual(
+        expect.arrayContaining(["VIEW_REPORTS", "VIEW_INVENTORY"]),
+      );
+    });
+
+    it("never grants business settings to a non-owner", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const manager = await makeMember(UserRole.SHOP_MANAGER);
+      const res = await edit(owner, manager, [...ROLE_PERMISSIONS.SHOP_MANAGER, "MANAGE_SETTINGS"]);
+      expect(res.status).toBe(403);
+    });
+
+    it("grants VIEW_INVENTORY along with MANAGE_INVENTORY", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+      const res = await edit(owner, counter, [...counterDefaults(), "MANAGE_INVENTORY"]);
+      expect(res.status).toBe(200);
+      expect(res.body.permissions).toEqual(
+        expect.arrayContaining(["MANAGE_INVENTORY", "VIEW_INVENTORY"]),
+      );
+    });
+
+    it("refuses someone with no access to the staff page", async () => {
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+      const other = await makeMember(UserRole.SHOP_COUNTER);
+      expect((await edit(counter, other, counterDefaults())).status).toBe(403);
+    });
+
+    it("writes SHOP_STAFF_ACCESS_CHANGED with what the access was and became", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+      await edit(owner, counter, [...counterDefaults(), "VIEW_INVENTORY"]);
+
+      const row = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "SHOP_STAFF_ACCESS_CHANGED", resourceId: counter.membershipId },
+      });
+      const metadata = row.metadata as {
+        before: { extraPermissions: string[]; removedPermissions: string[] };
+        after: { extraPermissions: string[]; removedPermissions: string[] };
+      };
+      expect(row.actorId).toBe(owner.userId);
+      expect(metadata.before.extraPermissions).toEqual([]);
+      expect(metadata.after.extraPermissions).toEqual(["VIEW_INVENTORY"]);
+    });
+  });
+
+  describe("changing a role and inviting never hand out access the actor lacks", () => {
+    it("clears a person's custom access when their role changes", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const counter = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_INVENTORY"],
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${counter.membershipId}/role`)
+        .set(as(owner))
+        .send({ role: "OPERATOR" });
+      expect(res.status).toBe(200);
+
+      const stored = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: counter.membershipId },
+      });
+      expect(stored.role).toBe("OPERATOR");
+      expect(stored.extraPermissions).toEqual([]);
+      expect(stored.removedPermissions).toEqual([]);
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "SHOP_STAFF_ROLE_CHANGED", resourceId: counter.membershipId },
+      });
+      expect((audit.metadata as { accessReset?: boolean }).accessReset).toBe(true);
+    });
+
+    it("stops a manager who lost VIEW_REPORTS from promoting someone to manager", async () => {
+      const limited = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${counter.membershipId}/role`)
+        .set(as(limited))
+        .send({ role: "SHOP_MANAGER" });
+      expect(res.status).toBe(403);
+      expect(JSON.stringify(res.body)).toContain("VIEW_REPORTS");
+      const stored = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: counter.membershipId },
+      });
+      expect(stored.role).toBe("SHOP_COUNTER");
+    });
+
+    it("stops the same manager from inviting a new manager", async () => {
+      const limited = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const res = await request(app.getHttpServer())
+        .post("/v1/shop/staff")
+        .set(as(limited))
+        .send({
+          shopId,
+          email: `access-e2e-invitee-${randomUUID()}@print-automated.dev`,
+          role: "SHOP_MANAGER",
+        });
+      expect(res.status).toBe(403);
+    });
+
+    it("still lets that manager invite a counter, whose defaults they hold", async () => {
+      const limited = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const email = `access-e2e-invitee-${randomUUID()}@print-automated.dev`;
+      const res = await request(app.getHttpServer())
+        .post("/v1/shop/staff")
+        .set(as(limited))
+        .send({ shopId, email, role: "SHOP_COUNTER" });
+      expect(res.status).toBe(202);
+      await prisma.shopStaffInvite.deleteMany({ where: { shopId, email } });
     });
   });
 });

@@ -77,6 +77,8 @@ export {
   type AddShopStaffInput,
   changeShopStaffRoleSchema,
   type ChangeShopStaffRoleInput,
+  updateShopStaffAccessSchema,
+  type UpdateShopStaffAccessInput,
   SHOP_STAFF_ASSIGNABLE_ROLES,
   acceptStaffInviteSchema,
   type AcceptStaffInviteInput,

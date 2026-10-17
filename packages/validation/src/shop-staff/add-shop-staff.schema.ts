@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UserRole } from "@print-automated/types";
+import { Permission, UserRole } from "@print-automated/types";
 import { registerSchema } from "../auth/register.schema.js";
 
 /** §54/16.4: only the shop-facing roles are assignable via this
@@ -39,6 +39,15 @@ export const changeShopStaffRoleSchema = z.object({
 });
 
 export type ChangeShopStaffRoleInput = z.infer<typeof changeShopStaffRoleSchema>;
+
+/** `PATCH /shop/staff/:id`: the FULL list of permissions the person should hold. The API stores
+ * only the difference from their role's defaults, adds the read permission each manage
+ * permission needs, and refuses anything the editor does not hold themselves. */
+export const updateShopStaffAccessSchema = z.object({
+  permissions: z.array(z.nativeEnum(Permission)).max(64),
+});
+
+export type UpdateShopStaffAccessInput = z.infer<typeof updateShopStaffAccessSchema>;
 
 /** 23.15: accepting an emailed invitation. The token is opaque (base64url, 43 chars today). */
 export const acceptStaffInviteSchema = z.object({

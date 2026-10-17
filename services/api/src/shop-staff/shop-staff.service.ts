@@ -3,8 +3,11 @@ import { ShopStaffStatus, UserRole, type Prisma, type ShopStaff } from "@prisma/
 import {
   AppException,
   AuditService,
+  OWNER_ONLY_PERMISSIONS,
   PrismaService,
+  diffFromRole,
   effectivePermissions,
+  normalizePermissions,
 } from "@print-automated/backend-shared";
 import { Permission, type Page } from "@print-automated/types";
 import type {
@@ -51,12 +54,35 @@ export interface ShopStaffMemberResponse {
   status: ShopStaffStatus;
 }
 
+/** What `authorizeMutationLocked` decided: the target's locked (pre-change) row, and what the
+ * actor themselves may hand out. The target is a placeholder with an empty id when an add
+ * creates a brand-new member. */
+interface LockedAuthority {
+  target: {
+    id: string;
+    role: UserRole;
+    status: ShopStaffStatus;
+    extraPermissions: string[];
+    removedPermissions: string[];
+  };
+  actorPermissions: Permission[];
+}
+
+/** `PATCH /shop/staff/:id` response: the member plus what they can now do. */
+export interface ShopStaffAccessResponse extends ShopStaffMemberResponse {
+  permissions: Permission[];
+}
+
 /** 23.6: one row of `GET /shop/staff` -- a member plus the person's name and email
  * (never a credential). */
 export interface ShopStaffListItem extends ShopStaffMemberResponse {
   name: string;
   email: string;
   createdAt: Date;
+  /** What this person may do now: role defaults plus their own overrides. */
+  permissions: Permission[];
+  /** True when the person's access differs from their role's defaults. */
+  customised: boolean;
 }
 
 /** The Shop app (3.4) has no notion of "which shop am I" anywhere --
@@ -190,6 +216,8 @@ export class ShopStaffService {
         name: row.user.name,
         email: row.user.email,
         createdAt: row.createdAt,
+        permissions: effectivePermissions(row.role, row),
+        customised: row.extraPermissions.length + row.removedPermissions.length > 0,
       })),
       total,
       limit: query.limit,
@@ -239,7 +267,7 @@ export class ShopStaffService {
   ): Promise<ShopStaff> {
     // 23.12: the upsert can also demote/reactivate an EXISTING membership, so it is held
     // to the same rank rules as changeRole/removeStaff, decided under the same row locks.
-    await this.authorizeMutationLocked(tx, {
+    const { target } = await this.authorizeMutationLocked(tx, {
       shopId: input.shopId,
       actorId,
       targetMembershipId: null,
@@ -247,6 +275,9 @@ export class ShopStaffService {
       newRole: input.role,
       removing: false,
     });
+    // Re-adding someone with the role they already have keeps their custom access; a different
+    // role starts from that role's defaults (same rule as `changeRole`).
+    const sameRole = target.id !== "" && target.role === input.role;
     return tx.shopStaff.upsert({
       where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
       create: {
@@ -255,7 +286,14 @@ export class ShopStaffService {
         role: input.role,
         status: ShopStaffStatus.ACTIVE,
       },
-      update: { role: input.role, status: ShopStaffStatus.ACTIVE },
+      update: sameRole
+        ? { status: ShopStaffStatus.ACTIVE }
+        : {
+            role: input.role,
+            status: ShopStaffStatus.ACTIVE,
+            extraPermissions: [],
+            removedPermissions: [],
+          },
     });
   }
 
@@ -271,7 +309,7 @@ export class ShopStaffService {
     }
 
     const before = await this.prisma.$transaction(async (tx) => {
-      const target = await this.authorizeMutationLocked(tx, {
+      const { target } = await this.authorizeMutationLocked(tx, {
         shopId: membership.shopId,
         actorId,
         targetMembershipId: membership.id,
@@ -306,7 +344,7 @@ export class ShopStaffService {
     }
 
     const { updated, before } = await this.prisma.$transaction(async (tx) => {
-      const target = await this.authorizeMutationLocked(tx, {
+      const { target } = await this.authorizeMutationLocked(tx, {
         shopId: membership.shopId,
         actorId,
         targetMembershipId: membership.id,
@@ -314,9 +352,10 @@ export class ShopStaffService {
         newRole,
         removing: false,
       });
+      // A new role starts from that role's own defaults: custom access never carries over.
       const row = await tx.shopStaff.update({
         where: { id: shopStaffId },
-        data: { role: newRole },
+        data: { role: newRole, extraPermissions: [], removedPermissions: [] },
       });
       return { updated: row, before: target };
     });
@@ -331,10 +370,97 @@ export class ShopStaffService {
         userId: membership.userId,
         from: before.role,
         to: newRole,
+        accessReset: before.extraPermissions.length + before.removedPermissions.length > 0,
       },
     });
 
     return this.toResponse(updated);
+  }
+
+  /** Per-person access: ticks individual permissions on or off on top of the role's defaults.
+   * `desired` is the FULL list the person should hold afterwards; only the difference from the
+   * role's defaults is stored. Decided under the same row locks as role changes, so the rank
+   * rules are identical, plus:
+   *   - nobody edits their own access, and an owner's access cannot be edited;
+   *   - business settings (owner-only permissions) can never be held by a non-owner;
+   *   - only NEWLY granted permissions are checked against the editor, so an editor can save
+   *     changes to someone who already holds something the editor does not;
+   *   - a manage permission brings the read permission it needs (`normalizePermissions`). */
+  async updateAccess(
+    shopStaffId: string,
+    desired: readonly Permission[],
+    actorId: string,
+  ): Promise<ShopStaffAccessResponse> {
+    const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
+    if (!membership) {
+      throw new NotFoundException("No such shop staff membership.");
+    }
+
+    const { updated, before } = await this.prisma.$transaction(async (tx) => {
+      const { target, actorPermissions } = await this.authorizeMutationLocked(tx, {
+        shopId: membership.shopId,
+        actorId,
+        targetMembershipId: membership.id,
+        targetUserId: membership.userId,
+        removing: false,
+      });
+      if (membership.userId === actorId) {
+        throw new ForbiddenException("You cannot change your own access.");
+      }
+      if (target.role === UserRole.SHOP_OWNER) {
+        throw new ForbiddenException("An owner's access cannot be edited.");
+      }
+      if (target.status === ShopStaffStatus.REMOVED) {
+        throw new NotFoundException("No such shop staff membership.");
+      }
+
+      const wanted = normalizePermissions(desired);
+      if (wanted.some((p) => OWNER_ONLY_PERMISSIONS.includes(p))) {
+        throw new ForbiddenException("Business settings can only be held by an owner.");
+      }
+      const current = effectivePermissions(target.role, target);
+      const missing = wanted.filter((p) => !current.includes(p) && !actorPermissions.includes(p));
+      if (missing.length > 0) {
+        throw new ForbiddenException(
+          `You cannot give access you do not have yourself (${missing.join(", ")}).`,
+        );
+      }
+
+      const overrides = diffFromRole(target.role, wanted);
+      const row = await tx.shopStaff.update({
+        where: { id: shopStaffId },
+        data: {
+          extraPermissions: [...overrides.extraPermissions],
+          removedPermissions: [...overrides.removedPermissions],
+        },
+      });
+      return { updated: row, before: target };
+    });
+
+    await this.audit.record({
+      actorId,
+      action: AuditAction.SHOP_STAFF_ACCESS_CHANGED,
+      resourceType: "shop_staff",
+      resourceId: shopStaffId,
+      metadata: {
+        shopId: membership.shopId,
+        userId: membership.userId,
+        role: updated.role,
+        before: {
+          extraPermissions: before.extraPermissions,
+          removedPermissions: before.removedPermissions,
+        },
+        after: {
+          extraPermissions: updated.extraPermissions,
+          removedPermissions: updated.removedPermissions,
+        },
+      },
+    });
+
+    return {
+      ...this.toResponse(updated),
+      permissions: effectivePermissions(updated.role, updated),
+    };
   }
 
   /** 23.15: the same authority decision an add would face, without adding anyone -- used
@@ -387,12 +513,20 @@ export class ShopStaffService {
       newRole?: UserRole;
       removing: boolean;
     },
-  ): Promise<{ id: string; role: UserRole; status: ShopStaffStatus }> {
+  ): Promise<LockedAuthority> {
     const { shopId, actorId, targetMembershipId, targetUserId, newRole, removing } = params;
     const rows = await tx.$queryRaw<
-      Array<{ id: string; user_id: string; role: UserRole; status: ShopStaffStatus }>
+      Array<{
+        id: string;
+        user_id: string;
+        role: UserRole;
+        status: ShopStaffStatus;
+        extra_permissions: string[];
+        removed_permissions: string[];
+      }>
     >`
-      SELECT id, user_id, role::text AS role, status::text AS status FROM shop_staff
+      SELECT id, user_id, role::text AS role, status::text AS status,
+             extra_permissions, removed_permissions FROM shop_staff
       WHERE shop_id = ${shopId}
         AND (
           user_id = ${actorId}
@@ -428,6 +562,21 @@ export class ShopStaffService {
           : "You cannot grant a role above your own.",
       );
     }
+    // No escalation by any route: a role (by Change role, invite or add) brings its defaults
+    // with it, so the actor must hold every one of them. Otherwise a manager whose access was
+    // trimmed could promote a colleague to a full manager, who could then hand it all back.
+    const actorPermissions = effectivePermissions(actor.role, {
+      extraPermissions: actor.extra_permissions,
+      removedPermissions: actor.removed_permissions,
+    });
+    if (newRole) {
+      const missing = effectivePermissions(newRole).filter((p) => !actorPermissions.includes(p));
+      if (missing.length > 0) {
+        throw new ForbiddenException(
+          `You cannot grant this role: it includes access you do not have yourself (${missing.join(", ")}).`,
+        );
+      }
+    }
 
     if (
       target &&
@@ -449,7 +598,24 @@ export class ShopStaffService {
       }
     }
 
-    return target ?? { id: "", role: UserRole.CUSTOMER, status: ShopStaffStatus.ACTIVE };
+    return {
+      target: target
+        ? {
+            id: target.id,
+            role: target.role,
+            status: target.status,
+            extraPermissions: target.extra_permissions,
+            removedPermissions: target.removed_permissions,
+          }
+        : {
+            id: "",
+            role: UserRole.CUSTOMER,
+            status: ShopStaffStatus.ACTIVE,
+            extraPermissions: [],
+            removedPermissions: [],
+          },
+      actorPermissions,
+    };
   }
 
   private toResponse(membership: ShopStaff): ShopStaffMemberResponse {

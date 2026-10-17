@@ -41,12 +41,14 @@ import {
 import { RateLimit } from "../rate-limit/rate-limit.decorator.js";
 import { RateLimitGuard } from "../rate-limit/rate-limit.guard.js";
 import { ChangeShopStaffRoleDto } from "./dto/change-shop-staff-role.dto.js";
+import { UpdateShopStaffAccessDto } from "./dto/update-shop-staff-access.dto.js";
 import { ShopStaffShopResolver } from "./shop-staff-shop.resolver.js";
 import {
   ShopStaffService,
   type MyShopsResponse,
   type ShopStaffListItem,
   type StaffDirectoryItem,
+  type ShopStaffAccessResponse,
   type ShopStaffMemberResponse,
 } from "./shop-staff.service.js";
 import { SearchRateLimitGuard } from "../rate-limit/search-rate-limit.guard.js";
@@ -214,6 +216,19 @@ export class ShopStaffController {
   @ShopScoped("id", ShopStaffShopResolver)
   remove(@Req() req: RequestWithUser, @Param("id") id: string): Promise<void> {
     return this.shopStaffService.removeStaff(id, req.user!.id);
+  }
+
+  /** Per-person access: the full list of permissions the member should hold. */
+  @Patch(":id")
+  @RequirePermission(Permission.MANAGE_USERS)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", ShopStaffShopResolver)
+  updateAccess(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateShopStaffAccessDto,
+  ): Promise<ShopStaffAccessResponse> {
+    return this.shopStaffService.updateAccess(id, dto.permissions, req.user!.id);
   }
 
   @Patch(":id/role")
