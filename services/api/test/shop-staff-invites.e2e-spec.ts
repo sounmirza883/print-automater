@@ -398,6 +398,23 @@ describe("Shop staff identity, invitations and directory (23.15, e2e)", () => {
       expect((await accept("acceptee", token)).status).toBe(404);
     });
 
+    it("refuses an invitation whose inviter has since lost MANAGE_USERS", async () => {
+      const inviter = await makeStaff("limitedInviter", UserRole.SHOP_MANAGER, shopA.id);
+      const { email, token } = await createInvite("SHOP_COUNTER", "limitedInviter");
+      // The owner takes "manage staff" away from the inviter before the invitation is used.
+      await prisma.shopStaff.update({
+        where: { id: inviter.membership.id },
+        data: { removedPermissions: ["MANAGE_USERS"] },
+      });
+      await makeUser("limitedAcceptee", UserRole.CUSTOMER, email);
+
+      expect((await accept("limitedAcceptee", token)).status).toBe(404);
+      const membership = await prisma.shopStaff.findUnique({
+        where: { shopId_userId: { shopId: shopA.id, userId: users.limitedAcceptee!.id } },
+      });
+      expect(membership).toBeNull();
+    });
+
     it("refuses an expired, revoked, or orphaned invitation, and one whose inviter lost the authority", async () => {
       const expired = await createInvite();
       await prisma.shopStaffInvite.update({

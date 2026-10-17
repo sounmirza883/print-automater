@@ -12,6 +12,7 @@ import {
   AuditService,
   PrismaService,
   REDIS_CLIENT,
+  type AccessOverrides,
   type RedisWithRateLimit,
 } from "@print-automated/backend-shared";
 import type { Page } from "@print-automated/types";
@@ -345,6 +346,7 @@ export class ShopStaffInvitesService {
     // between the two -- can never leave a consumed invitation with no membership, and a
     // concurrent revoke sees either "still pending" or "accepted", never a half state.
     const inviter = invite.invitedBy;
+    let replacedAccess: AccessOverrides | null = null;
     try {
       await this.prisma.$transaction(async (tx) => {
         const claimed = await tx.shopStaffInvite.updateMany({
@@ -354,11 +356,12 @@ export class ShopStaffInvitesService {
         if (claimed.count !== 1) {
           throw new NotFoundException(INVALID_INVITE);
         }
-        await this.shopStaff.addStaffWithin(tx, inviter, {
+        const added = await this.shopStaff.addStaffWithin(tx, inviter, {
           shopId: invite.shopId,
           userId,
           role: invite.role,
         });
+        replacedAccess = added.replacedAccess;
       });
     } catch (error) {
       if (error instanceof ForbiddenException) {
@@ -373,7 +376,12 @@ export class ShopStaffInvitesService {
       action: AuditAction.SHOP_STAFF_INVITE_ACCEPTED,
       resourceType: "shop_staff_invite",
       resourceId: invite.id,
-      metadata: { shopId: invite.shopId, role: invite.role, invitedBy: invite.invitedBy },
+      metadata: {
+        shopId: invite.shopId,
+        role: invite.role,
+        invitedBy: invite.invitedBy,
+        ...(replacedAccess ? { replacedAccess } : {}),
+      },
     });
     return { shopId: invite.shopId, role: invite.role };
   }

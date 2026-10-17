@@ -391,7 +391,95 @@ describe("Shop staff access overrides (e2e)", () => {
     });
   });
 
+  describe("removing and re-adding someone never revives access nobody can see", () => {
+    const readd = (actor: Member, target: Member, role: string) =>
+      request(app.getHttpServer())
+        .post("/v1/shop/staff")
+        .set(as(actor))
+        .send({ shopId, userId: target.userId, role });
+
+    it("clears custom access when a person is removed, so re-adding starts from the role's defaults", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const limited = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const counter = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_REPORTS"],
+      });
+
+      const removed = await request(app.getHttpServer())
+        .delete(`/v1/shop/staff/${counter.membershipId}`)
+        .set(as(owner));
+      expect(removed.status).toBe(204);
+      const gone = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: counter.membershipId },
+      });
+      expect(gone.status).toBe("REMOVED");
+      expect(gone.extraPermissions).toEqual([]);
+
+      expect((await readd(limited, counter, "SHOP_COUNTER")).status).toBe(201);
+      const back = await prisma.shopStaff.findUniqueOrThrow({
+        where: { id: counter.membershipId },
+      });
+      expect(back.status).toBe("ACTIVE");
+      expect(back.extraPermissions).toEqual([]);
+    });
+
+    it("does not revive leftover access on a row that was already removed", async () => {
+      const limited = await makeMember(UserRole.SHOP_MANAGER, {
+        removedPermissions: ["VIEW_REPORTS"],
+      });
+      const legacy = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_REPORTS", "MANAGE_USERS"],
+      });
+      await prisma.shopStaff.update({
+        where: { id: legacy.membershipId },
+        data: { status: "REMOVED" },
+      });
+
+      expect((await readd(limited, legacy, "SHOP_COUNTER")).status).toBe(201);
+      const back = await prisma.shopStaff.findUniqueOrThrow({ where: { id: legacy.membershipId } });
+      expect(back.status).toBe("ACTIVE");
+      expect(back.extraPermissions).toEqual([]);
+    });
+
+    it("records the access a direct add with a different role replaced", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const counter = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_INVENTORY"],
+      });
+
+      expect((await readd(owner, counter, "OPERATOR")).status).toBe(201);
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "SHOP_STAFF_ADDED", resourceId: counter.membershipId },
+      });
+      const metadata = audit.metadata as { replacedAccess?: { extraPermissions: string[] } };
+      expect(metadata.replacedAccess?.extraPermissions).toEqual(["VIEW_INVENTORY"]);
+    });
+  });
+
   describe("changing a role and inviting never hand out access the actor lacks", () => {
+    it("keeps what the access was when a role change resets it", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const counter = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_INVENTORY"],
+      });
+      await request(app.getHttpServer())
+        .patch(`/v1/shop/staff/${counter.membershipId}/role`)
+        .set(as(owner))
+        .send({ role: "OPERATOR" });
+
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "SHOP_STAFF_ACCESS_CHANGED", resourceId: counter.membershipId },
+      });
+      const metadata = audit.metadata as {
+        before: { extraPermissions: string[] };
+        after: { extraPermissions: string[] };
+      };
+      expect(metadata.before.extraPermissions).toEqual(["VIEW_INVENTORY"]);
+      expect(metadata.after.extraPermissions).toEqual([]);
+    });
+
     it("clears a person's custom access when their role changes", async () => {
       const owner = await makeMember(UserRole.SHOP_OWNER);
       const counter = await makeMember(UserRole.SHOP_COUNTER, {

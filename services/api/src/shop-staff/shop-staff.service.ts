@@ -5,6 +5,7 @@ import {
   AuditService,
   OWNER_ONLY_PERMISSIONS,
   PrismaService,
+  type AccessOverrides,
   ROLE_PERMISSIONS,
   diffFromRole,
   effectivePermissions,
@@ -255,7 +256,12 @@ export class ShopStaffService {
       action: AuditAction.SHOP_STAFF_ADDED,
       resourceType: "shop_staff",
       resourceId: membership.id,
-      metadata: { shopId: input.shopId, userId: input.userId, role: input.role },
+      metadata: {
+        shopId: input.shopId,
+        userId: input.userId,
+        role: input.role,
+        ...(membership.replacedAccess ? { replacedAccess: membership.replacedAccess } : {}),
+      },
     });
 
     return this.toResponse(membership);
@@ -263,12 +269,13 @@ export class ShopStaffService {
 
   /** The locked authority decision + upsert of `addStaff`, inside the CALLER's transaction,
    * so another write (23.18: claiming an invitation) commits or rolls back with it. The caller
-   * writes the audit row after commit. */
+   * writes the audit row after commit; `replacedAccess` tells it what custom access the add
+   * wiped (null when nothing was). */
   async addStaffWithin(
     tx: Prisma.TransactionClient,
     actorId: string,
     input: { shopId: string; userId: string; role: UserRole },
-  ): Promise<ShopStaff> {
+  ): Promise<ShopStaff & { replacedAccess: AccessOverrides | null }> {
     // 23.12: the upsert can also demote/reactivate an EXISTING membership, so it is held
     // to the same rank rules as changeRole/removeStaff, decided under the same row locks.
     const { target } = await this.authorizeMutationLocked(tx, {
@@ -279,10 +286,21 @@ export class ShopStaffService {
       newRole: input.role,
       removing: false,
     });
-    // Re-adding someone with the role they already have keeps their custom access; a different
-    // role starts from that role's defaults (same rule as `changeRole`).
-    const sameRole = target.id !== "" && target.role === input.role;
-    return tx.shopStaff.upsert({
+    // Re-adding a CURRENT member with the role they already have keeps their custom access.
+    // A different role, or anyone who is not currently active (suspended or removed), starts
+    // from the role's defaults: access nobody can see on a removed row must never come back
+    // under an actor who does not hold it.
+    const keepAccess =
+      target.id !== "" && target.role === input.role && target.status === ShopStaffStatus.ACTIVE;
+    const hadAccess = target.extraPermissions.length + target.removedPermissions.length > 0;
+    const replacedAccess: AccessOverrides | null =
+      !keepAccess && hadAccess
+        ? {
+            extraPermissions: target.extraPermissions,
+            removedPermissions: target.removedPermissions,
+          }
+        : null;
+    const row = await tx.shopStaff.upsert({
       where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
       create: {
         shopId: input.shopId,
@@ -290,7 +308,7 @@ export class ShopStaffService {
         role: input.role,
         status: ShopStaffStatus.ACTIVE,
       },
-      update: sameRole
+      update: keepAccess
         ? { status: ShopStaffStatus.ACTIVE }
         : {
             role: input.role,
@@ -299,6 +317,7 @@ export class ShopStaffService {
             removedPermissions: [],
           },
     });
+    return { ...row, replacedAccess };
   }
 
   /** Soft delete (§54's own `ShopStaffStatus.REMOVED`), never a hard
@@ -320,9 +339,11 @@ export class ShopStaffService {
         targetUserId: membership.userId,
         removing: true,
       });
+      // A removed person keeps no custom access: nobody can see or clear it on a hidden row,
+      // and re-adding them must start from their role's defaults. The audit row records it.
       await tx.shopStaff.update({
         where: { id: shopStaffId },
-        data: { status: ShopStaffStatus.REMOVED },
+        data: { status: ShopStaffStatus.REMOVED, extraPermissions: [], removedPermissions: [] },
       });
       return target;
     });
@@ -332,7 +353,19 @@ export class ShopStaffService {
       action: AuditAction.SHOP_STAFF_REMOVED,
       resourceType: "shop_staff",
       resourceId: shopStaffId,
-      metadata: { shopId: membership.shopId, userId: membership.userId, role: before.role },
+      metadata: {
+        shopId: membership.shopId,
+        userId: membership.userId,
+        role: before.role,
+        ...(before.extraPermissions.length + before.removedPermissions.length > 0
+          ? {
+              clearedAccess: {
+                extraPermissions: before.extraPermissions,
+                removedPermissions: before.removedPermissions,
+              },
+            }
+          : {}),
+      },
     });
   }
 
@@ -377,6 +410,26 @@ export class ShopStaffService {
         accessReset: before.extraPermissions.length + before.removedPermissions.length > 0,
       },
     });
+    // The reset IS an access change: keep what it replaced, the same way an edit does.
+    if (before.extraPermissions.length + before.removedPermissions.length > 0) {
+      await this.audit.record({
+        actorId,
+        action: AuditAction.SHOP_STAFF_ACCESS_CHANGED,
+        resourceType: "shop_staff",
+        resourceId: shopStaffId,
+        metadata: {
+          shopId: membership.shopId,
+          userId: membership.userId,
+          role: newRole,
+          reason: "ROLE_CHANGED",
+          before: {
+            extraPermissions: before.extraPermissions,
+            removedPermissions: before.removedPermissions,
+          },
+          after: { extraPermissions: [], removedPermissions: [] },
+        },
+      });
+    }
 
     return this.toResponse(updated);
   }
@@ -547,6 +600,17 @@ export class ShopStaffService {
       throw new ForbiddenException("You do not have access to this shop's staff.");
     }
     const actorRank = roleRank(actor.role);
+    // What the actor holds RIGHT NOW, read under the lock. The route guard checked
+    // MANAGE_USERS before the transaction, so it is re-checked here: someone whose "manage
+    // staff" access was just taken away cannot finish what they started (a pending invitation
+    // landing, or a request that raced the owner's edit).
+    const actorPermissions = effectivePermissions(actor.role, {
+      extraPermissions: actor.extra_permissions,
+      removedPermissions: actor.removed_permissions,
+    });
+    if (!actorPermissions.includes(Permission.MANAGE_USERS)) {
+      throw new ForbiddenException("You do not have access to this shop's staff.");
+    }
 
     const target = rows.find((row) => row.user_id === targetUserId) ?? null;
     if (targetMembershipId !== null && !target) {
@@ -569,10 +633,6 @@ export class ShopStaffService {
     // No escalation by any route: a role (by Change role, invite or add) brings its defaults
     // with it, so the actor must hold every one of them. Otherwise a manager whose access was
     // trimmed could promote a colleague to a full manager, who could then hand it all back.
-    const actorPermissions = effectivePermissions(actor.role, {
-      extraPermissions: actor.extra_permissions,
-      removedPermissions: actor.removed_permissions,
-    });
     if (newRole) {
       const missing = effectivePermissions(newRole).filter((p) => !actorPermissions.includes(p));
       if (missing.length > 0) {
