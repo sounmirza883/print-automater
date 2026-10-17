@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { ShopStaffStatus, ShopStatus, UserRole } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import { PrismaService, notifyShopStaff } from "@print-automated/backend-shared";
 import request from "supertest";
 import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
@@ -69,6 +69,7 @@ describe("Shop staff access overrides (e2e)", () => {
   });
 
   afterAll(async () => {
+    await prisma.staffNotification.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.agentPairingCode.deleteMany({ where: { createdBy: { in: userIds } } });
     await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
     await prisma.shopStaff.deleteMany({ where: { userId: { in: userIds } } });
@@ -163,6 +164,83 @@ describe("Shop staff access overrides (e2e)", () => {
         .set(as(granted))
         .send(body);
       expect(accepted.status).toBe(200);
+    });
+  });
+
+  describe("staff alerts follow the person's own access", () => {
+    const lowStock = (): Parameters<typeof notifyShopStaff>[1] => ({
+      shopId,
+      permission: "VIEW_INVENTORY",
+      type: "LOW_STOCK",
+      title: "Low stock",
+      body: "Paper is running low",
+      targetType: "INVENTORY_ITEM",
+      targetId: randomUUID(),
+    });
+    const alertsFor = (member: Member) =>
+      prisma.staffNotification.count({ where: { userId: member.userId, shopId } });
+
+    it("raises a low-stock alert for everyone who holds VIEW_INVENTORY, overrides included", async () => {
+      const manager = await makeMember(UserRole.SHOP_MANAGER);
+      const strippedOperator = await makeMember(UserRole.OPERATOR, {
+        removedPermissions: ["VIEW_INVENTORY"],
+      });
+      const grantedCounter = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_INVENTORY"],
+      });
+      const plainCounter = await makeMember(UserRole.SHOP_COUNTER);
+
+      await prisma.$transaction((tx) => notifyShopStaff(tx, lowStock()));
+
+      expect(await alertsFor(manager)).toBe(1);
+      expect(await alertsFor(grantedCounter)).toBe(1);
+      expect(await alertsFor(strippedOperator)).toBe(0);
+      expect(await alertsFor(plainCounter)).toBe(0);
+    });
+
+    it("hides an alert already raised once the person loses the permission, and shows it to a person who gains it", async () => {
+      const operator = await makeMember(UserRole.OPERATOR);
+      const counter = await makeMember(UserRole.SHOP_COUNTER);
+      await prisma.$transaction((tx) => notifyShopStaff(tx, lowStock()));
+      // Raised for the operator only; give the counter a copy as if they had held it then.
+      await prisma.staffNotification.create({
+        data: {
+          userId: counter.userId,
+          shopId,
+          type: "LOW_STOCK",
+          title: "Low stock",
+          body: "Paper is running low",
+          targetType: "INVENTORY_ITEM",
+          targetId: randomUUID(),
+        },
+      });
+      const feed = async (member: Member): Promise<number> => {
+        const res = await request(app.getHttpServer())
+          .get("/v1/notifications")
+          .query({ audience: "staff", shopId })
+          .set(as(member));
+        expect(res.status).toBe(200);
+        return res.body.items.length;
+      };
+      expect(await feed(operator)).toBe(1);
+      expect(await feed(counter)).toBe(0);
+
+      await prisma.shopStaff.update({
+        where: { id: operator.membershipId },
+        data: { removedPermissions: ["VIEW_INVENTORY"] },
+      });
+      await prisma.shopStaff.update({
+        where: { id: counter.membershipId },
+        data: { extraPermissions: ["VIEW_INVENTORY"] },
+      });
+      expect(await feed(operator)).toBe(0);
+      expect(await feed(counter)).toBe(1);
+
+      const readAll = await request(app.getHttpServer())
+        .post("/v1/notifications/read-all")
+        .query({ shopId })
+        .set(as(operator));
+      expect(readAll.body.updated).toBe(0);
     });
   });
 });

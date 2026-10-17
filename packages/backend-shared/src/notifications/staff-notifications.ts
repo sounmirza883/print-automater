@@ -8,6 +8,7 @@ import {
   type UserRole,
 } from "@prisma/client";
 import { Permission } from "@print-automated/types";
+import { effectivePermissions } from "../auth/effective-permissions.js";
 import { ROLE_PERMISSIONS } from "../auth/role-permissions.js";
 
 /** 23.7 (PRD 37/111): one operational alert for the staff of ONE business, fanned out to
@@ -47,8 +48,9 @@ export const STAFF_ALERT_PERMISSION: Record<StaffNotificationType, Permission> =
   JOB_FAILED: Permission.ASSIGN_JOBS,
 };
 
-/** Shop-side roles whose permission set includes `permission` (ADMIN is a platform role,
- * never a shop member). */
+/** Shop-side roles whose DEFAULT permission set includes `permission` (ADMIN is a platform
+ * role, never a shop member). A person's own overrides are applied on top of this by the
+ * callers (`effectivePermissions`). */
 export function rolesWithPermission(permission: Permission): UserRole[] {
   return (Object.keys(ROLE_PERMISSIONS) as UserRole[]).filter(
     (role) => role !== "ADMIN" && ROLE_PERMISSIONS[role].includes(permission),
@@ -60,16 +62,28 @@ export async function notifyShopStaff(
   tx: Prisma.TransactionClient,
   alert: StaffAlert,
 ): Promise<number> {
+  // Candidates: members whose role holds the permission by default, or who were granted it.
+  // The final say is each person's effective access (a role default can have been taken away).
   const members = await tx.shopStaff.findMany({
     where: {
       shopId: alert.shopId,
       status: ShopStaffStatus.ACTIVE,
-      role: { in: rolesWithPermission(alert.permission) },
+      role: { not: "ADMIN" },
+      OR: [
+        { role: { in: rolesWithPermission(alert.permission) } },
+        { extraPermissions: { has: alert.permission } },
+      ],
       user: { status: UserStatus.ACTIVE },
     },
-    select: { userId: true },
+    select: { userId: true, role: true, extraPermissions: true, removedPermissions: true },
   });
-  const userIds = [...new Set(members.map((member) => member.userId))];
+  const userIds = [
+    ...new Set(
+      members
+        .filter((member) => effectivePermissions(member.role, member).includes(alert.permission))
+        .map((member) => member.userId),
+    ),
+  ];
   if (userIds.length === 0) {
     return 0;
   }

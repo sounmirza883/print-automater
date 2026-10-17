@@ -3,6 +3,7 @@ import { NotificationChannel, Prisma, ShopStaffStatus } from "@prisma/client";
 import {
   AppException,
   PrismaService,
+  effectivePermissions,
   rolesWithPermission,
   STAFF_ALERT_PERMISSION,
 } from "@print-automated/backend-shared";
@@ -116,13 +117,14 @@ export class NotificationCenterService {
           status: ShopStaffStatus.ACTIVE,
           ...(filter.shopId ? { shopId: filter.shopId } : {}),
         },
-        select: { shopId: true, role: true },
+        select: { shopId: true, role: true, extraPermissions: true, removedPermissions: true },
       });
-      // Only alerts the member may STILL see: their current role must hold the permission
-      // that entitles them to that kind of alert (same rule as the list).
+      // Only alerts the member may STILL see: their current access (role defaults plus their
+      // own overrides) must hold the permission that entitles them to that kind of alert
+      // (same rule as the list).
       const visible = memberships.map((m) => ({
         shopId: m.shopId,
-        type: { in: allowedTypes(m.role) },
+        type: { in: allowedTypes(m) },
       }));
       const staff = await this.prisma.staffNotification.updateMany({
         where: { userId, readAt: null, ...(visible.length > 0 ? { OR: visible } : { id: "none" }) },
@@ -168,8 +170,11 @@ export class NotificationCenterService {
     `;
   }
 
-  /** The member's CURRENT role must hold the permission for the alert's type (23.11): an alert
-   * raised for an operator stops showing once they are demoted to the counter. */
+  /** The member's CURRENT access must hold the permission for the alert's type (23.11): an alert
+   * raised for an operator stops showing once they are demoted to the counter, or once the
+   * permission is taken away from them. Mirrors `effectivePermissions` in SQL: an owner always
+   * holds what the role holds; anyone else holds it when the role default or a grant gives it
+   * and it has not been taken away. */
   private permissionClause(): Prisma.Sql {
     const byPermission = new Map<string, StaffNotificationType[]>();
     for (const [type, permission] of Object.entries(STAFF_ALERT_PERMISSION)) {
@@ -181,7 +186,13 @@ export class NotificationCenterService {
     return Prisma.join(
       [...byPermission.entries()].map(
         ([permission, types]) =>
-          Prisma.sql`(s.type::text = ANY(${types}::text[]) AND ss.role::text = ANY(${rolesWithPermission(permission as never)}::text[]))`,
+          Prisma.sql`(s.type::text = ANY(${types}::text[]) AND (
+            (ss.role::text = 'SHOP_OWNER' AND ss.role::text = ANY(${rolesWithPermission(permission as never)}::text[]))
+            OR (ss.role::text <> 'SHOP_OWNER'
+              AND (ss.role::text = ANY(${rolesWithPermission(permission as never)}::text[])
+                   OR ${permission}::text = ANY(ss.extra_permissions))
+              AND NOT (${permission}::text = ANY(ss.removed_permissions)))
+          ))`,
       ),
       " OR ",
     );
@@ -202,10 +213,15 @@ export class NotificationCenterService {
   }
 }
 
-/** The alert types a member with this role may see. */
-function allowedTypes(role: string): StaffNotificationType[] {
-  return (Object.entries(STAFF_ALERT_PERMISSION) as Array<[StaffNotificationType, never]>)
-    .filter(([, permission]) => (rolesWithPermission(permission) as string[]).includes(role))
+/** The alert types a member with this role and these overrides may see. */
+function allowedTypes(member: {
+  role: Parameters<typeof effectivePermissions>[0];
+  extraPermissions: string[];
+  removedPermissions: string[];
+}): StaffNotificationType[] {
+  const held = new Set<string>(effectivePermissions(member.role, member));
+  return (Object.entries(STAFF_ALERT_PERMISSION) as Array<[StaffNotificationType, string]>)
+    .filter(([, permission]) => held.has(permission))
     .map(([type]) => type);
 }
 
