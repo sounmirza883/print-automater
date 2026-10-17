@@ -43,6 +43,13 @@ export {
 } from "./crypto/crypto.service.js";
 
 export { ROLE_PERMISSIONS } from "./auth/role-permissions.js";
+export {
+  OWNER_ONLY_PERMISSIONS,
+  diffFromRole,
+  effectivePermissions,
+  normalizePermissions,
+  type AccessOverrides,
+} from "./auth/effective-permissions.js";
 
 export { AuditModule } from "./audit/audit.module.js";
 export { AuditService, type RecordAuditEntryInput } from "./audit/audit.service.js";
