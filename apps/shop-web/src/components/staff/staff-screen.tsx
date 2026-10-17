@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { Page, ShopStaffListItem, StaffInvite } from "@print-automated/api-client";
+import type {
+  BranchSummary,
+  Page,
+  ShopStaffListItem,
+  StaffInvite,
+} from "@print-automated/api-client";
 import { Permission, UserRole } from "@print-automated/types";
 import { Pager, SearchForm, SelectField, TextField } from "@/components/form-kit";
 import { FormDialog } from "@/components/modal";
@@ -26,6 +31,9 @@ import { formatDate } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
 import {
   ROLE_SUMMARY,
+  branchLabel,
+  branchOptions,
+  branchToWire,
   canActOnMember,
   canCancelInvite,
   grantableRoles,
@@ -64,10 +72,12 @@ export function StaffScreen(): ReactNode {
 function StaffBody(): ReactNode {
   const { business, user, businessRole, permissions: myPermissions } = useSession();
   const shopId = business?.id ?? "";
+  const myBranchId = business?.branchId ?? null;
   const [draft, setDraft] = useState("");
   const [q, setQ] = useState("");
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
+  const [branch, setBranch] = useState("");
   const [page, setPage] = useState(0);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -75,10 +85,11 @@ function StaffBody(): ReactNode {
   const invites = useResource(
     () =>
       getApi().shopStaff.listInvites(shopId, {
+        branchId: branch || undefined,
         limit: INVITE_PAGE,
         offset: invitePage * INVITE_PAGE,
       }),
-    [shopId, invitePage],
+    [shopId, branch, invitePage],
     { intervalMs: 60_000, enabled: shopId !== "" },
   );
   const list = useResource(
@@ -87,12 +98,21 @@ function StaffBody(): ReactNode {
         q: q || undefined,
         role: role || undefined,
         status: status || undefined,
+        branchId: branch || undefined,
         limit: PAGE,
         offset: page * PAGE,
       }),
-    [shopId, q, role, status, page],
+    [shopId, q, role, status, branch, page],
     { intervalMs: 60_000, enabled: shopId !== "" },
   );
+  // A branch-bound person gets only their own branch back, so a one-location business (and a
+  // branch manager) never sees any branch controls.
+  const branchList = useResource(() => getApi().branches.list(shopId), [shopId], {
+    enabled: shopId !== "",
+  });
+  const branches = branchList.data ?? [];
+  const multiBranch = branches.length > 1;
+  const editor = { permissions: myPermissions, role: businessRole, branchId: myBranchId };
 
   return (
     <>
@@ -129,6 +149,7 @@ function StaffBody(): ReactNode {
         onPage={setInvitePage}
         actorRole={businessRole}
         userId={user.id}
+        showBranch={multiBranch}
         onCancel={(invite) => setDialog({ kind: "cancel-invite", invite })}
       />
       <SearchForm
@@ -150,6 +171,21 @@ function StaffBody(): ReactNode {
           options={roleOptions(grantableRoles(UserRole.SHOP_OWNER))}
           emptyLabel="Any"
         />
+        {multiBranch && myBranchId === null && (
+          <SelectField
+            label="Branch"
+            value={branch}
+            onChange={(value) => {
+              setBranch(value);
+              setPage(0);
+              setInvitePage(0);
+            }}
+            options={branches
+              .filter((candidate) => candidate.archivedAt === null)
+              .map((candidate) => ({ value: candidate.id, label: candidate.name }))}
+            emptyLabel="Any branch"
+          />
+        )}
         <SelectField
           label="Status"
           value={status}
@@ -177,7 +213,15 @@ function StaffBody(): ReactNode {
             <Panel flushOnPhone>
               <DataTable
                 caption="Staff"
-                head={["Name", "Email", "Role", "Status", "Since", ""]}
+                head={[
+                  "Name",
+                  "Email",
+                  "Role",
+                  ...(multiBranch ? ["Branch"] : []),
+                  "Status",
+                  "Since",
+                  "",
+                ]}
                 stackOnPhone
               >
                 {data.items.map((member) => (
@@ -199,6 +243,11 @@ function StaffBody(): ReactNode {
                         </span>
                       )}
                     </Cell>
+                    {multiBranch && (
+                      <Cell label="Branch" className="text-muted">
+                        {branchLabel(member.branchName)}
+                      </Cell>
+                    )}
                     <Cell label="Status">
                       <Pill
                         tone={
@@ -249,6 +298,8 @@ function StaffBody(): ReactNode {
         <InviteDialog
           shopId={shopId}
           actorRole={businessRole}
+          actorBranchId={myBranchId}
+          branches={branches}
           onClose={() => setDialog(null)}
           onSent={(email) => {
             setNotice(
@@ -277,7 +328,8 @@ function StaffBody(): ReactNode {
         <EditDialog
           member={dialog.member}
           isSelf={dialog.member.userId === user.id}
-          editorPermissions={myPermissions}
+          editor={editor}
+          branches={branches}
           onClose={() => setDialog(null)}
           onSaved={list.reload}
           onRemove={() => setDialog({ kind: "remove", member: dialog.member })}
@@ -301,11 +353,15 @@ function RoleSummary({ role }: { role: string }): ReactNode {
 function InviteDialog({
   shopId,
   actorRole,
+  actorBranchId,
+  branches,
   onClose,
   onSent,
 }: {
   shopId: string;
   actorRole: UserRole | null;
+  actorBranchId: string | null;
+  branches: readonly BranchSummary[];
   onClose: () => void;
   onSent: (email: string) => void;
 }): ReactNode {
@@ -314,6 +370,16 @@ function InviteDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>(UserRole.SHOP_COUNTER);
   const [touched, setTouched] = useState(false);
+  // Where the person will work. A one-location business has nothing to choose (the API uses its
+  // only branch), and an owner works at all branches, so the field only appears when it matters.
+  const options = branchOptions({ role: actorRole, branchId: actorBranchId }, branches, {
+    forRole: role,
+  });
+  const showBranch = branches.length > 1 && options.length > 0;
+  const [branchChoice, setBranchChoice] = useState("");
+  const branch = options.some((option) => option.value === branchChoice)
+    ? branchChoice
+    : (options[0]?.value ?? "");
   const emailError = looksLikeEmail(email) ? null : "Enter the person's email address.";
   return (
     <FormDialog
@@ -329,7 +395,12 @@ function InviteDialog({
         void runner
           .run(async () => {
             try {
-              await getApi().shopStaff.addByEmail(shopId, address, role);
+              await getApi().shopStaff.addByEmail(
+                shopId,
+                address,
+                role,
+                showBranch ? branchToWire(branch) : undefined,
+              );
             } catch (error) {
               throw withInviteCopy(error);
             }
@@ -351,6 +422,15 @@ function InviteDialog({
       />
       <SelectField label="Role" value={role} onChange={setRole} options={roleOptions(roles)} />
       <RoleSummary role={role} />
+      {showBranch && (
+        <SelectField
+          label="Branch"
+          value={branch}
+          onChange={setBranchChoice}
+          options={options}
+          disabled={options.length <= 1}
+        />
+      )}
       <p className="text-xs text-muted">
         We email them a code. They join only once they accept it, signing in with this address
         (anyone without an account creates one first). The code works for 7 days; inviting the same
@@ -370,6 +450,7 @@ function PendingInvites({
   onPage,
   actorRole,
   userId,
+  showBranch,
   onCancel,
 }: {
   data: Page<StaffInvite> | null;
@@ -377,6 +458,7 @@ function PendingInvites({
   onPage: (page: number) => void;
   actorRole: UserRole | null;
   userId: string;
+  showBranch: boolean;
   onCancel: (invite: StaffInvite) => void;
 }): ReactNode {
   // Shown only while something is pending; the staff list below carries loading/error states.
@@ -392,7 +474,7 @@ function PendingInvites({
     >
       <DataTable
         caption="Pending invitations"
-        head={["Email", "Role", "Sent", "Expires", ""]}
+        head={["Email", "Role", ...(showBranch ? ["Branch"] : []), "Sent", "Expires", ""]}
         stackOnPhone
       >
         {data.items.map((invite) => (
@@ -404,6 +486,11 @@ function PendingInvites({
               )}
             </Cell>
             <Cell label="Role">{roleLabel(invite.role as UserRole)}</Cell>
+            {showBranch && (
+              <Cell label="Branch" className="text-muted">
+                {branchLabel(invite.branchName)}
+              </Cell>
+            )}
             <Cell label="Sent" className="text-muted">
               {formatDate(invite.createdAt)}
             </Cell>

@@ -1,5 +1,9 @@
 import { UserRole } from "@print-automated/types";
 import {
+  ALL_BRANCHES,
+  branchLabel,
+  branchOptions,
+  branchToWire,
   canActOnMember,
   canCancelInvite,
   grantableRoles,
@@ -56,5 +60,60 @@ describe("withInviteCopy", () => {
     });
     const other = { status: 403, error_code: "FORBIDDEN", message: "No." };
     expect(withInviteCopy(other)).toBe(other);
+  });
+});
+
+describe("branchOptions", () => {
+  const branches = [
+    { id: "a", name: "Main", archivedAt: null },
+    { id: "b", name: "Gulberg", archivedAt: null },
+    { id: "c", name: "Old Town", archivedAt: "2026-10-05T10:00:00.000Z" },
+  ];
+  const owner = { role: UserRole.SHOP_OWNER, branchId: null };
+  const managerOfA = { role: UserRole.SHOP_MANAGER, branchId: "a" };
+  const roamingManager = { role: UserRole.SHOP_MANAGER, branchId: null };
+
+  it("offers an owner every active branch plus all branches, for a non-owner role", () => {
+    expect(branchOptions(owner, branches, { forRole: UserRole.SHOP_COUNTER })).toEqual([
+      { value: "a", label: "Main" },
+      { value: "b", label: "Gulberg" },
+      { value: ALL_BRANCHES, label: "All branches" },
+    ]);
+  });
+
+  it("never offers an archived branch", () => {
+    const values = branchOptions(owner, branches, { forRole: UserRole.OPERATOR }).map(
+      (o) => o.value,
+    );
+    expect(values).not.toContain("c");
+  });
+
+  it("offers a branch-bound manager only their own branch, and not all branches", () => {
+    expect(branchOptions(managerOfA, branches, { forRole: UserRole.SHOP_COUNTER })).toEqual([
+      { value: "a", label: "Main" },
+    ]);
+  });
+
+  it("offers a manager who works at all branches every branch but not all branches", () => {
+    expect(branchOptions(roamingManager, branches, { forRole: UserRole.SHOP_COUNTER })).toEqual([
+      { value: "a", label: "Main" },
+      { value: "b", label: "Gulberg" },
+    ]);
+  });
+
+  it("offers nothing for an owner, who always works at all branches", () => {
+    expect(branchOptions(owner, branches, { forRole: UserRole.SHOP_OWNER })).toEqual([]);
+  });
+});
+
+describe("branchLabel and branchToWire", () => {
+  it("names the branch, or says all branches", () => {
+    expect(branchLabel("Gulberg")).toBe("Gulberg");
+    expect(branchLabel(null)).toBe("All branches");
+  });
+
+  it("turns the picker's empty value into null (all branches) for the API", () => {
+    expect(branchToWire(ALL_BRANCHES)).toBeNull();
+    expect(branchToWire("b")).toBe("b");
   });
 });

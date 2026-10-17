@@ -77,3 +77,35 @@ export function withInviteCopy(error: unknown): unknown {
 export function roleOptions(roles: readonly UserRole[]): Array<{ value: string; label: string }> {
   return roles.map((role) => ({ value: role, label: roleLabel(role) }));
 }
+
+/** The branch picker's value for "All branches" (a native select cannot hold null). */
+export const ALL_BRANCHES = "";
+
+export function branchLabel(branchName: string | null): string {
+  return branchName ?? "All branches";
+}
+
+/** What the API takes for the picker's value: null means all branches. */
+export function branchToWire(value: string): string | null {
+  return value === ALL_BRANCHES ? null : value;
+}
+
+/** The branches a person may be put in by this actor (mirrors the API): a branch-bound actor only
+ * their own, an owner every active branch plus "All branches", anyone else every active branch.
+ * An owner works at all branches by definition, so there is nothing to choose for that role. */
+export function branchOptions(
+  actor: { role: UserRole | null; branchId: string | null },
+  branches: ReadonlyArray<{ id: string; name: string; archivedAt: string | null }>,
+  opts: { forRole: string },
+): Array<{ value: string; label: string }> {
+  if (opts.forRole === UserRole.SHOP_OWNER) {
+    return [];
+  }
+  const own = branches
+    .filter((branch) => branch.archivedAt === null)
+    .filter((branch) => actor.branchId === null || branch.id === actor.branchId)
+    .map((branch) => ({ value: branch.id, label: branch.name }));
+  return actor.role === UserRole.SHOP_OWNER
+    ? [...own, { value: ALL_BRANCHES, label: "All branches" }]
+    : own;
+}

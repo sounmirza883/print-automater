@@ -142,6 +142,7 @@ export function SelectField({
   options,
   emptyLabel,
   hint,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -149,10 +150,16 @@ export function SelectField({
   options: ReadonlyArray<{ value: string; label: string }>;
   emptyLabel?: string;
   hint?: string;
+  disabled?: boolean;
 }): ReactNode {
   return (
     <Field label={label} hint={hint}>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className={INPUT}>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className={INPUT}
+      >
         {emptyLabel !== undefined && <option value="">{emptyLabel}</option>}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
