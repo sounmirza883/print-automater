@@ -105,5 +105,7 @@ export async function resolveEffectiveAccess(
 
   const shopId = await resolveContextShopId(context, reflector, moduleRef);
   const access = shopId ? await shopMembership.getAccess(shopId, request.user.id) : null;
-  return access ?? { role: accountRole, permissions: effectivePermissions(accountRole) };
+  return (
+    access ?? { role: accountRole, permissions: effectivePermissions(accountRole), branchId: null }
+  );
 }

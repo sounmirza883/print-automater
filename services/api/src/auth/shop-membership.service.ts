@@ -40,7 +40,7 @@ export class ShopMembershipService {
   async getAccess(shopId: string, userId: string): Promise<MemberAccess | null> {
     const membership = await this.prisma.shopStaff.findFirst({
       where: { shopId, userId, status: ShopStaffStatus.ACTIVE },
-      select: { role: true, extraPermissions: true, removedPermissions: true },
+      select: { role: true, extraPermissions: true, removedPermissions: true, branchId: true },
     });
     if (!membership) {
       return null;
@@ -48,6 +48,7 @@ export class ShopMembershipService {
     return {
       role: membership.role,
       permissions: effectivePermissions(membership.role, membership),
+      branchId: membership.branchId,
     };
   }
 }
@@ -55,4 +56,6 @@ export class ShopMembershipService {
 export interface MemberAccess {
   role: UserRole;
   permissions: Permission[];
+  /** The branch this person works at; null = "All branches" (owners, and anyone an owner marks so). */
+  branchId: string | null;
 }

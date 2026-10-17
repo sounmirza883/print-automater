@@ -22,6 +22,7 @@ import { PaymentsModule } from "./payments/payments.module.js";
 import { ShopOrdersModule } from "./shop-orders/shop-orders.module.js";
 import { PrintersModule } from "./printers/printers.module.js";
 import { ShopStaffModule } from "./shop-staff/shop-staff.module.js";
+import { BranchesModule } from "./branches/branches.module.js";
 import { ShopAgentsModule } from "./shop-agents/shop-agents.module.js";
 import { AgentsModule } from "./agents/agents.module.js";
 import { PaymentReconciliationModule } from "./payment-reconciliation/payment-reconciliation.module.js";
@@ -88,6 +89,7 @@ import { PublicOrdersModule } from "./public-orders/public-orders.module.js";
     ShopOrdersModule,
     PrintersModule,
     ShopStaffModule,
+    BranchesModule,
     ShopAgentsModule,
     AgentsModule,
     PaymentReconciliationModule,

@@ -284,3 +284,13 @@ export {
   type NotificationFilterInput,
   type ListNotificationsQueryInput,
 } from "./notifications/index.js";
+export {
+  createBranchSchema,
+  listBranchesQuerySchema,
+  setBranchOpenStateSchema,
+  updateBranchSchema,
+  type CreateBranchInput,
+  type ListBranchesQueryInput,
+  type SetBranchOpenStateInput,
+  type UpdateBranchInput,
+} from "./branches/index.js";

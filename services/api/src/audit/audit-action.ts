@@ -21,6 +21,12 @@ export const AuditAction = {
   SHOP_STAFF_ROLE_CHANGED: "SHOP_STAFF_ROLE_CHANGED",
   // Per-person access: permissions ticked on or off on top of the role's defaults.
   SHOP_STAFF_ACCESS_CHANGED: "SHOP_STAFF_ACCESS_CHANGED",
+  // Branches: a business's physical locations, and who works at which.
+  BRANCH_CREATED: "BRANCH_CREATED",
+  BRANCH_UPDATED: "BRANCH_UPDATED",
+  BRANCH_OPEN_STATE_CHANGED: "BRANCH_OPEN_STATE_CHANGED",
+  BRANCH_ARCHIVED: "BRANCH_ARCHIVED",
+  SHOP_STAFF_BRANCH_CHANGED: "SHOP_STAFF_BRANCH_CHANGED",
   SHOP_STAFF_REMOVED: "SHOP_STAFF_REMOVED",
   // 23.15: add-by-email (an invitation, or a direct add of an existing account).
   SHOP_STAFF_INVITED: "SHOP_STAFF_INVITED",
