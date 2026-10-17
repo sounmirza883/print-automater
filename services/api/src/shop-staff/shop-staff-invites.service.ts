@@ -69,6 +69,14 @@ export interface ActivatedAccount extends AuthResult {
 
 const INVALID_INVITE = "This invitation is invalid or has expired.";
 
+/** Accepting an invitation whose branch is gone, archived or no longer chosen is the same
+ * uniform "invalid invitation", not a branch-specific error to someone with no access yet. */
+const INVITE_VOIDING_CODES: ReadonlySet<string> = new Set([
+  "BRANCH_ARCHIVED",
+  "BRANCH_NOT_FOUND",
+  "BRANCH_REQUIRED",
+]);
+
 /** 23.15. Add a person to a business by email.
  *
  *  - `inviteByEmail` (MANAGE_USERS at the business): checks the caller may grant that role
@@ -100,19 +108,25 @@ export class ShopStaffInvitesService {
 
   async inviteByEmail(
     actorId: string,
-    input: { shopId: string; email: string; role: UserRole },
+    input: { shopId: string; email: string; role: UserRole; branchId?: string | null },
   ): Promise<StaffInviteProcessed> {
     const email = input.email.trim().toLowerCase();
     const mailbox = canonicalAddress(email);
     // Authority first (also proves the caller is active staff here): a caller who could not
     // grant this role gets 403 before anything about the address is looked up or any
     // rate-limit budget is spent.
-    await this.shopStaff.assertMayGrant(actorId, input.shopId, input.role);
+    // It also decides where the invited person will work (the same rules as a direct add).
+    const branchId = await this.shopStaff.assertMayGrant(
+      actorId,
+      input.shopId,
+      input.role,
+      input.branchId,
+    );
     // 23.18: replacing a still-pending invitation needs authority over ITS role too, so a
     // manager cannot silently downgrade (or re-token) an owner-level invitation.
     const existing = await this.prisma.shopStaffInvite.findUnique({
       where: { shopId_email: { shopId: input.shopId, email } },
-      select: { role: true, acceptedAt: true, revokedAt: true, expiresAt: true },
+      select: { role: true, branchId: true, acceptedAt: true, revokedAt: true, expiresAt: true },
     });
     if (
       existing &&
@@ -120,11 +134,15 @@ export class ShopStaffInvitesService {
       !existing.revokedAt &&
       existing.expiresAt.getTime() > Date.now()
     ) {
-      const actorRole = await this.shopMembership.getEffectiveRole(input.shopId, actorId);
-      if (!actorRole || roleRank(existing.role) > roleRank(actorRole)) {
+      const actor = await this.shopMembership.getAccess(input.shopId, actorId);
+      if (!actor || roleRank(existing.role) > roleRank(actor.role)) {
         throw new ForbiddenException(
           "You cannot replace a pending invitation for a role above your own.",
         );
+      }
+      // A branch-bound person cannot replace (or re-token) another branch's invitation.
+      if (actor.branchId !== null && existing.branchId !== actor.branchId) {
+        throw new ForbiddenException("That invitation belongs to another branch.");
       }
     }
     await this.enforceRateLimit(`invite:actor:${actorId}`, INVITES_PER_ACTOR_PER_HOUR);
@@ -150,6 +168,7 @@ export class ShopStaffInvitesService {
       email,
       role: input.role,
       invitedBy: actorId,
+      branchId,
     });
 
     await this.notifications.sendStaffInvite(email, shop.name, input.role, rawToken);
@@ -364,13 +383,18 @@ export class ShopStaffInvitesService {
           shopId: invite.shopId,
           userId,
           role: invite.role,
+          branchId: invite.branchId,
         });
         replacedAccess = added.replacedAccess;
       });
     } catch (error) {
-      if (error instanceof ForbiddenException) {
+      if (
+        error instanceof ForbiddenException ||
+        (error instanceof AppException && INVITE_VOIDING_CODES.has(error.errorCode))
+      ) {
         // The inviter lost the authority to grant this (demoted, removed, or the addressee
-        // already holds a higher role): the invitation is simply no longer valid.
+        // already holds a higher role), or the branch it names is gone or archived: the
+        // invitation is simply no longer valid.
         throw new NotFoundException(INVALID_INVITE);
       }
       throw error;
@@ -441,9 +465,13 @@ export class ShopStaffInvitesService {
     if (!invite) {
       throw new NotFoundException("No such invitation.");
     }
-    const actorRole = await this.shopMembership.getEffectiveRole(invite.shopId, actorId);
-    if (!actorRole || roleRank(invite.role) > roleRank(actorRole)) {
+    const actor = await this.shopMembership.getAccess(invite.shopId, actorId);
+    if (!actor || roleRank(invite.role) > roleRank(actor.role)) {
       throw new ForbiddenException("You cannot cancel an invitation for a role above your own.");
+    }
+    // A branch-bound person only cancels their own branch's invitations.
+    if (actor.branchId !== null && invite.branchId !== actor.branchId) {
+      throw new ForbiddenException("That invitation belongs to another branch.");
     }
     // 23.18: decided by the conditional write, not the earlier read, so a revoke racing an
     // accept cannot report success (and audit a revocation) for an invitation that was used.
@@ -473,11 +501,18 @@ export class ShopStaffInvitesService {
    * which voids any earlier code for the same business+address. */
   private async writeInvite(
     db: Prisma.TransactionClient,
-    input: { shopId: string; email: string; role: UserRole; invitedBy: string },
+    input: {
+      shopId: string;
+      email: string;
+      role: UserRole;
+      invitedBy: string;
+      branchId?: string | null;
+    },
   ): Promise<string> {
     const rawToken = randomBytes(32).toString("base64url");
     const data = {
       role: input.role,
+      branchId: input.branchId ?? null,
       tokenHash: hashToken(rawToken),
       invitedBy: input.invitedBy,
       expiresAt: new Date(Date.now() + INVITE_TTL_MS),

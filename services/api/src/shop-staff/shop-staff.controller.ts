@@ -200,12 +200,14 @@ export class ShopStaffController {
         shopId: dto.shopId,
         email: dto.email,
         role: dto.role,
+        branchId: dto.branchId,
       });
     }
     return this.shopStaffService.addStaff(req.user!.id, {
       shopId: dto.shopId,
       userId: dto.userId!,
       role: dto.role,
+      branchId: dto.branchId,
     });
   }
 
@@ -218,7 +220,8 @@ export class ShopStaffController {
     return this.shopStaffService.removeStaff(id, req.user!.id);
   }
 
-  /** Per-person access: the full list of permissions the member should hold. */
+  /** Per-person access and branch: the full list of permissions the member should hold, and/or
+   * the branch they work at (null = all branches, owners only). */
   @Patch(":id")
   @RequirePermission(Permission.MANAGE_USERS)
   @UseGuards(ShopScopeGuard)
@@ -228,7 +231,11 @@ export class ShopStaffController {
     @Param("id") id: string,
     @Body() dto: UpdateShopStaffAccessDto,
   ): Promise<ShopStaffAccessResponse> {
-    return this.shopStaffService.updateAccess(id, dto.permissions, req.user!.id);
+    return this.shopStaffService.updateAccess(
+      id,
+      { permissions: dto.permissions, branchId: dto.branchId },
+      req.user!.id,
+    );
   }
 
   @Patch(":id/role")

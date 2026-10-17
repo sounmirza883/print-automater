@@ -26,6 +26,9 @@ export const addShopStaffSchema = z
     userId: z.string().uuid().optional(),
     email: z.string().trim().toLowerCase().email().max(254).optional(),
     role: z.enum(SHOP_STAFF_ASSIGNABLE_ROLES),
+    /** Where they will work. Omitted: the business's only branch (with several, a branch-bound
+     * caller's own branch, or 400 BRANCH_REQUIRED). `null` = all branches (owners only). */
+    branchId: z.string().uuid().nullable().optional(),
   })
   .refine((value) => (value.userId === undefined) !== (value.email === undefined), {
     message: "Provide exactly one of userId or email.",
@@ -40,12 +43,18 @@ export const changeShopStaffRoleSchema = z.object({
 
 export type ChangeShopStaffRoleInput = z.infer<typeof changeShopStaffRoleSchema>;
 
-/** `PATCH /shop/staff/:id`: the FULL list of permissions the person should hold. The API stores
- * only the difference from their role's defaults, adds the read permission each manage
- * permission needs, and refuses anything the editor does not hold themselves. */
-export const updateShopStaffAccessSchema = z.object({
-  permissions: z.array(z.nativeEnum(Permission)).max(64),
-});
+/** `PATCH /shop/staff/:id`: `permissions` is the FULL list the person should hold (the API stores
+ * only the difference from their role's defaults, adds the read permission each manage permission
+ * needs, and refuses anything the editor does not hold themselves); `branchId` moves them to a
+ * branch (`null` = all branches, owners only). At least one of the two. */
+export const updateShopStaffAccessSchema = z
+  .object({
+    permissions: z.array(z.nativeEnum(Permission)).max(64).optional(),
+    branchId: z.string().uuid().nullable().optional(),
+  })
+  .refine((value) => value.permissions !== undefined || value.branchId !== undefined, {
+    message: "Send permissions, branchId, or both.",
+  });
 
 export type UpdateShopStaffAccessInput = z.infer<typeof updateShopStaffAccessSchema>;
 

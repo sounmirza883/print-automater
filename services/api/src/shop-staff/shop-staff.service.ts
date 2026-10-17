@@ -58,6 +58,8 @@ export interface ShopStaffMemberResponse {
   userId: string;
   role: UserRole;
   status: ShopStaffStatus;
+  /** Where they work; null = "All branches". */
+  branchId: string | null;
 }
 
 /** What `authorizeMutationLocked` decided: the target's locked (pre-change) row, and what the
@@ -70,7 +72,10 @@ interface LockedAuthority {
     status: ShopStaffStatus;
     extraPermissions: string[];
     removedPermissions: string[];
+    branchId: string | null;
   };
+  /** The actor's own role and branch, read under the same lock. */
+  actor: { role: UserRole; branchId: string | null };
   actorPermissions: Permission[];
 }
 
@@ -260,7 +265,7 @@ export class ShopStaffService {
    * already established for this codebase. */
   async addStaff(
     actorId: string,
-    input: { shopId: string; userId: string; role: UserRole },
+    input: { shopId: string; userId: string; role: UserRole; branchId?: string | null },
   ): Promise<ShopStaffMemberResponse> {
     await this.assertMember(input.shopId, actorId);
 
@@ -283,6 +288,7 @@ export class ShopStaffService {
         shopId: input.shopId,
         userId: input.userId,
         role: input.role,
+        branchId: membership.branchId,
         ...(membership.replacedAccess ? { replacedAccess: membership.replacedAccess } : {}),
       },
     });
@@ -297,11 +303,11 @@ export class ShopStaffService {
   async addStaffWithin(
     tx: Prisma.TransactionClient,
     actorId: string,
-    input: { shopId: string; userId: string; role: UserRole },
+    input: { shopId: string; userId: string; role: UserRole; branchId?: string | null },
   ): Promise<ShopStaff & { replacedAccess: AccessOverrides | null }> {
     // 23.12: the upsert can also demote/reactivate an EXISTING membership, so it is held
     // to the same rank rules as changeRole/removeStaff, decided under the same row locks.
-    const { target } = await this.authorizeMutationLocked(tx, {
+    const { target, actor } = await this.authorizeMutationLocked(tx, {
       shopId: input.shopId,
       actorId,
       targetMembershipId: null,
@@ -323,6 +329,17 @@ export class ShopStaffService {
             removedPermissions: target.removedPermissions,
           }
         : null;
+    // Where they work: re-adding a current same-role member without naming a branch leaves their
+    // branch alone; anything else is resolved (and checked) under the same locks.
+    const branchId: string | null | undefined =
+      keepAccess && input.branchId === undefined
+        ? undefined
+        : await this.resolveBranchForGrant(tx, {
+            shopId: input.shopId,
+            actor,
+            role: input.role,
+            requested: input.branchId,
+          });
     const row = await tx.shopStaff.upsert({
       where: { shopId_userId: { shopId: input.shopId, userId: input.userId } },
       create: {
@@ -330,14 +347,16 @@ export class ShopStaffService {
         userId: input.userId,
         role: input.role,
         status: ShopStaffStatus.ACTIVE,
+        branchId: branchId ?? null,
       },
       update: keepAccess
-        ? { status: ShopStaffStatus.ACTIVE }
+        ? { status: ShopStaffStatus.ACTIVE, ...(branchId !== undefined ? { branchId } : {}) }
         : {
             role: input.role,
             status: ShopStaffStatus.ACTIVE,
             extraPermissions: [],
             removedPermissions: [],
+            branchId: branchId ?? null,
           },
     });
     return { ...row, replacedAccess };
@@ -415,7 +434,14 @@ export class ShopStaffService {
       // A new role starts from that role's own defaults: custom access never carries over.
       const row = await tx.shopStaff.update({
         where: { id: shopStaffId },
-        data: { role: newRole, extraPermissions: [], removedPermissions: [] },
+        data: {
+          role: newRole,
+          extraPermissions: [],
+          removedPermissions: [],
+          // An owner always works at all branches; an owner stepping down keeps that (only an
+          // owner can do it), and anyone else keeps the branch they have.
+          ...(newRole === UserRole.SHOP_OWNER ? { branchId: null } : {}),
+        },
       });
       return { updated: row, before: target };
     });
@@ -468,7 +494,7 @@ export class ShopStaffService {
    *   - a manage permission brings the read permission it needs (`normalizePermissions`). */
   async updateAccess(
     shopStaffId: string,
-    desired: readonly Permission[],
+    input: { permissions?: readonly Permission[]; branchId?: string | null },
     actorId: string,
   ): Promise<ShopStaffAccessResponse> {
     const membership = await this.prisma.shopStaff.findUnique({ where: { id: shopStaffId } });
@@ -477,7 +503,7 @@ export class ShopStaffService {
     }
 
     const { updated, before } = await this.prisma.$transaction(async (tx) => {
-      const { target, actorPermissions } = await this.authorizeMutationLocked(tx, {
+      const { target, actor, actorPermissions } = await this.authorizeMutationLocked(tx, {
         shopId: membership.shopId,
         actorId,
         targetMembershipId: membership.id,
@@ -494,48 +520,70 @@ export class ShopStaffService {
         throw new NotFoundException("No such shop staff membership.");
       }
 
-      const wanted = normalizePermissions(desired);
-      if (wanted.some((p) => OWNER_ONLY_PERMISSIONS.includes(p))) {
-        throw new ForbiddenException("Business settings can only be held by an owner.");
+      const data: Prisma.ShopStaffUncheckedUpdateInput = {};
+      if (input.permissions !== undefined) {
+        const wanted = normalizePermissions(input.permissions);
+        if (wanted.some((p) => OWNER_ONLY_PERMISSIONS.includes(p))) {
+          throw new ForbiddenException("Business settings can only be held by an owner.");
+        }
+        const current = effectivePermissions(target.role, target);
+        const missing = wanted.filter((p) => !current.includes(p) && !actorPermissions.includes(p));
+        if (missing.length > 0) {
+          throw new ForbiddenException(
+            `You cannot give access you do not have yourself (${missing.join(", ")}).`,
+          );
+        }
+        const overrides = diffFromRole(target.role, wanted);
+        data.extraPermissions = [...overrides.extraPermissions];
+        data.removedPermissions = [...overrides.removedPermissions];
       }
-      const current = effectivePermissions(target.role, target);
-      const missing = wanted.filter((p) => !current.includes(p) && !actorPermissions.includes(p));
-      if (missing.length > 0) {
-        throw new ForbiddenException(
-          `You cannot give access you do not have yourself (${missing.join(", ")}).`,
-        );
+      if (input.branchId !== undefined) {
+        data.branchId = await this.resolveBranchForGrant(tx, {
+          shopId: membership.shopId,
+          actor,
+          role: target.role,
+          requested: input.branchId,
+        });
       }
-
-      const overrides = diffFromRole(target.role, wanted);
-      const row = await tx.shopStaff.update({
-        where: { id: shopStaffId },
-        data: {
-          extraPermissions: [...overrides.extraPermissions],
-          removedPermissions: [...overrides.removedPermissions],
-        },
-      });
+      const row = await tx.shopStaff.update({ where: { id: shopStaffId }, data });
       return { updated: row, before: target };
     });
 
-    await this.audit.record({
-      actorId,
-      action: AuditAction.SHOP_STAFF_ACCESS_CHANGED,
-      resourceType: "shop_staff",
-      resourceId: shopStaffId,
-      metadata: {
-        shopId: membership.shopId,
-        userId: membership.userId,
-        role: updated.role,
-        before: {
-          extraPermissions: before.extraPermissions,
-          removedPermissions: before.removedPermissions,
+    if (input.permissions !== undefined) {
+      await this.audit.record({
+        actorId,
+        action: AuditAction.SHOP_STAFF_ACCESS_CHANGED,
+        resourceType: "shop_staff",
+        resourceId: shopStaffId,
+        metadata: {
+          shopId: membership.shopId,
+          userId: membership.userId,
+          role: updated.role,
+          before: {
+            extraPermissions: before.extraPermissions,
+            removedPermissions: before.removedPermissions,
+          },
+          after: {
+            extraPermissions: updated.extraPermissions,
+            removedPermissions: updated.removedPermissions,
+          },
         },
-        after: {
-          extraPermissions: updated.extraPermissions,
-          removedPermissions: updated.removedPermissions,
+      });
+    }
+    if (input.branchId !== undefined && updated.branchId !== before.branchId) {
+      await this.audit.record({
+        actorId,
+        action: AuditAction.SHOP_STAFF_BRANCH_CHANGED,
+        resourceType: "shop_staff",
+        resourceId: shopStaffId,
+        metadata: {
+          shopId: membership.shopId,
+          userId: membership.userId,
+          before: before.branchId,
+          after: updated.branchId,
         },
-      },
-    });
+      });
+    }
 
     return {
       ...this.toResponse(updated),
@@ -545,10 +593,15 @@ export class ShopStaffService {
 
   /** 23.15: the same authority decision an add would face, without adding anyone -- used
    * before sending an invitation, so nobody can invite above their own rank. */
-  async assertMayGrant(actorId: string, shopId: string, role: UserRole): Promise<void> {
+  async assertMayGrant(
+    actorId: string,
+    shopId: string,
+    role: UserRole,
+    branchId?: string | null,
+  ): Promise<string | null> {
     await this.assertMember(shopId, actorId);
-    await this.prisma.$transaction(async (tx) => {
-      await this.authorizeMutationLocked(tx, {
+    return this.prisma.$transaction(async (tx) => {
+      const { actor } = await this.authorizeMutationLocked(tx, {
         shopId,
         actorId,
         targetMembershipId: null,
@@ -556,7 +609,83 @@ export class ShopStaffService {
         newRole: role,
         removing: false,
       });
+      // The branch the invited person will work at (all branches for an owner), decided by the
+      // same rules as a direct add; the invitation records it.
+      return this.resolveBranchForGrant(tx, { shopId, actor, role, requested: branchId });
     });
+  }
+
+  /** Where someone being granted `role` will work, decided under the caller's locks:
+   *   - an owner always works at all branches (null);
+   *   - `null` (all branches) can only be given by an owner;
+   *   - a named branch must belong to this business and not be archived, and a branch-bound
+   *     actor can only name their own;
+   *   - nothing named: a branch-bound actor's own branch, else the business's only branch,
+   *     else the request is refused (400 BRANCH_REQUIRED).
+   * The branch row is share-locked, so it cannot be archived while an assignment to it commits. */
+  private async resolveBranchForGrant(
+    tx: Prisma.TransactionClient,
+    params: {
+      shopId: string;
+      actor: { role: UserRole; branchId: string | null };
+      role: UserRole;
+      requested: string | null | undefined;
+    },
+  ): Promise<string | null> {
+    const { shopId, actor, role } = params;
+    if (role === UserRole.SHOP_OWNER) {
+      return null;
+    }
+    let requested = params.requested;
+    if (requested === null) {
+      if (actor.role !== UserRole.SHOP_OWNER) {
+        throw new ForbiddenException("Only an owner can give someone access to all branches.");
+      }
+      return null;
+    }
+    if (requested === undefined) {
+      if (actor.branchId !== null) {
+        requested = actor.branchId;
+      } else {
+        const open = await tx.branch.findMany({
+          where: { shopId, archivedAt: null },
+          select: { id: true },
+          take: 2,
+        });
+        if (open.length !== 1) {
+          throw new AppException(
+            HttpStatus.BAD_REQUEST,
+            "BRANCH_REQUIRED",
+            "Choose which branch this person works at.",
+            false,
+          );
+        }
+        requested = open[0]!.id;
+      }
+    }
+    const rows = await tx.$queryRaw<Array<{ archived_at: Date | null }>>`
+      SELECT archived_at FROM branches WHERE id = ${requested} AND shop_id = ${shopId} FOR SHARE
+    `;
+    if (rows.length === 0) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        "BRANCH_NOT_FOUND",
+        "No such branch in this business.",
+        false,
+      );
+    }
+    if (rows[0]!.archived_at) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "BRANCH_ARCHIVED",
+        "That branch is archived.",
+        false,
+      );
+    }
+    if (actor.branchId !== null && requested !== actor.branchId) {
+      throw new ForbiddenException("You can only assign people to your own branch.");
+    }
+    return requested;
   }
 
   private async assertMember(shopId: string, userId: string): Promise<void> {
@@ -603,10 +732,11 @@ export class ShopStaffService {
         status: ShopStaffStatus;
         extra_permissions: string[];
         removed_permissions: string[];
+        branch_id: string | null;
       }>
     >`
       SELECT id, user_id, role::text AS role, status::text AS status,
-             extra_permissions, removed_permissions FROM shop_staff
+             extra_permissions, removed_permissions, branch_id FROM shop_staff
       WHERE shop_id = ${shopId}
         AND (
           user_id = ${actorId}
@@ -638,6 +768,11 @@ export class ShopStaffService {
     const target = rows.find((row) => row.user_id === targetUserId) ?? null;
     if (targetMembershipId !== null && !target) {
       throw new NotFoundException("No such shop staff membership.");
+    }
+    // A branch-bound actor (their own branch is not null) only ever touches people of their own
+    // branch: not another branch's, and not anyone who works at all branches.
+    if (actor.branch_id !== null && target && target.branch_id !== actor.branch_id) {
+      throw new ForbiddenException("That person belongs to another branch.");
     }
     if (target && roleRank(target.role) > actorRank) {
       throw new ForbiddenException(
@@ -693,6 +828,7 @@ export class ShopStaffService {
             status: target.status,
             extraPermissions: target.extra_permissions,
             removedPermissions: target.removed_permissions,
+            branchId: target.branch_id,
           }
         : {
             id: "",
@@ -700,7 +836,9 @@ export class ShopStaffService {
             status: ShopStaffStatus.ACTIVE,
             extraPermissions: [],
             removedPermissions: [],
+            branchId: null,
           },
+      actor: { role: actor.role, branchId: actor.branch_id },
       actorPermissions,
     };
   }
@@ -712,6 +850,7 @@ export class ShopStaffService {
       userId: membership.userId,
       role: membership.role,
       status: membership.status,
+      branchId: membership.branchId,
     };
   }
 }
