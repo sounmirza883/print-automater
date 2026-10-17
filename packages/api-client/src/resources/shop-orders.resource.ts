@@ -14,8 +14,12 @@ import type {
 export class ShopOrdersResource {
   constructor(private readonly http: HttpClient) {}
 
-  list(shopId: string): Promise<ShopOrdersGrouped> {
-    return this.http.request<ShopOrdersGrouped>("/v1/shop/orders", { query: { shopId } });
+  /** `branchId` narrows to one branch (a branch-bound person is always limited to their own by the
+   * server); omit it for every branch the caller may see. */
+  list(shopId: string, branchId?: string): Promise<ShopOrdersGrouped> {
+    return this.http.request<ShopOrdersGrouped>("/v1/shop/orders", {
+      query: { shopId, branchId },
+    });
   }
 
   /** 23.6: one flat page of a group (or of every visible order), newest first. */
@@ -23,12 +27,19 @@ export class ShopOrdersResource {
     shopId: string,
     params: {
       group?: "needsAttention" | "printing" | "ready" | "completed" | "failed";
+      branchId?: string;
       limit?: number;
       offset?: number;
     } = {},
   ): Promise<Page<ShopOrderResponse>> {
     return this.http.request<Page<ShopOrderResponse>>("/v1/shop/orders", {
-      query: { shopId, limit: params.limit ?? 50, offset: params.offset, group: params.group },
+      query: {
+        shopId,
+        limit: params.limit ?? 50,
+        offset: params.offset,
+        group: params.group,
+        branchId: params.branchId,
+      },
     });
   }
 
@@ -45,6 +56,7 @@ export class ShopOrdersResource {
       printerId?: string;
       operatorId?: string;
       priority?: number;
+      branchId?: string;
       limit?: number;
       offset?: number;
     } = {},

@@ -91,6 +91,10 @@ export interface DocumentStatusView {
  * database has accumulated test-fixture rows that bypass it. */
 export interface ShopOrderResponse {
   id: string;
+  /** The branch the order was placed at (optional only so older fixtures compile; the API always
+   * sends both once orders belong to a branch). */
+  branchId?: string;
+  branchName?: string;
   publicOrderNumber: string;
   customerName: string;
   documentFilename: string;
@@ -230,6 +234,10 @@ export interface PrinterCapabilities {
 export interface PrinterResponse {
   id: string;
   shopId: string;
+  /** The branch this printer is at (optional only so older fixtures compile; the API always sends
+   * both once printers belong to a branch). */
+  branchId?: string;
+  branchName?: string;
   name: string;
   capabilities: PrinterCapabilities | null;
   status: PrinterStatus;

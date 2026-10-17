@@ -18,6 +18,9 @@ export interface RegisterPrinterInput {
 export interface PairingCode {
   code: string;
   expiresAt: string;
+  /** The branch the paired PC and its printers will belong to. */
+  branchId?: string;
+  branchName?: string;
 }
 
 export interface UpdatePrinterInput {
@@ -33,14 +36,24 @@ export interface UpdatePrinterInput {
 export class PrintersResource {
   constructor(private readonly http: HttpClient) {}
 
-  list(shopId: string): Promise<PrinterResponse[]> {
-    return this.http.request<PrinterResponse[]>("/v1/shop/printers", { query: { shopId } });
+  /** `branchId` narrows to one branch (a branch-bound person is always limited to their own by the
+   * server); omit it for every branch the caller may see. */
+  list(shopId: string, branchId?: string): Promise<PrinterResponse[]> {
+    return this.http.request<PrinterResponse[]>("/v1/shop/printers", {
+      query: { shopId, branchId },
+    });
   }
 
   /** 23.6: a page of printers, optionally searched (`q`) or filtered by status. */
   listPage(
     shopId: string,
-    params: { q?: string; status?: PrinterStatus; limit?: number; offset?: number } = {},
+    params: {
+      q?: string;
+      status?: PrinterStatus;
+      branchId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
   ): Promise<Page<PrinterResponse>> {
     return this.http.request<Page<PrinterResponse>>("/v1/shop/printers", {
       query: { shopId, ...params, limit: params.limit ?? 50 },
@@ -66,11 +79,23 @@ export class PrintersResource {
     });
   }
 
-  /** The agent's printers appear on their own once it is paired: its heartbeat reports them. */
-  issuePairingCode(shopId: string): Promise<PairingCode> {
+  /** The agent's printers appear on their own once it is paired: its heartbeat reports them, and
+   * they belong to the branch the code was issued for. A branch-bound person's code is always for
+   * their own branch; otherwise name the branch (or omit it in a one-branch business). */
+  issuePairingCode(shopId: string, branchId?: string): Promise<PairingCode> {
     return this.http.request<PairingCode>("/v1/shop/agents/pairing-code", {
       method: "POST",
-      body: { shopId },
+      body: { shopId, ...(branchId !== undefined ? { branchId } : {}) },
+    });
+  }
+
+  /** Owners only. Moves this printer's paired PC, together with every printer on it, to another
+   * branch. Refused while any of them has a queued or printing job. Answers with the printers
+   * that moved. */
+  moveBranch(printerId: string, branchId: string): Promise<PrinterResponse[]> {
+    return this.http.request<PrinterResponse[]>(`/v1/shop/printers/${printerId}/branch`, {
+      method: "PUT",
+      body: { branchId },
     });
   }
 
