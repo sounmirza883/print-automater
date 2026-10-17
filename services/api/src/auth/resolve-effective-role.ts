@@ -9,7 +9,8 @@ import {
 } from "./shop-scoped.decorator.js";
 import type { ShopResourceResolver } from "./shop-scope.interfaces.js";
 import type { RequestWithUser } from "./jwt-auth.guard.js";
-import type { ShopMembershipService } from "./shop-membership.service.js";
+import { effectivePermissions } from "@print-automated/backend-shared";
+import type { MemberAccess, ShopMembershipService } from "./shop-membership.service.js";
 
 /** Shared by RolesGuard (16.1) and PermissionsGuard (16.2): resolves the
  * shop id a route is operating on, via whichever of the two shop-scope
@@ -85,4 +86,24 @@ export async function resolveEffectiveRole(
 
   const effectiveRole = await shopMembership.getEffectiveRole(shopId, request.user.id);
   return effectiveRole ?? accountRole;
+}
+
+/** Like `resolveEffectiveRole`, but also carries the permissions the caller holds for THIS
+ * request: a member's role defaults plus their own overrides at the request's shop, else the
+ * account role's plain defaults. */
+export async function resolveEffectiveAccess(
+  context: ExecutionContext,
+  reflector: Reflector,
+  moduleRef: ModuleRef,
+  shopMembership: ShopMembershipService,
+): Promise<MemberAccess | undefined> {
+  const request = context.switchToHttp().getRequest<RequestWithUser>();
+  const accountRole = request.user?.role;
+  if (!accountRole || !request.user) {
+    return undefined;
+  }
+
+  const shopId = await resolveContextShopId(context, reflector, moduleRef);
+  const access = shopId ? await shopMembership.getAccess(shopId, request.user.id) : null;
+  return access ?? { role: accountRole, permissions: effectivePermissions(accountRole) };
 }

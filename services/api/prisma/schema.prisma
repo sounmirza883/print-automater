@@ -332,6 +332,10 @@ model ShopStaff {
   userId    String          @map("user_id")
   role      UserRole
   status    ShopStaffStatus @default(ACTIVE)
+  // Per-person access: the DIFFERENCE from the role's defaults (granted / taken away).
+  // Effective permissions = (role defaults + extra) - removed; owners ignore both.
+  extraPermissions   String[] @default([]) @map("extra_permissions")
+  removedPermissions String[] @default([]) @map("removed_permissions")
   createdAt DateTime        @default(now()) @map("created_at")
   updatedAt DateTime        @updatedAt @map("updated_at")
 

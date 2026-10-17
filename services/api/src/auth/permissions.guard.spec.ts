@@ -1,5 +1,6 @@
 import { ForbiddenException, type ExecutionContext, type Type } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
+import { effectivePermissions } from "@print-automated/backend-shared";
 import { Permission } from "@print-automated/types";
 import { PermissionsGuard } from "./permissions.guard.js";
 import { PERMISSION_KEY } from "./require-permission.decorator.js";
@@ -20,6 +21,14 @@ class FakePrinterShopResolver implements ShopResourceResolver {
  * logic in isolation first, the same split roles.guard.spec.ts already
  * used for RolesGuard. */
 describe("PermissionsGuard (§47/16.2)", () => {
+  const access = (
+    role: UserRole,
+    overrides: { extraPermissions?: string[]; removedPermissions?: string[] } = {},
+  ): { role: UserRole; permissions: Permission[] } => ({
+    role,
+    permissions: effectivePermissions(role, overrides),
+  });
+
   function buildContext(role: UserRole, params: Record<string, string>): ExecutionContext {
     const request = { user: { id: "user-1", role }, params };
     return {
@@ -47,8 +56,8 @@ describe("PermissionsGuard (§47/16.2)", () => {
   }
 
   it("allows a role that has the required permission", async () => {
-    const shopMembership: Pick<ShopMembershipService, "getEffectiveRole"> = {
-      getEffectiveRole: jest.fn(async () => UserRole.SHOP_MANAGER),
+    const shopMembership: Pick<ShopMembershipService, "getAccess"> = {
+      getAccess: jest.fn(async () => access(UserRole.SHOP_MANAGER)),
     };
     const guard = new PermissionsGuard(
       buildReflector(Permission.MANAGE_PRINTERS) as never,
@@ -60,8 +69,8 @@ describe("PermissionsGuard (§47/16.2)", () => {
   });
 
   it("blocks a role that lacks the required permission (SHOP_COUNTER has no MANAGE_PRINTERS)", async () => {
-    const shopMembership: Pick<ShopMembershipService, "getEffectiveRole"> = {
-      getEffectiveRole: jest.fn(async () => UserRole.SHOP_COUNTER),
+    const shopMembership: Pick<ShopMembershipService, "getAccess"> = {
+      getAccess: jest.fn(async () => access(UserRole.SHOP_COUNTER)),
     };
     const guard = new PermissionsGuard(
       buildReflector(Permission.MANAGE_PRINTERS) as never,
@@ -72,9 +81,39 @@ describe("PermissionsGuard (§47/16.2)", () => {
     await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
+  it("allows a counter who was granted the permission on top of their role", async () => {
+    const shopMembership: Pick<ShopMembershipService, "getAccess"> = {
+      getAccess: jest.fn(async () =>
+        access(UserRole.SHOP_COUNTER, { extraPermissions: [Permission.MANAGE_PRINTERS] }),
+      ),
+    };
+    const guard = new PermissionsGuard(
+      buildReflector(Permission.MANAGE_PRINTERS) as never,
+      buildModuleRef() as never,
+      shopMembership as ShopMembershipService,
+    );
+    const context = buildContext(UserRole.SHOP_COUNTER, { printerId: "printer-in-shop-a" });
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it("blocks a manager whose permission was taken away", async () => {
+    const shopMembership: Pick<ShopMembershipService, "getAccess"> = {
+      getAccess: jest.fn(async () =>
+        access(UserRole.SHOP_MANAGER, { removedPermissions: [Permission.MANAGE_PRINTERS] }),
+      ),
+    };
+    const guard = new PermissionsGuard(
+      buildReflector(Permission.MANAGE_PRINTERS) as never,
+      buildModuleRef() as never,
+      shopMembership as ShopMembershipService,
+    );
+    const context = buildContext(UserRole.SHOP_MANAGER, { printerId: "printer-in-shop-a" });
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+  });
+
   it("passes through routes with no @RequirePermission() metadata", async () => {
-    const shopMembership: Pick<ShopMembershipService, "getEffectiveRole"> = {
-      getEffectiveRole: jest.fn(),
+    const shopMembership: Pick<ShopMembershipService, "getAccess"> = {
+      getAccess: jest.fn(),
     };
     const guard = new PermissionsGuard(
       buildReflector(undefined) as never,
@@ -83,6 +122,6 @@ describe("PermissionsGuard (§47/16.2)", () => {
     );
     const context = buildContext(UserRole.SHOP_COUNTER, {});
     await expect(guard.canActivate(context)).resolves.toBe(true);
-    expect(shopMembership.getEffectiveRole).not.toHaveBeenCalled();
+    expect(shopMembership.getAccess).not.toHaveBeenCalled();
   });
 });

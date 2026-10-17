@@ -1,17 +1,17 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from "@nestjs/common";
 import { ModuleRef, Reflector } from "@nestjs/core";
 import type { Permission } from "@print-automated/types";
-import { ROLE_PERMISSIONS } from "@print-automated/backend-shared";
 import { PERMISSION_KEY } from "./require-permission.decorator.js";
 import type { RequestWithUser } from "./jwt-auth.guard.js";
 import { ShopMembershipService } from "./shop-membership.service.js";
-import { resolveEffectiveRole } from "./resolve-effective-role.js";
+import { resolveEffectiveAccess } from "./resolve-effective-role.js";
 
 /** §47/16.2: `JwtAuthGuard -> RolesGuard -> PermissionsGuard ->
- * ShopScopeGuard`. Reads the EFFECTIVE role the same way RolesGuard
- * does (16.1's `ShopStaff.role` in shop context, else the account-
- * level `User.role`) and checks it against `ROLE_PERMISSIONS`, data
- * rather than scattered role branches. A route with no
+ * ShopScopeGuard`. Resolves the EFFECTIVE access the same way RolesGuard
+ * resolves the role (16.1's `ShopStaff.role` in shop context, else the
+ * account-level `User.role`) and checks the person's permissions: the
+ * role's `ROLE_PERMISSIONS` defaults plus their own overrides
+ * (`effectivePermissions`), data rather than scattered role branches. A route with no
  * `@RequirePermission()` has nothing to enforce here -- `@Roles()`
  * alone is still a complete, valid gate for routes that don't need
  * finer-grained differentiation. */
@@ -37,15 +37,14 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException("Insufficient permission for this resource.");
     }
 
-    const effectiveRole = await resolveEffectiveRole(
+    const access = await resolveEffectiveAccess(
       context,
       this.reflector,
       this.moduleRef,
       this.shopMembership,
     );
 
-    const permissions = effectiveRole ? (ROLE_PERMISSIONS[effectiveRole] ?? []) : [];
-    if (!permissions.includes(requiredPermission)) {
+    if (!access?.permissions.includes(requiredPermission)) {
       throw new ForbiddenException("Insufficient permission for this resource.");
     }
 

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ShopStaffStatus, type UserRole } from "@prisma/client";
-import { PrismaService } from "@print-automated/backend-shared";
+import { PrismaService, effectivePermissions } from "@print-automated/backend-shared";
+import type { Permission } from "@print-automated/types";
 
 /** §81/§82's actual membership check, factored out of ShopScopeGuard so
  * a route with no single resource to resolve a shop id from (8.2's
@@ -32,4 +33,26 @@ export class ShopMembershipService {
     });
     return membership?.role ?? null;
   }
+
+  /** The member's role AND what they may actually do at this shop: the role's defaults plus the
+   * person's own overrides (`effectivePermissions`). Null for no active membership. Prefer this
+   * over `ROLE_PERMISSIONS[role]` anywhere a member's permissions are decided. */
+  async getAccess(shopId: string, userId: string): Promise<MemberAccess | null> {
+    const membership = await this.prisma.shopStaff.findFirst({
+      where: { shopId, userId, status: ShopStaffStatus.ACTIVE },
+      select: { role: true, extraPermissions: true, removedPermissions: true },
+    });
+    if (!membership) {
+      return null;
+    }
+    return {
+      role: membership.role,
+      permissions: effectivePermissions(membership.role, membership),
+    };
+  }
+}
+
+export interface MemberAccess {
+  role: UserRole;
+  permissions: Permission[];
 }
