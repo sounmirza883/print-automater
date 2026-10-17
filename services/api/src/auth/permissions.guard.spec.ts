@@ -24,9 +24,10 @@ describe("PermissionsGuard (§47/16.2)", () => {
   const access = (
     role: UserRole,
     overrides: { extraPermissions?: string[]; removedPermissions?: string[] } = {},
-  ): { role: UserRole; permissions: Permission[] } => ({
+  ): { role: UserRole; permissions: Permission[]; branchId: string | null } => ({
     role,
     permissions: effectivePermissions(role, overrides),
+    branchId: null,
   });
 
   function buildContext(role: UserRole, params: Record<string, string>): ExecutionContext {

@@ -29,6 +29,7 @@ describe("DeliveryRedactionInterceptor reads the person's own access", () => {
       getAccess: jest.fn(async () => ({
         role,
         permissions: effectivePermissions(role, overrides),
+        branchId: null,
       })),
     };
     const interceptor = new DeliveryRedactionInterceptor(
