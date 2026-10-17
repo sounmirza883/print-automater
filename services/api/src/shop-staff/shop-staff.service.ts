@@ -4,7 +4,7 @@ import {
   AppException,
   AuditService,
   PrismaService,
-  ROLE_PERMISSIONS,
+  effectivePermissions,
 } from "@print-automated/backend-shared";
 import { Permission, type Page } from "@print-automated/types";
 import type {
@@ -24,8 +24,9 @@ export interface MyShopMembership {
    * JWT. The Shop app needs this to know what the caller can actually
    * do at whichever shop it's currently operating for. */
   role: UserRole;
-  /** 23.15: what `role` may do at THIS business, straight from ROLE_PERMISSIONS (the same data
-   * PermissionsGuard enforces), so a client never mirrors the catalog. Display only: the
+  /** 23.15: what this person may do at THIS business: the role's ROLE_PERMISSIONS defaults plus
+   * their own overrides (the same data PermissionsGuard enforces), so a client never mirrors
+   * the catalog. Display only: the
    * server still authorizes every request. */
   permissions: Permission[];
 }
@@ -89,7 +90,7 @@ export class ShopStaffService {
       id: membership.shop.id,
       name: membership.shop.name,
       role: membership.role,
-      permissions: [...(ROLE_PERMISSIONS[membership.role] ?? [])],
+      permissions: effectivePermissions(membership.role, membership),
     }));
   }
 
@@ -113,15 +114,15 @@ export class ShopStaffService {
     actorId: string,
     query: StaffDirectoryQueryInput,
   ): Promise<Page<StaffDirectoryItem>> {
-    const actorRole = await this.shopMembership.getEffectiveRole(query.shopId, actorId);
-    if (!actorRole) {
+    const actor = await this.shopMembership.getAccess(query.shopId, actorId);
+    if (!actor) {
       throw new ForbiddenException("You do not have access to this shop's staff.");
     }
     // 23.18: the role is never returned, but filtering by it would still let any staff role
     // list exactly who the owners and managers are. That needs MANAGE_USERS.
     if (
       (query.role === UserRole.SHOP_OWNER || query.role === UserRole.SHOP_MANAGER) &&
-      !ROLE_PERMISSIONS[actorRole].includes(Permission.MANAGE_USERS)
+      !actor.permissions.includes(Permission.MANAGE_USERS)
     ) {
       throw new ForbiddenException("You cannot filter the staff directory by that role.");
     }

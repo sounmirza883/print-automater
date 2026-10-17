@@ -1,9 +1,8 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
 import { ModuleRef, Reflector } from "@nestjs/core";
 import { Permission } from "@print-automated/types";
-import { ROLE_PERMISSIONS } from "@print-automated/backend-shared";
 import { Observable, from, map, switchMap } from "rxjs";
-import { resolveEffectiveRole } from "../auth/resolve-effective-role.js";
+import { resolveEffectiveAccess } from "../auth/resolve-effective-role.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
 
 /** True for a delivery record (the shape DeliveriesService returns). */
@@ -46,8 +45,8 @@ export function redactDeliveryAddresses(body: unknown): unknown {
 /** 21.8 (data minimisation). The delivery address is personal data that only
  * roles able to manage a delivery need. For every other role (operator, printer
  * manager) it is omitted from the order responses and from GET delivery, decided
- * from the SAME effective role and ROLE_PERMISSIONS data the permission guard
- * uses, never a role branch. */
+ * from the SAME effective access (role defaults plus the person's own overrides) the
+ * permission guard uses, never a role branch. */
 @Injectable()
 export class DeliveryRedactionInterceptor implements NestInterceptor {
   constructor(
@@ -58,12 +57,10 @@ export class DeliveryRedactionInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return from(
-      resolveEffectiveRole(context, this.reflector, this.moduleRef, this.shopMembership),
+      resolveEffectiveAccess(context, this.reflector, this.moduleRef, this.shopMembership),
     ).pipe(
-      switchMap((role) => {
-        const allowed = role
-          ? (ROLE_PERMISSIONS[role] ?? []).includes(Permission.MANAGE_DELIVERY)
-          : false;
+      switchMap((access) => {
+        const allowed = access?.permissions.includes(Permission.MANAGE_DELIVERY) ?? false;
         const stream = next.handle();
         return allowed ? stream : stream.pipe(map(redactDeliveryAddresses));
       }),

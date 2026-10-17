@@ -37,7 +37,13 @@ import { PrintJobsService, type PrintJobResponse } from "./print-jobs.service.js
  * same line for change-printer vs. this controller). */
 @Controller("print-jobs")
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, ShopScopeGuard)
-@Roles(UserRole.OPERATOR, UserRole.PRINTER_MANAGER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER)
+@Roles(
+  UserRole.SHOP_COUNTER,
+  UserRole.SHOP_MANAGER,
+  UserRole.SHOP_OWNER,
+  UserRole.OPERATOR,
+  UserRole.PRINTER_MANAGER,
+)
 export class PrintJobsController {
   constructor(
     private readonly printJobsService: PrintJobsService,

@@ -46,7 +46,6 @@ import {
   PrintJobEvent,
   PrintJobStateMachine,
   PrismaService,
-  ROLE_PERMISSIONS,
   type AllocationRequest,
   type AllocationResult,
   type PrinterCandidate,
@@ -749,9 +748,8 @@ export class ShopOrdersService {
     if (!order?.shopId) {
       throw new NotFoundException("Order not found.");
     }
-    const role = await this.shopMembership.getEffectiveRole(order.shopId, actorId);
-    const includeFreeText =
-      role !== null && (ROLE_PERMISSIONS[role] ?? []).includes(Permission.MANAGE_DELIVERY);
+    const access = await this.shopMembership.getAccess(order.shopId, actorId);
+    const includeFreeText = access?.permissions.includes(Permission.MANAGE_DELIVERY) ?? false;
     const [jobs, payments, refunds, delivery] = await Promise.all([
       this.prisma.printJob.findMany({ where: { orderId }, select: { id: true } }),
       this.prisma.payment.findMany({ where: { orderId }, select: { id: true } }),

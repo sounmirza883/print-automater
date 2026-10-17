@@ -18,7 +18,13 @@ import {
  * for the same reason. Counter staff can no longer issue pairing codes. */
 @Controller("shop/agents")
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.SHOP_COUNTER, UserRole.SHOP_MANAGER, UserRole.SHOP_OWNER, UserRole.PRINTER_MANAGER)
+@Roles(
+  UserRole.SHOP_COUNTER,
+  UserRole.SHOP_MANAGER,
+  UserRole.SHOP_OWNER,
+  UserRole.OPERATOR,
+  UserRole.PRINTER_MANAGER,
+)
 @RequirePermission(Permission.MANAGE_PRINTERS)
 export class ShopAgentsController {
   constructor(private readonly pairingCodeService: AgentPairingCodeService) {}

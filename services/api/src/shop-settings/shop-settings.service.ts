@@ -9,12 +9,7 @@ import {
   type OperatingHours,
   type UpdateShopSettingsInput,
 } from "@print-automated/validation";
-import {
-  AppException,
-  PrismaService,
-  ROLE_PERMISSIONS,
-  redactMetadata,
-} from "@print-automated/backend-shared";
+import { AppException, PrismaService, redactMetadata } from "@print-automated/backend-shared";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
@@ -238,15 +233,15 @@ export class ShopSettingsService {
     }
   }
 
-  /** A patch is refused unless the actor's role at THIS shop holds the permission
-   * for every group it touches (data in ROLE_PERMISSIONS, never role branches). */
+  /** A patch is refused unless the actor holds the permission at THIS shop for every
+   * group it touches (role defaults plus their own overrides, never role branches). */
   private async assertMayChange(
     shopId: string,
     userId: string,
     keys: readonly SettingKey[],
   ): Promise<void> {
-    const role = await this.shopMembership.getEffectiveRole(shopId, userId);
-    const held = new Set<string>(role ? (ROLE_PERMISSIONS[role] ?? []) : []);
+    const access = await this.shopMembership.getAccess(shopId, userId);
+    const held = new Set<string>(access?.permissions ?? []);
     const touchesBusiness = keys.some((key) =>
       (BUSINESS_SETTING_KEYS as readonly string[]).includes(key),
     );
