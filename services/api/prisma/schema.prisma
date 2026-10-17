@@ -170,6 +170,7 @@ model Shop {
   qrSystemUser      User?       @relation("ShopQrSystemUser", fields: [qrSystemUserId], references: [id], onDelete: SetNull)
   staff             ShopStaff[]
   staffInvites      ShopStaffInvite[]
+  branches          Branch[]
   pricingRules      PricingRule[]
   orders            Order[]
   printers          Printer[]
@@ -189,6 +190,36 @@ model Shop {
   paymentProofs      PaymentProof[]
 
   @@map("shops")
+}
+
+// A physical location of a business. Every shop always has at least one (a migration backfilled
+// them and a trigger creates the first for each new shop). `isOpen` is the branch's own switch;
+// the business-level `Shop.status` stays the master gate over every branch. `openingHours` is
+// shown, never enforced. Staff and invites point here (NULL = "All branches"); the composite
+// unique (id, shopId) lets other tables reference a branch only within their own business.
+model Branch {
+  id           String    @id @default(uuid())
+  shopId       String    @map("shop_id")
+  name         String
+  city         String?
+  address      String
+  phone        String?
+  latitude     Float?
+  longitude    Float?
+  isOpen       Boolean   @default(true) @map("is_open")
+  openingHours Json?     @map("opening_hours")
+  archivedAt   DateTime? @map("archived_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  shop         Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  staff        ShopStaff[]
+  staffInvites ShopStaffInvite[]
+
+  @@unique([shopId, name])
+  @@unique([id, shopId])
+  @@index([shopId])
+  @@map("branches")
 }
 
 // §13/17.1: a shop's own named product catalog (e.g. "Business Cards",
@@ -336,13 +367,17 @@ model ShopStaff {
   // Effective permissions = (role defaults + extra) - removed; owners ignore both.
   extraPermissions   String[] @default([]) @map("extra_permissions")
   removedPermissions String[] @default([]) @map("removed_permissions")
+  // The branch this person works at; NULL = "All branches" (owners, and anyone an owner marks so).
+  branchId  String?         @map("branch_id")
   createdAt DateTime        @default(now()) @map("created_at")
   updatedAt DateTime        @updatedAt @map("updated_at")
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "shop_staff_branch_shop_fkey")
 
   @@unique([shopId, userId])
+  @@index([branchId])
   @@map("shop_staff")
 }
 
@@ -362,10 +397,13 @@ model ShopStaffInvite {
   expiresAt  DateTime  @map("expires_at")
   acceptedAt DateTime? @map("accepted_at")
   revokedAt  DateTime? @map("revoked_at")
+  // Where the invited person will work; NULL = "All branches".
+  branchId   String?   @map("branch_id")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "shop_staff_invites_branch_shop_fkey")
 
   @@unique([shopId, email])
   @@index([email])
