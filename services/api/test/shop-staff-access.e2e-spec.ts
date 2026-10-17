@@ -244,6 +244,30 @@ describe("Shop staff access overrides (e2e)", () => {
     });
   });
 
+  describe("the roster", () => {
+    it("lists each person's permissions, their role's defaults, and whether they are customised", async () => {
+      const owner = await makeMember(UserRole.SHOP_OWNER);
+      const plain = await makeMember(UserRole.SHOP_COUNTER);
+      const custom = await makeMember(UserRole.SHOP_COUNTER, {
+        extraPermissions: ["VIEW_INVENTORY"],
+      });
+
+      const res = await request(app.getHttpServer())
+        .get("/v1/shop/staff")
+        .query({ shopId, limit: 100 })
+        .set(as(owner));
+      expect(res.status).toBe(200);
+      const row = (member: Member) =>
+        res.body.items.find((item: { id: string }) => item.id === member.membershipId);
+
+      expect(row(plain).customised).toBe(false);
+      expect(row(plain).defaultPermissions).toEqual([...ROLE_PERMISSIONS.SHOP_COUNTER]);
+      expect(row(custom).customised).toBe(true);
+      expect(row(custom).permissions).toContain("VIEW_INVENTORY");
+      expect(row(custom).defaultPermissions).not.toContain("VIEW_INVENTORY");
+    });
+  });
+
   describe("editing a person's access (PATCH /v1/shop/staff/:id)", () => {
     const edit = (actor: Member, target: Member, permissions: string[]) =>
       request(app.getHttpServer())

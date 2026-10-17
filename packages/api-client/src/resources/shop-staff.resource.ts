@@ -12,6 +12,8 @@ export interface ShopStaffListItem {
   createdAt: string;
   /** What this person may do now: their role's defaults plus their own overrides. */
   permissions: string[];
+  /** What their role alone would give them (the table lives on the server only). */
+  defaultPermissions: string[];
   /** True when their access differs from their role's defaults. */
   customised: boolean;
 }

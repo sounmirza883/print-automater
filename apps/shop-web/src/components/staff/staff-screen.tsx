@@ -8,6 +8,7 @@ import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
+import { EditDialog } from "@/components/staff/edit-dialog";
 import {
   Button,
   Cell,
@@ -41,6 +42,7 @@ type Dialog =
   | { kind: "invite" }
   | { kind: "cancel-invite"; invite: StaffInvite }
   | { kind: "role"; member: ShopStaffListItem }
+  | { kind: "edit"; member: ShopStaffListItem }
   | { kind: "remove"; member: ShopStaffListItem };
 
 /** PRD 47: who works at the business and what each person may do.
@@ -60,7 +62,7 @@ export function StaffScreen(): ReactNode {
 }
 
 function StaffBody(): ReactNode {
-  const { business, user, businessRole } = useSession();
+  const { business, user, businessRole, permissions: myPermissions } = useSession();
   const shopId = business?.id ?? "";
   const [draft, setDraft] = useState("");
   const [q, setQ] = useState("");
@@ -189,7 +191,14 @@ function StaffBody(): ReactNode {
                     <Cell label="Email" className="text-muted">
                       {member.email}
                     </Cell>
-                    <Cell label="Role">{roleLabel(member.role as UserRole)}</Cell>
+                    <Cell label="Role">
+                      {roleLabel(member.role as UserRole)}
+                      {member.customised && (
+                        <span className="ml-2 align-middle">
+                          <Pill tone="caution">Custom access</Pill>
+                        </span>
+                      )}
+                    </Cell>
                     <Cell label="Status">
                       <Pill
                         tone={
@@ -221,9 +230,9 @@ function StaffBody(): ReactNode {
                           </Button>
                           <Button
                             variant="ghost"
-                            onClick={() => setDialog({ kind: "remove", member })}
+                            onClick={() => setDialog({ kind: "edit", member })}
                           >
-                            Remove
+                            Edit
                           </Button>
                         </>
                       )}
@@ -262,6 +271,16 @@ function StaffBody(): ReactNode {
           actorRole={businessRole}
           onClose={() => setDialog(null)}
           onSaved={list.reload}
+        />
+      )}
+      {dialog?.kind === "edit" && (
+        <EditDialog
+          member={dialog.member}
+          isSelf={dialog.member.userId === user.id}
+          editorPermissions={myPermissions}
+          onClose={() => setDialog(null)}
+          onSaved={list.reload}
+          onRemove={() => setDialog({ kind: "remove", member: dialog.member })}
         />
       )}
       {dialog?.kind === "remove" && (
@@ -469,6 +488,12 @@ function RoleDialog({
         Now: <strong>{roleLabel(member.role as UserRole)}</strong>. The new role applies to their
         next request, at this business only.
       </p>
+      {member.customised && (
+        <p className="text-sm text-muted">
+          {member.name} has custom access. Changing the role resets it to the new role&apos;s
+          defaults.
+        </p>
+      )}
       <SelectField
         label="New role"
         value={role}

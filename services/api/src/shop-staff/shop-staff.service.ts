@@ -5,6 +5,7 @@ import {
   AuditService,
   OWNER_ONLY_PERMISSIONS,
   PrismaService,
+  ROLE_PERMISSIONS,
   diffFromRole,
   effectivePermissions,
   normalizePermissions,
@@ -81,6 +82,8 @@ export interface ShopStaffListItem extends ShopStaffMemberResponse {
   createdAt: Date;
   /** What this person may do now: role defaults plus their own overrides. */
   permissions: Permission[];
+  /** What their role alone would give them, so a client never keeps a copy of that table. */
+  defaultPermissions: Permission[];
   /** True when the person's access differs from their role's defaults. */
   customised: boolean;
 }
@@ -217,6 +220,7 @@ export class ShopStaffService {
         email: row.user.email,
         createdAt: row.createdAt,
         permissions: effectivePermissions(row.role, row),
+        defaultPermissions: [...(ROLE_PERMISSIONS[row.role] ?? [])],
         customised: row.extraPermissions.length + row.removedPermissions.length > 0,
       })),
       total,
