@@ -272,4 +272,8 @@ export interface MyShopMembership {
    * request. Optional only so older fixtures compile; the API always sends it, and a client
    * must treat a missing list as "no permissions". */
   permissions?: Permission[];
+  /** The branch this person works at here; null = "All branches". Optional only so older
+   * fixtures compile; the API always sends both. */
+  branchId?: string | null;
+  branchName?: string | null;
 }

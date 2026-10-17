@@ -52,7 +52,7 @@ export function EditDialog({
       onCancel={onClose}
       onSubmit={() =>
         void runner
-          .run(() => getApi().shopStaff.updateAccess(member.id, [...selected]))
+          .run(() => getApi().shopStaff.updateAccess(member.id, { permissions: [...selected] }))
           .then((outcome) => outcome === "ok" && onClose())
       }
     >

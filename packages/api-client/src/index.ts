@@ -19,6 +19,12 @@ export {
   type UpdatePrinterInput,
 } from "./resources/printers.resource.js";
 export {
+  BranchesResource,
+  type BranchSummary,
+  type CreateBranchBody,
+  type UpdateBranchBody,
+} from "./resources/branches.resource.js";
+export {
   ShopStaffResource,
   type ShopStaffListItem,
   type ShopStaffMember,

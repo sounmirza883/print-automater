@@ -16,6 +16,9 @@ export interface ShopStaffListItem {
   defaultPermissions: string[];
   /** True when their access differs from their role's defaults. */
   customised: boolean;
+  /** The branch they work at; null = "All branches". */
+  branchId: string | null;
+  branchName: string | null;
 }
 
 export interface ShopStaffMember {
@@ -24,6 +27,8 @@ export interface ShopStaffMember {
   userId: string;
   role: string;
   status: "ACTIVE" | "SUSPENDED" | "REMOVED";
+  /** The branch they work at; null = "All branches". */
+  branchId: string | null;
 }
 
 /** 23.15: one row of the minimal staff directory. */
@@ -39,6 +44,9 @@ export interface StaffInvite {
   invitedBy: string | null;
   createdAt: string;
   expiresAt: string;
+  /** Where the invited person will work; null = "All branches". */
+  branchId: string | null;
+  branchName: string | null;
 }
 
 export class ShopStaffResource {
@@ -47,7 +55,14 @@ export class ShopStaffResource {
   /** 23.6: the business roster (needs MANAGE_USERS: owner and manager). */
   list(
     shopId: string,
-    params: { q?: string; role?: string; status?: string; limit?: number; offset?: number } = {},
+    params: {
+      q?: string;
+      role?: string;
+      status?: string;
+      branchId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
   ): Promise<Page<ShopStaffListItem>> {
     return this.http.request<Page<ShopStaffListItem>>("/v1/shop/staff", {
       query: { shopId, ...params },
@@ -62,8 +77,16 @@ export class ShopStaffResource {
   /** 23.15/23.18 (MANAGE_USERS): invite by email. Always a pending invitation with an emailed
    * code -- nobody is added until they accept -- and always the same `{result:"PROCESSED"}`
    * (HTTP 202), whether or not the address has an account. */
-  addByEmail(shopId: string, email: string, role: string): Promise<{ result: "PROCESSED" }> {
-    return this.http.request("/v1/shop/staff", { method: "POST", body: { shopId, email, role } });
+  addByEmail(
+    shopId: string,
+    email: string,
+    role: string,
+    branchId?: string | null,
+  ): Promise<{ result: "PROCESSED" }> {
+    return this.http.request("/v1/shop/staff", {
+      method: "POST",
+      body: { shopId, email, role, ...(branchId !== undefined ? { branchId } : {}) },
+    });
   }
 
   /** 23.15: id + display name of active members (any staff role), e.g. for the operator filter. */
@@ -79,7 +102,7 @@ export class ShopStaffResource {
   /** 23.15 (MANAGE_USERS): pending invitations. */
   listInvites(
     shopId: string,
-    params: { limit?: number; offset?: number } = {},
+    params: { branchId?: string; limit?: number; offset?: number } = {},
   ): Promise<Page<StaffInvite>> {
     return this.http.request<Page<StaffInvite>>("/v1/shop/staff/invites", {
       query: { shopId, ...params },
@@ -103,15 +126,16 @@ export class ShopStaffResource {
     });
   }
 
-  /** MANAGE_USERS: the FULL list of permissions the member should hold. The API stores the
-   * difference from their role's defaults and answers with what they can now do. */
+  /** MANAGE_USERS: change what a member can do and/or where they work. `permissions` is the FULL
+   * list they should hold (the API stores the difference from their role's defaults); `branchId`
+   * moves them to a branch (`null` = all branches, owners only). Answers with what they can now do. */
   updateAccess(
     membershipId: string,
-    permissions: string[],
+    change: { permissions?: string[]; branchId?: string | null },
   ): Promise<ShopStaffMember & { permissions: string[] }> {
     return this.http.request(`/v1/shop/staff/${membershipId}`, {
       method: "PATCH",
-      body: { permissions },
+      body: change,
     });
   }
 
