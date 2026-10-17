@@ -10,6 +10,10 @@ export interface ShopStaffListItem {
   role: string;
   status: "ACTIVE" | "SUSPENDED" | "REMOVED";
   createdAt: string;
+  /** What this person may do now: their role's defaults plus their own overrides. */
+  permissions: string[];
+  /** True when their access differs from their role's defaults. */
+  customised: boolean;
 }
 
 export interface ShopStaffMember {
@@ -94,6 +98,18 @@ export class ShopStaffResource {
     return this.http.request(`/v1/shop/staff/${membershipId}/role`, {
       method: "PATCH",
       body: { role },
+    });
+  }
+
+  /** MANAGE_USERS: the FULL list of permissions the member should hold. The API stores the
+   * difference from their role's defaults and answers with what they can now do. */
+  updateAccess(
+    membershipId: string,
+    permissions: string[],
+  ): Promise<ShopStaffMember & { permissions: string[] }> {
+    return this.http.request(`/v1/shop/staff/${membershipId}`, {
+      method: "PATCH",
+      body: { permissions },
     });
   }
 
