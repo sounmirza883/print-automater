@@ -1,7 +1,8 @@
 # Branches and per-person staff access: design
 
 Date: 2026-10-17
-Status: reviewed by a builder check; awaiting product-owner approval
+Status: approved by the product owner (2026-10-17). Part 1 (per-person access and the Edit button)
+is implemented on branch `manager-permissions`; Part 2 (branches, steps 2-5) is not started.
 
 ## Purpose
 
