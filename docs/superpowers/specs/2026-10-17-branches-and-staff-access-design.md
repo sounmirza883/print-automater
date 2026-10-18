@@ -2,7 +2,11 @@
 
 Date: 2026-10-17
 Status: approved by the product owner (2026-10-17). Part 1 (per-person access and the Edit button)
-is implemented on branch `manager-permissions`; Part 2 (branches, steps 2-5) is not started.
+is implemented on branch `manager-permissions`, as are steps 2 (branch foundation) and 3 (orders,
+printers, print jobs and agents belong to a branch, per-branch QR codes, branch-aware alerts).
+Steps 4 (stock and purchasing per branch) and 5 (dashboards and reports by branch) are not
+started. Known gap: shop-mobile cannot yet pair a computer or add a printer for an owner in a
+multi-branch business (it sends no branch).
 
 ## Purpose
 
