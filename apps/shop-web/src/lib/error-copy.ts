@@ -100,6 +100,10 @@ const COPY: Record<string, string> = {
     "A business must always have an owner. Make someone else an owner before removing or changing this person.",
   BRANCH_NAME_TAKEN:
     "Another branch of this business already has that name. Choose a different name.",
+  BRANCH_HAS_PRINTERS:
+    "Move this branch's computers and printers to another branch before archiving it. Open the Printers page and choose Move to another branch.",
+  BRANCH_HAS_ORDERS:
+    "This branch still has orders that are still being handled. Archive it once they are finished.",
   BRANCH_HAS_STAFF:
     "Move or remove the people who work at this branch before archiving it. Open the Staff page and change their branch.",
   LAST_BRANCH: "A business must keep at least one branch, so this one cannot be archived.",
@@ -148,6 +152,8 @@ const STALE_STATE_CODES = new Set([
   "BRANCH_ARCHIVED",
   "BRANCH_NOT_FOUND",
   "BRANCH_HAS_STAFF",
+  "BRANCH_HAS_PRINTERS",
+  "BRANCH_HAS_ORDERS",
   "AGENT_HAS_ACTIVE_JOBS",
 ]);
 

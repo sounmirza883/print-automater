@@ -46,6 +46,8 @@ describe("errorMessageFor", () => {
     ["BRANCH_NOT_FOUND", /no longer exists/],
     ["BRANCH_CLOSED", /closed.*Branches page/],
     ["AGENT_HAS_ACTIVE_JOBS", /queued or printing/],
+    ["BRANCH_HAS_PRINTERS", /Move this branch.s computers and printers/],
+    ["BRANCH_HAS_ORDERS", /orders that are still being handled/],
     ["OWNER_EMAIL_IN_USE", /already has an account.*different email address/],
     ["OWNER_ALREADY_ACTIVE", /already set their password.*sign in normally/],
   ])("gives %s its own precise copy", (code, pattern) => {
@@ -122,6 +124,8 @@ describe("interpretActionFailure", () => {
     expect(isStaleStateError(apiError(409, "OWNER_ALREADY_ACTIVE"))).toBe(true);
     // A computer that cannot move because of its jobs: reload, so its queue shows as it is now.
     expect(isStaleStateError(apiError(409, "AGENT_HAS_ACTIVE_JOBS"))).toBe(true);
+    expect(isStaleStateError(apiError(409, "BRANCH_HAS_PRINTERS"))).toBe(true);
+    expect(isStaleStateError(apiError(409, "BRANCH_HAS_ORDERS"))).toBe(true);
   });
 
   it("words BRANCH_REQUIRED so it fits staff, pairing codes and orders alike", () => {

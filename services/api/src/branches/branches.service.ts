@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, ShopStaffStatus, UserRole, type Branch } from "@prisma/client";
+import { OrderStatus, Prisma, ShopStaffStatus, UserRole, type Branch } from "@prisma/client";
 import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
 import { Permission } from "@print-automated/types";
 import type {
@@ -9,6 +9,20 @@ import type {
 } from "@print-automated/validation";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService, type MemberAccess } from "../auth/shop-membership.service.js";
+
+/** Orders that need nothing more from the shop: finished, refused or dead ones, and the
+ * customer-side states before an order is submitted (they expire by themselves). Every other state
+ * is work the shop still has to do, so its branch cannot be archived underneath it. */
+const ORDER_STATUSES_NEEDING_NOTHING: OrderStatus[] = [
+  OrderStatus.COMPLETED,
+  OrderStatus.CANCELLED,
+  OrderStatus.EXPIRED,
+  OrderStatus.SHOP_REJECTED,
+  OrderStatus.PAYMENT_FAILED,
+  OrderStatus.DRAFT,
+  OrderStatus.UPLOADED,
+  OrderStatus.PAYMENT_PENDING,
+];
 
 export interface BranchResponse {
   id: string;
@@ -168,6 +182,32 @@ export class BranchesService {
           HttpStatus.CONFLICT,
           "BRANCH_HAS_STAFF",
           "Move or remove the people who work at this branch before archiving it.",
+          false,
+        );
+      }
+      // Paired computers and printers belong to a branch (move them to another branch first), and
+      // an order that still needs the shop cannot be stranded. New orders and pairings share-lock
+      // the branch row, and this transaction holds it FOR UPDATE, so none can slip in unseen.
+      const [agents, printers, unfinishedOrders] = await Promise.all([
+        tx.printerAgent.count({ where: { branchId: fresh.id } }),
+        tx.printer.count({ where: { branchId: fresh.id } }),
+        tx.order.count({
+          where: { branchId: fresh.id, orderStatus: { notIn: ORDER_STATUSES_NEEDING_NOTHING } },
+        }),
+      ]);
+      if (agents > 0 || printers > 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "BRANCH_HAS_PRINTERS",
+          "Move this branch's computers and printers to another branch before archiving it.",
+          false,
+        );
+      }
+      if (unfinishedOrders > 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "BRANCH_HAS_ORDERS",
+          "This branch still has orders that need the shop. Archive it once they are finished.",
           false,
         );
       }
