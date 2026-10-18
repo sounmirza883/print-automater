@@ -16,18 +16,17 @@ export function BrowserFrame({
 }: BrowserFrameProps) {
   return (
     <div
-      className={cn(
-        "overflow-hidden rounded-xl border border-white/15 bg-ink-900 shadow-2xl shadow-black/40 ring-1 ring-black/20",
-        className,
-      )}
+      data-app-mock
+      data-tone="dark"
+      className={cn("overflow-hidden border border-ink-600 bg-ink-900", className)}
     >
-      <div className="flex items-center gap-3 border-b border-white/10 bg-ink-800 px-3 py-2.5">
+      <div className="flex items-center gap-3 border-b border-ink-700 px-3 py-2.5">
         <div className="flex shrink-0 gap-1.5" aria-hidden="true">
-          <span className="size-2.5 rounded-full bg-cmyk-magenta" />
-          <span className="size-2.5 rounded-full bg-cmyk-yellow" />
-          <span className="size-2.5 rounded-full bg-cmyk-cyan" />
+          <span className="size-2.5 border border-ink-400" />
+          <span className="size-2.5 border border-ink-400" />
+          <span className="size-2.5 border border-ink-400" />
         </div>
-        <div className="min-w-0 flex-1 truncate rounded-md bg-ink-900 px-3 py-1 text-center font-mono text-[11px] text-ink-200">
+        <div className="min-w-0 flex-1 truncate border border-ink-700 px-3 py-1 text-center font-mono text-[11px] text-ink-300">
           {url}
         </div>
         <span className="hidden w-10 sm:block" aria-hidden="true" />

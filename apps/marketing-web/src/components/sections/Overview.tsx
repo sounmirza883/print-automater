@@ -68,16 +68,16 @@ export function Overview() {
         lede="Print Automated replaces the scramble between counter, files and machines with one system. Customers order online, jobs go to the right printer, and your team stays in control."
       />
 
-      <div className="mt-14 grid gap-6 lg:grid-cols-5">
+      <div className="mt-16 grid gap-6 lg:grid-cols-5">
         <Reveal className="lg:col-span-3">
-          <h3 className="text-lg font-semibold text-ink-900">The problem today</h3>
-          <ul className="mt-4 grid gap-4 sm:grid-cols-2">
+          <h3 className="text-2xl font-bold text-ink-950">The problem today</h3>
+          <ul className="mt-6 grid gap-4 sm:grid-cols-2">
             {problems.map((p) => (
               <li key={p.title}>
                 <Card interactive className="h-full">
                   <IconTile icon={p.icon} size="sm" />
-                  <h4 className="mt-4 font-semibold text-ink-900">{p.title}</h4>
-                  <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{p.text}</p>
+                  <h4 className="mt-5 text-lg font-bold text-ink-950">{p.title}</h4>
+                  <p className="mt-2 text-base leading-relaxed text-ink-600">{p.text}</p>
                 </Card>
               </li>
             ))}
@@ -85,19 +85,15 @@ export function Overview() {
         </Reveal>
 
         <Reveal delay={100} className="lg:col-span-2">
-          <div className="relative h-full overflow-hidden rounded-2xl bg-ink-950 p-7 text-white">
-            <div
-              aria-hidden="true"
-              className="absolute -right-10 -top-10 size-40 rounded-full bg-brand-600/30 blur-3xl"
-            />
+          <div data-tone="dark" className="h-full bg-ink-900 p-8 text-ink-50">
             <IconTile icon={ShieldCheck} tone="dark" />
-            <h3 className="mt-5 text-lg font-semibold">The Print Automated way</h3>
-            <p className="mt-3 leading-relaxed text-ink-200">
+            <h3 className="mt-6 text-2xl font-bold">The Print Automated way</h3>
+            <p className="mt-4 text-base leading-relaxed text-ink-300">
               An order is placed, priced from your own price list, paid, and routed to a printer
               that can do the job. Operators watch progress, stock is deducted as paper is used, and
               the customer is told when to collect.
             </p>
-            <p className="mt-4 leading-relaxed text-ink-200">
+            <p className="mt-4 text-base leading-relaxed text-ink-300">
               Automation handles the routine. Authorized staff can pause, reassign or switch it off
               at any time.
             </p>
@@ -105,20 +101,18 @@ export function Overview() {
         </Reveal>
       </div>
 
-      <Reveal className="mt-16">
-        <h3 className="text-center text-lg font-semibold text-ink-900">
-          Built for everyone in the shop
-        </h3>
+      <Reveal className="mt-20">
+        <h3 className="text-2xl font-bold text-ink-950">Built for everyone in the shop</h3>
         <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {audiences.map((a) => (
             <li
               key={a.who}
-              className="group flex items-start gap-4 rounded-2xl border border-ink-100 bg-ink-50 p-5 transition-colors hover:border-brand-200 hover:bg-brand-50"
+              className="group flex items-start gap-4 border border-ink-400 p-5 transition-colors duration-150 hover:border-ink-900 hover:bg-white"
             >
               <IconTile icon={a.icon} size="sm" tone="brand" />
               <div>
-                <p className="font-semibold text-ink-900">{a.who}</p>
-                <p className="mt-1 text-sm leading-relaxed text-ink-600">{a.text}</p>
+                <p className="font-bold text-ink-950">{a.who}</p>
+                <p className="mt-1 text-base leading-relaxed text-ink-600">{a.text}</p>
               </div>
             </li>
           ))}

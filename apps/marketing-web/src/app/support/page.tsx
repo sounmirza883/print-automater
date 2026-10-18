@@ -74,7 +74,7 @@ export default function SupportPage() {
             <li key={o.title}>
               <Card className="flex h-full flex-col">
                 <IconTile icon={o.icon} tone="brand" />
-                <h3 className="mt-4 text-lg font-semibold text-ink-900">{o.title}</h3>
+                <h3 className="mt-4 text-lg font-bold text-ink-950">{o.title}</h3>
                 <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-600">{o.body}</p>
                 <div className="mt-5">
                   <Button href={o.href} variant="secondary" size="sm" className="max-w-full">
@@ -120,10 +120,8 @@ export default function SupportPage() {
           </div>
 
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-ink-900">
-              Common setup and support questions
-            </h2>
-            <dl className="mt-6 divide-y divide-ink-200 border-y border-ink-200">
+            <h2 className="text-2xl font-bold text-ink-950">Common setup and support questions</h2>
+            <dl className="mt-6 divide-y divide-ink-400 border-y border-ink-400">
               {supportFaqs.map((f) => (
                 <div key={f.id} className="py-5">
                   <dt className="font-semibold text-ink-900">{f.question}</dt>

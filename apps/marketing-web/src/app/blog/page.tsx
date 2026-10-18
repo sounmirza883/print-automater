@@ -24,15 +24,15 @@ export default function BlogIndexPage() {
         <ul className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {blogPosts.map((post) => (
             <li key={post.slug}>
-              <article className="group relative flex h-full flex-col rounded-2xl border border-ink-100 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md focus-within:border-brand-300">
+              <article className="group relative flex h-full flex-col border border-ink-400 bg-white p-6 transition-all duration-200 hover:border-ink-900 focus-within:border-ink-900">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="brand">{post.tag}</Badge>
                   <Badge variant="warning">Placeholder</Badge>
                 </div>
-                <h2 className="mt-4 text-xl font-semibold tracking-tight text-ink-900">
+                <h2 className="mt-4 text-xl font-bold text-ink-950">
                   <a
                     href={`/blog/${post.slug}`}
-                    className="after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-600"
+                    className="after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-600"
                   >
                     {post.title}
                   </a>

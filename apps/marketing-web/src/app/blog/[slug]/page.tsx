@@ -82,14 +82,14 @@ export default async function BlogPostPage({ params }: { params: Promise<Params>
         <article className="mx-auto max-w-2xl">
           <p
             role="note"
-            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+            className="border border-dashed border-ink-900 bg-ink-50 px-4 py-3 text-sm text-ink-950"
           >
             {PLACEHOLDER_LABEL}
           </p>
           <Prose className="mt-2 text-lg leading-8 [&_h2]:text-2xl">
             {post.body.map(renderBlock)}
           </Prose>
-          <footer className="mt-12 flex flex-col gap-3 border-t border-ink-100 pt-8 sm:flex-row sm:items-center">
+          <footer className="mt-12 flex flex-col gap-3 border-t border-ink-400 pt-8 sm:flex-row sm:items-center">
             <Button href="/blog" variant="ghost">
               <ArrowLeft aria-hidden="true" className="size-4" />
               All articles

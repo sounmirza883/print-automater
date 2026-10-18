@@ -15,18 +15,18 @@ const sizes = {
 };
 
 const tones = {
-  brand: "bg-brand-600 text-white shadow-sm",
-  light: "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100",
-  dark: "bg-white/10 text-brand-300 ring-1 ring-inset ring-white/10",
+  brand: "bg-ink-900 text-ink-50",
+  light: "border border-ink-400 text-ink-900",
+  dark: "border border-ink-600 text-ink-50",
 };
 
-/** Decorative rounded icon (aria-hidden); always pair with visible text. */
+/** Decorative square icon (aria-hidden); always pair with visible text. */
 export function IconTile({ icon: Icon, size = "md", tone = "light", className }: IconTileProps) {
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-xl",
+        "inline-flex shrink-0 items-center justify-center",
         sizes[size],
         tones[tone],
         className,

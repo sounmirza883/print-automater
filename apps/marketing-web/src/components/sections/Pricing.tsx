@@ -35,11 +35,11 @@ export async function Pricing() {
           ) : null}
         </>
       ) : (
-        <Card className="mx-auto mt-10 flex max-w-xl flex-col items-center p-8 text-center">
-          <h3 className="text-lg font-semibold text-ink-900">
+        <Card className="mt-16 flex max-w-xl flex-col items-start p-8">
+          <h3 className="text-xl font-bold text-ink-950">
             {payload === null ? "Pricing is unavailable right now" : "Plans are being finalised"}
           </h3>
-          <p className="mt-2 text-sm leading-relaxed text-ink-600">
+          <p className="mt-2 text-base leading-relaxed text-ink-600">
             Get in touch and we will send you current plans and prices.
           </p>
           <Button href={contactHref} variant="primary" className="mt-6">

@@ -45,13 +45,13 @@ export function DocPage({
             {prev || next ? (
               <nav
                 aria-label="Previous and next pages"
-                className="mt-14 grid gap-4 border-t border-ink-200 pt-8 sm:grid-cols-2"
+                className="mt-14 grid gap-4 border-t border-ink-400 pt-8 sm:grid-cols-2"
               >
                 {prev ? (
                   <Link
                     href={prev.href}
                     rel="prev"
-                    className="group rounded-xl border border-ink-200 p-4 hover:border-brand-400"
+                    className="group border border-ink-400 p-4 hover:border-ink-900"
                   >
                     <span className="flex items-center gap-1.5 text-xs text-ink-600">
                       <ArrowLeft className="size-3.5" aria-hidden="true" /> Previous
@@ -67,7 +67,7 @@ export function DocPage({
                   <Link
                     href={next.href}
                     rel="next"
-                    className="group rounded-xl border border-ink-200 p-4 text-right hover:border-brand-400 sm:col-start-2"
+                    className="group border border-ink-400 p-4 text-right hover:border-ink-900 sm:col-start-2"
                   >
                     <span className="flex items-center justify-end gap-1.5 text-xs text-ink-600">
                       Next <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -86,7 +86,7 @@ export function DocPage({
                 <p className="font-mono text-xs uppercase tracking-[0.14em] text-ink-600">
                   On this page
                 </p>
-                <ul className="mt-3 space-y-2 border-l border-ink-200 text-sm">
+                <ul className="mt-3 space-y-2 border-l border-ink-400 text-sm">
                   {toc.map((t) => (
                     <li key={t.id}>
                       <a

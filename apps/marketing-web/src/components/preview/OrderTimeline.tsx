@@ -35,8 +35,8 @@ export function OrderTimeline({ order = "PA-10482", className }: OrderTimelinePr
               <span
                 aria-hidden="true"
                 className={cn(
-                  "z-10 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
-                  s.done && "border-brand-600 bg-brand-600 text-white",
+                  "z-10 mt-0.5 flex size-5 shrink-0 items-center justify-center border-2",
+                  s.done && "border-ink-900 bg-ink-900 text-ink-50",
                   s.current && "border-brand-600 bg-white",
                   !s.done && !s.current && "border-ink-300 bg-white",
                 )}
@@ -44,7 +44,7 @@ export function OrderTimeline({ order = "PA-10482", className }: OrderTimelinePr
                 {s.done ? (
                   <Check className="size-3" strokeWidth={3} />
                 ) : s.current ? (
-                  <span className="size-2 rounded-full bg-brand-600" />
+                  <span className="size-2 bg-brand-600" />
                 ) : null}
               </span>
               <div className="flex flex-1 items-baseline justify-between gap-2">

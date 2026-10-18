@@ -12,17 +12,17 @@ export function Resources() {
         lede="Clear documentation, practical guides and real people when you need them."
       />
 
-      <ul className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {resources.map((r, i) => (
           <li key={r.title}>
             <Reveal delay={(i % 3) * 60} className="h-full">
               <Card interactive className="group relative h-full">
                 <IconTile icon={r.icon} tone="brand" />
-                <h3 className="mt-4 text-base font-semibold text-ink-900">{r.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{r.description}</p>
+                <h3 className="mt-5 text-lg font-bold text-ink-950">{r.title}</h3>
+                <p className="mt-2 text-base leading-relaxed text-ink-600">{r.description}</p>
                 <a
                   href={r.href}
-                  className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 after:absolute after:inset-0 after:rounded-2xl hover:text-brand-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                  className="mt-5 inline-flex items-center gap-2 text-base font-medium text-ink-950 after:absolute after:inset-0 group-hover:underline group-hover:underline-offset-4"
                 >
                   {r.cta}
                   <ArrowRight

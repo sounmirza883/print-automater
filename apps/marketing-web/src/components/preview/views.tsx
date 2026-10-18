@@ -137,7 +137,7 @@ export function PrintersView() {
         </div>
         <div className="min-w-0 space-y-3">
           <h4 className="text-sm font-semibold text-ink-900">Failover</h4>
-          <div className={cn(surface, "border-l-2 border-l-rose-500 p-4 text-sm text-ink-700")}>
+          <div className={cn(surface, "border-l-2 border-l-ink-900 p-4 text-sm text-ink-700")}>
             <p className="font-medium text-ink-900">Printer 2 went offline at 09:11</p>
             <p className="mt-1">
               3 queued jobs were moved to Printer 4 and Printer 3. Auto-failover is on for this
@@ -193,7 +193,7 @@ export function InventoryView() {
                     <td
                       className={cn(
                         "whitespace-nowrap px-3 py-3 text-right font-mono text-xs font-medium tabular-nums",
-                        l.qty.startsWith("+") ? "text-emerald-700" : "text-ink-700",
+                        l.qty.startsWith("+") ? "font-medium text-ink-950" : "text-ink-700",
                       )}
                     >
                       {l.qty}

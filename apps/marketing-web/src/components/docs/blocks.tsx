@@ -16,7 +16,7 @@ export function TableScroll({
       role="region"
       aria-label={label}
       tabIndex={0}
-      className="relative mt-6 overflow-x-auto rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand-500 [&_table]:mt-0"
+      className="relative mt-6 overflow-x-auto outline-none [&_table]:mt-0"
     >
       <table className={cn("w-full", minWidth)}>{children}</table>
     </div>
@@ -34,13 +34,13 @@ export function Callout({
   children: ReactNode;
 }) {
   const styles = {
-    note: "border-brand-200 bg-brand-50",
-    planned: "border-amber-300 bg-amber-50",
-    warning: "border-red-300 bg-red-50",
+    note: "border-ink-400 bg-ink-50",
+    planned: "border-dashed border-ink-900 bg-ink-50",
+    warning: "border-ink-900 bg-ink-100",
   } as const;
   return (
-    <aside className={cn("mt-6 rounded-xl border p-4", styles[tone])}>
-      <p className="font-semibold text-ink-900">{title}</p>
+    <aside className={cn("mt-6 border p-4", styles[tone])}>
+      <p className="font-bold text-ink-950">{title}</p>
       <div className="mt-1 text-sm leading-6 text-ink-800 [&_p]:mt-2 [&_p:first-child]:mt-0">
         {children}
       </div>
@@ -50,7 +50,7 @@ export function Callout({
 
 export function PlannedBadge() {
   return (
-    <span className="ml-2 inline-block rounded-full border border-amber-400 bg-amber-100 px-2 py-0.5 align-middle font-mono text-xs font-medium uppercase tracking-wide text-amber-900">
+    <span className="ml-2 inline-block border border-dashed border-ink-900 px-2 py-0.5 align-middle font-mono text-xs font-medium uppercase tracking-wide text-ink-950">
       Planned
     </span>
   );

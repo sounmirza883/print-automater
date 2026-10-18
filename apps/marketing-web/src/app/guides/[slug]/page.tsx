@@ -53,13 +53,13 @@ export default async function GuidePage({ params }: { params: Promise<Params> })
           { label: guide.title },
         ]}
       >
-        <p className="inline-flex items-center gap-1.5 text-sm text-ink-200">
+        <p className="inline-flex items-center gap-1.5 text-sm text-ink-600">
           <Clock aria-hidden="true" className="size-4" />
           About {guide.minutes} minutes
         </p>
       </PageHero>
 
-      <div className="bg-white py-14 md:py-20">
+      <div className="border-t border-ink-400 bg-ink-50 py-14 md:py-20">
         <Container className="grid gap-12 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-16">
           <nav aria-label="On this page" className="lg:sticky lg:top-24 lg:self-start">
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-ink-600">
@@ -70,7 +70,7 @@ export default async function GuidePage({ params }: { params: Promise<Params> })
                 <li key={s.id}>
                   <a
                     href={`#${s.id}`}
-                    className="rounded text-ink-700 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                    className="text-ink-700 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
                   >
                     {s.heading}
                   </a>
@@ -93,9 +93,9 @@ export default async function GuidePage({ params }: { params: Promise<Params> })
             {related.length > 0 ? (
               <aside
                 aria-labelledby="related-guides"
-                className="mt-14 border-t border-ink-100 pt-8"
+                className="mt-14 border-t border-ink-400 pt-8"
               >
-                <h2 id="related-guides" className="text-lg font-semibold text-ink-900">
+                <h2 id="related-guides" className="text-lg font-bold text-ink-950">
                   Related guides
                 </h2>
                 <ul className="mt-4 space-y-3">

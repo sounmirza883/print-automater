@@ -3,17 +3,17 @@ import { printerRows, type PrinterRow, type PrinterState } from "./data";
 import { surface } from "./surface";
 
 const dot: Record<PrinterState, string> = {
-  Printing: "bg-brand-600",
-  Idle: "bg-emerald-600",
-  Offline: "bg-rose-600",
-  "Low paper": "bg-amber-500",
+  Printing: "bg-ink-900",
+  Idle: "bg-ink-400",
+  Offline: "bg-ink-50 ring-1 ring-ink-900",
+  "Low paper": "bg-ink-600",
 };
 
 const label: Record<PrinterState, string> = {
-  Printing: "text-brand-700",
-  Idle: "text-emerald-700",
-  Offline: "text-rose-700",
-  "Low paper": "text-amber-800",
+  Printing: "text-ink-950",
+  Idle: "text-ink-600",
+  Offline: "text-ink-950 underline decoration-dotted underline-offset-2",
+  "Low paper": "text-ink-950",
 };
 
 export type PrinterStatusListProps = {
@@ -36,14 +36,7 @@ export function PrinterStatusList({
         const sweepDelay = `${i * 0.7}s`;
         return (
           <li key={p.name} className="flex items-center gap-3 px-3 py-3 sm:px-4">
-            <span
-              aria-hidden="true"
-              className={cn(
-                "size-2 shrink-0 rounded-full ring-4",
-                dot[p.state],
-                p.state === "Offline" ? "ring-rose-100" : "ring-transparent",
-              )}
-            />
+            <span aria-hidden="true" className={cn("size-2 shrink-0", dot[p.state])} />
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold text-ink-900">
                 {p.name}
@@ -60,11 +53,11 @@ export function PrinterStatusList({
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={p.load}
-                className="h-1.5 overflow-hidden rounded-full bg-ink-100"
+                className="h-1.5 overflow-hidden bg-ink-100"
               >
                 <div
                   className={cn(
-                    "relative h-full overflow-hidden rounded-full",
+                    "relative h-full overflow-hidden",
                     p.state === "Offline" ? "bg-ink-300" : "bg-brand-600",
                   )}
                   style={{ width: `${p.load}%` }}

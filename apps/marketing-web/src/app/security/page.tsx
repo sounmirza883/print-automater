@@ -19,18 +19,15 @@ export default function SecurityPage() {
       doc={securityDoc}
       intro={
         <section aria-labelledby="security-summary">
-          <h2 id="security-summary" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="security-summary" className="text-2xl font-bold text-ink-950">
             Security at a glance
           </h2>
           <ul className="mt-6 grid gap-4 sm:grid-cols-2">
             {securityItems.map((item) => (
-              <li
-                key={item.title}
-                className="flex gap-3 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm"
-              >
+              <li key={item.title} className="flex gap-3 border border-ink-400 bg-white p-5">
                 <IconTile icon={item.icon} size="sm" tone="brand" />
                 <div>
-                  <h3 className="text-sm font-semibold text-ink-900">{item.title}</h3>
+                  <h3 className="text-sm font-bold text-ink-950">{item.title}</h3>
                   <p className="mt-1 text-sm leading-relaxed text-ink-700">{item.description}</p>
                 </div>
               </li>
@@ -39,8 +36,8 @@ export default function SecurityPage() {
         </section>
       }
       outro={
-        <div className="mt-12 rounded-2xl border border-ink-100 bg-ink-50 p-6">
-          <h2 className="text-lg font-semibold text-ink-900">Found a vulnerability?</h2>
+        <div className="mt-12 border border-ink-400 bg-ink-50 p-6">
+          <h2 className="text-lg font-bold text-ink-950">Found a vulnerability?</h2>
           <p className="mt-2 text-ink-700">
             Email {siteConfig.contactEmail} with details and steps to reproduce.
           </p>

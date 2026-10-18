@@ -38,7 +38,7 @@ export function MiniBarChart({ data, ariaLabel, highlight, className }: MiniBarC
           x2={W}
           y1={padT + chartH * (1 - t)}
           y2={padT + chartH * (1 - t)}
-          stroke="#e6eaf3"
+          stroke="#d4d3d0"
           strokeWidth={1}
         />
       ))}
@@ -51,9 +51,9 @@ export function MiniBarChart({ data, ariaLabel, highlight, className }: MiniBarC
             y={H - 6}
             textAnchor="middle"
             fontSize={10}
-            fill={d.value === null ? "#a3afc9" : "#3b4870"}
+            fill={d.value === null ? "#989797" : "#4b4b4d"}
             fontWeight={highlight === i ? 600 : 400}
-            fontFamily="var(--font-jetbrains-mono), monospace"
+            fontFamily="var(--font-geist-mono), monospace"
           >
             {d.label}
           </text>
@@ -67,7 +67,7 @@ export function MiniBarChart({ data, ariaLabel, highlight, className }: MiniBarC
                 x2={x + barW}
                 y1={baseY - 1}
                 y2={baseY - 1}
-                stroke="#a3afc9"
+                stroke="#989797"
                 strokeWidth={2}
                 strokeDasharray="3 3"
               />
@@ -81,14 +81,7 @@ export function MiniBarChart({ data, ariaLabel, highlight, className }: MiniBarC
         const active = highlight === undefined || emphasised;
         return (
           <g key={d.label}>
-            <rect
-              x={x}
-              y={y}
-              width={barW}
-              height={h}
-              rx={3}
-              fill={active ? "#2563eb" : "#bfdbfe"}
-            />
+            <rect x={x} y={y} width={barW} height={h} fill={active ? "#101014" : "#bab9b7"} />
             {emphasised ? (
               <text
                 x={cx}
@@ -96,8 +89,8 @@ export function MiniBarChart({ data, ariaLabel, highlight, className }: MiniBarC
                 textAnchor="middle"
                 fontSize={10}
                 fontWeight={600}
-                fill="#1e40af"
-                fontFamily="var(--font-jetbrains-mono), monospace"
+                fill="#000000"
+                fontFamily="var(--font-geist-mono), monospace"
               >
                 {fmt(d.value)}
               </text>

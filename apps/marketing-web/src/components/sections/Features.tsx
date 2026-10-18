@@ -22,16 +22,14 @@ export function Features() {
               <Reveal className="grid items-center gap-8 lg:grid-cols-2 lg:gap-16">
                 <div className={cn(flip && "lg:order-2")}>
                   <IconTile icon={f.icon} size="lg" tone="brand" />
-                  <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink-900">
-                    {f.name}
-                  </h3>
-                  <p className="mt-3 text-base leading-relaxed text-ink-600">{f.description}</p>
-                  <ul className="mt-5 space-y-2.5">
+                  <h3 className="mt-6 text-3xl font-bold text-ink-950">{f.name}</h3>
+                  <p className="mt-4 text-lg leading-relaxed text-ink-600">{f.description}</p>
+                  <ul className="mt-6 space-y-3">
                     {f.bullets.map((b) => (
-                      <li key={b} className="flex items-start gap-2.5 text-sm text-ink-700">
+                      <li key={b} className="flex items-start gap-3 text-base text-ink-700">
                         <Check
                           aria-hidden="true"
-                          className="mt-0.5 size-4 shrink-0 text-brand-600"
+                          className="mt-1 size-4 shrink-0 text-ink-950"
                           strokeWidth={2.25}
                         />
                         {b}
@@ -40,7 +38,7 @@ export function Features() {
                   </ul>
                   <a
                     href={f.href}
-                    className="group mt-6 inline-flex items-center gap-1.5 rounded-md text-sm font-semibold text-brand-700 hover:text-brand-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
+                    className="group mt-6 inline-flex min-h-12 items-center gap-2 text-base font-medium text-ink-950 hover:underline hover:underline-offset-4"
                   >
                     Learn more<span className="sr-only"> about {f.name}</span>
                     <ArrowRight

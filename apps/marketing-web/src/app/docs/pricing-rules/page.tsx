@@ -162,7 +162,7 @@ export default function PricingRulesPage() {
           per unit), finishing charges (flat, once per job) and other charges.
         </li>
         <li>If the subtotal is below the minimum charge, add a Minimum order adjustment line.</li>
-        <li>Calculate tax on that subtotal, rounded to the nearest minor unit.</li>
+        <li>Calculate tax on that subtotal, to the nearest minor unit.</li>
         <li>
           Add the platform fee, a platform-wide setting that is not part of any shop rule. Total is
           subtotal + tax + platform fee.

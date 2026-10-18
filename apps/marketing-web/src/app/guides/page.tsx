@@ -25,16 +25,14 @@ export default function GuidesPage() {
             <li key={g.slug}>
               <a
                 href={`/guides/${g.slug}`}
-                className="group block h-full rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
+                className="group block h-full focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
               >
                 <Card interactive className="h-full">
                   <div className="flex items-center justify-between gap-3">
                     <IconTile icon={g.icon} tone="light" />
                     <Badge variant="neutral">{g.category}</Badge>
                   </div>
-                  <h2 className="mt-5 text-lg font-semibold tracking-tight text-ink-900">
-                    {g.title}
-                  </h2>
+                  <h2 className="mt-5 text-lg font-bold text-ink-950">{g.title}</h2>
                   <p className="mt-2 text-sm leading-relaxed text-ink-600">{g.summary}</p>
                   <div className="mt-4 flex items-center justify-between text-sm">
                     <span className="inline-flex items-center gap-1.5 text-ink-600">

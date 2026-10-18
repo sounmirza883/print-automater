@@ -44,7 +44,7 @@ export default async function FeaturePage({ params }: { params: Promise<Params> 
         ]}
       >
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button href="/features" size="lg" variant="secondary" tone="dark">
+          <Button href="/features" size="lg" variant="secondary">
             All features
           </Button>
         </div>
@@ -59,7 +59,7 @@ export default async function FeaturePage({ params }: { params: Promise<Params> 
                 <li key={b.title} className="flex gap-4">
                   <IconTile icon={b.icon} tone="light" />
                   <div>
-                    <h3 className="font-semibold text-ink-900">{b.title}</h3>
+                    <h3 className="font-bold text-ink-950">{b.title}</h3>
                     <p className="mt-1 text-sm leading-relaxed text-ink-600">{b.body}</p>
                   </div>
                 </li>
@@ -81,7 +81,7 @@ export default async function FeaturePage({ params }: { params: Promise<Params> 
                 <span className="font-mono text-sm font-semibold text-brand-700">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <h3 className="mt-2 font-semibold text-ink-900">{s.title}</h3>
+                <h3 className="mt-2 font-bold text-ink-950">{s.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-ink-600">{s.body}</p>
               </Card>
             </li>
@@ -91,7 +91,7 @@ export default async function FeaturePage({ params }: { params: Promise<Params> 
 
       <Section id="feature-faq" tone="light">
         <SectionHeader id="feature-faq" align="left" eyebrow="Questions" title="Good to know" />
-        <dl className="mt-10 max-w-3xl divide-y divide-ink-100 border-y border-ink-100">
+        <dl className="mt-10 max-w-3xl divide-y divide-ink-400 border-y border-ink-400">
           {feature.faqs.map((f) => (
             <div key={f.question} className="py-5">
               <dt className="font-semibold text-ink-900">{f.question}</dt>
@@ -102,13 +102,13 @@ export default async function FeaturePage({ params }: { params: Promise<Params> 
 
         {related.length > 0 ? (
           <nav aria-label="Related features" className="mt-14">
-            <h2 className="text-lg font-semibold text-ink-900">Related features</h2>
+            <h2 className="text-lg font-bold text-ink-950">Related features</h2>
             <ul className="mt-4 grid gap-4 sm:grid-cols-2">
               {related.map((r) => (
                 <li key={r.slug}>
                   <a
                     href={`/features/${r.slug}`}
-                    className="group flex h-full items-center gap-4 rounded-2xl border border-ink-100 p-4 transition-colors hover:border-brand-200 hover:bg-brand-50/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                    className="group flex h-full items-center gap-4 border border-ink-400 p-4 transition-colors hover:border-ink-900 hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
                   >
                     <IconTile icon={r.icon} tone="light" />
                     <span className="min-w-0 flex-1">

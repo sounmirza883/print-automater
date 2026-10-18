@@ -20,23 +20,23 @@ export function Testimonials() {
         lede="What running on Print Automated feels like at the counter and in the back room."
       />
 
-      <ul className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <ul className="mt-16 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         {testimonials.map((t, i) => (
           <li key={t.name}>
             <Reveal delay={(i % 3) * 60} className="h-full">
-              <figure className="flex h-full flex-col rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
-                <blockquote className="flex-1 text-base leading-relaxed text-ink-800">
+              <figure className="flex h-full flex-col border border-ink-400 bg-ink-50 p-6">
+                <blockquote className="flex-1 text-lg leading-relaxed text-ink-950">
                   <p>&ldquo;{t.quote}&rdquo;</p>
                 </blockquote>
-                <figcaption className="mt-6 flex items-center gap-3">
+                <figcaption className="mt-6 flex items-center gap-3 border-t border-ink-400 pt-5">
                   <span
                     aria-hidden="true"
-                    className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-100 font-mono text-sm font-semibold text-brand-800"
+                    className="inline-flex size-10 shrink-0 items-center justify-center bg-ink-900 font-mono text-sm font-medium text-ink-50"
                   >
                     {initials(t.name)}
                   </span>
                   <span className="text-sm">
-                    <span className="block font-semibold text-ink-900">{t.name}</span>
+                    <span className="block font-bold text-ink-950">{t.name}</span>
                     <span className="block text-ink-600">
                       {t.role}, {t.shop}
                     </span>

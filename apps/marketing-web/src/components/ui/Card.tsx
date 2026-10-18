@@ -3,12 +3,13 @@ import { cn } from "@/lib/cn";
 
 export type CardProps = HTMLAttributes<HTMLDivElement> & {
   tone?: "light" | "dark";
-  /** Adds hover lift and border highlight. */
+  /** Darkens the rule and lifts the fill on hover. */
   interactive?: boolean;
   /** p-6 padding (default true). */
   padded?: boolean;
 };
 
+/** Flat, square container: a grey rule on cream, no shadow. */
 export function Card({
   tone = "light",
   interactive = false,
@@ -16,16 +17,17 @@ export function Card({
   className,
   ...rest
 }: CardProps) {
+  const dark = tone === "dark";
   return (
     <div
       className={cn(
-        "rounded-2xl border",
-        tone === "dark"
-          ? "border-white/10 bg-ink-900/60 text-white"
-          : "border-ink-100 bg-white text-ink-900 shadow-sm",
+        "border",
+        dark ? "border-ink-600 bg-ink-900 text-ink-50" : "border-ink-400 bg-ink-50 text-ink-900",
         padded && "p-6",
         interactive &&
-          "transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md",
+          (dark
+            ? "transition-colors duration-150 hover:border-ink-50"
+            : "transition-colors duration-150 hover:border-ink-900 hover:bg-white"),
         className,
       )}
       {...rest}

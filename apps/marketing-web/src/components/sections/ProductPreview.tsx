@@ -56,7 +56,7 @@ export function ProductPreview() {
             className={cn(
               navItemClass(selected),
               "cursor-pointer",
-              !selected && "hover:bg-ink-50 hover:text-ink-900",
+              !selected && "hover:bg-ink-100 hover:text-ink-950",
             )}
           >
             <NavItemContent item={item} active={selected} />
@@ -99,7 +99,7 @@ export function ProductPreview() {
             })}
           </AppShell>
         </BrowserFrame>
-        <p className="mt-4 text-center text-xs text-ink-300">
+        <p className="mt-4 font-mono text-xs text-ink-300">
           Illustrative sample data. Names, orders and figures are placeholders.
         </p>
       </Reveal>

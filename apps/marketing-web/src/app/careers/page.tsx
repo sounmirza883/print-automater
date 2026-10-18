@@ -28,14 +28,14 @@ export default function CareersPage() {
 
       <Container className="space-y-16 py-14 md:space-y-20 md:py-20">
         <section aria-labelledby="culture">
-          <h2 id="culture" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="culture" className="text-2xl font-bold text-ink-950">
             How we work
           </h2>
           <ul className="mt-6 grid gap-4 sm:grid-cols-2">
             {culture.map((c) => (
               <li key={c.title}>
                 <Card className="h-full">
-                  <h3 className="font-semibold text-ink-900">{c.title}</h3>
+                  <h3 className="font-bold text-ink-950">{c.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-ink-700">{c.body}</p>
                 </Card>
               </li>
@@ -45,7 +45,7 @@ export default function CareersPage() {
 
         <section aria-labelledby="roles">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 id="roles" className="text-2xl font-semibold tracking-tight text-ink-900">
+            <h2 id="roles" className="text-2xl font-bold text-ink-950">
               Open roles
             </h2>
             <Badge variant="warning">Placeholder roles</Badge>
@@ -53,14 +53,14 @@ export default function CareersPage() {
           <p className="mt-3 max-w-2xl text-ink-700">
             The roles below are examples for layout only and are not real vacancies. Apply by email.
           </p>
-          <ul className="mt-6 divide-y divide-ink-100 rounded-2xl border border-ink-100 bg-white shadow-sm">
+          <ul className="mt-6 divide-y divide-ink-400 border border-ink-400 bg-white">
             {openRoles.map((role) => (
               <li
                 key={role.title}
                 className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-ink-900">{role.title}</h3>
+                  <h3 className="font-bold text-ink-950">{role.title}</h3>
                   <p className="mt-1 text-sm text-ink-600">
                     {role.team} · {role.location}
                   </p>
@@ -75,11 +75,8 @@ export default function CareersPage() {
           </ul>
         </section>
 
-        <section
-          aria-labelledby="no-roles"
-          className="rounded-2xl border border-ink-100 bg-ink-50 p-6 md:p-8"
-        >
-          <h2 id="no-roles" className="text-xl font-semibold text-ink-900">
+        <section aria-labelledby="no-roles" className="border border-ink-400 bg-ink-50 p-6 md:p-8">
+          <h2 id="no-roles" className="text-xl font-bold text-ink-950">
             Nothing that fits? Write to us.
           </h2>
           <p className="mt-2 max-w-2xl text-ink-700">

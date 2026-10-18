@@ -46,7 +46,7 @@ export default function CustomerStoriesPage() {
 
                     <dl className="mt-6 grid gap-3 sm:grid-cols-3">
                       {s.highlights.map((h) => (
-                        <div key={h.label} className="rounded-xl bg-brand-50 p-4">
+                        <div key={h.label} className="bg-brand-50 p-4">
                           <dt className="text-xs font-medium text-ink-700">{h.label}</dt>
                           <dd className="mt-1 text-lg font-semibold text-brand-800">{h.value}</dd>
                         </div>

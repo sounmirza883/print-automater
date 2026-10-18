@@ -13,18 +13,16 @@ export function CodeBlock({
   className?: string;
 }) {
   return (
-    <figure
-      className={cn("mt-4 overflow-hidden rounded-xl border border-ink-800 bg-ink-950", className)}
-    >
+    <figure className={cn("mt-4 overflow-hidden border border-ink-900 bg-ink-900", className)}>
       {label || language ? (
-        <figcaption className="flex items-center justify-between border-b border-ink-800 px-4 py-2 font-mono text-xs text-ink-200">
+        <figcaption className="flex items-center justify-between border-b border-ink-700 px-4 py-2 font-mono text-xs text-ink-300">
           <span>{label}</span>
           <span>{language}</span>
         </figcaption>
       ) : null}
       <pre
         tabIndex={0}
-        className="overflow-x-auto p-4 text-sm leading-6 text-ink-50 outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        className="overflow-x-auto p-4 text-sm leading-6 text-ink-50 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink-50"
       >
         <code className="font-mono">{code}</code>
       </pre>

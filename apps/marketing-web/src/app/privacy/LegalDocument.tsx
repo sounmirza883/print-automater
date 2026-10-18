@@ -25,9 +25,9 @@ export function LegalDocument({
       <Container className="py-12 md:py-16">
         <div
           role="note"
-          className="flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950"
+          className="flex gap-3 border border-dashed border-ink-900 bg-ink-50 p-4 text-ink-950"
         >
-          <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-amber-800" />
+          <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-ink-950" />
           <div className="text-sm leading-6">
             <p className="font-semibold">{LEGAL_NOTICE}</p>
             <p className="mt-0.5">
@@ -46,7 +46,7 @@ export function LegalDocument({
             <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-ink-600">
               On this page
             </h2>
-            <ol className="mt-3 space-y-1 border-l border-ink-200 text-sm">
+            <ol className="mt-3 space-y-1 border-l border-ink-400 text-sm">
               {doc.sections.map((s, i) => (
                 <li key={s.id}>
                   <a

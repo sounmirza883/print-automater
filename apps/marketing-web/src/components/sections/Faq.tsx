@@ -18,7 +18,7 @@ export function Faq() {
         lede="The things shop owners ask most before they get started."
       />
 
-      <div className="mx-auto mt-12 max-w-3xl divide-y divide-ink-100 rounded-2xl border border-ink-100 bg-white shadow-sm">
+      <div className="mt-16 max-w-4xl divide-y divide-ink-400 border border-ink-400 bg-ink-50">
         {faqs.map((item) => {
           const open = openId === item.id;
           const buttonId = `faq-${item.id}-button`;
@@ -32,7 +32,7 @@ export function Faq() {
                   aria-expanded={open}
                   aria-controls={panelId}
                   onClick={() => setOpenId(open ? null : item.id)}
-                  className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-base font-medium text-ink-900 transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500 sm:px-6"
+                  className="flex min-h-14 w-full items-center justify-between gap-4 px-5 py-4 text-left text-lg font-bold text-ink-950 transition-colors duration-150 hover:bg-white focus-visible:outline-2 focus-visible:-outline-offset-2 sm:px-6"
                 >
                   <span>{item.question}</span>
                   <ChevronDown
@@ -54,7 +54,7 @@ export function Faq() {
                 )}
               >
                 <div className="overflow-hidden" inert={!open}>
-                  <p className="px-5 pb-5 text-sm leading-relaxed text-ink-700 sm:px-6">
+                  <p className="px-5 pb-6 text-base leading-relaxed text-ink-600 sm:px-6">
                     {item.answer}
                   </p>
                 </div>

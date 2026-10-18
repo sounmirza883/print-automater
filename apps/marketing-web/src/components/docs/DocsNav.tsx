@@ -19,7 +19,7 @@ function NavList({ current }: { current: string }) {
         href={href}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "block rounded-md px-3 py-1.5 text-sm transition-colors",
+          "block px-3 py-1.5 text-sm transition-colors",
           active
             ? "bg-brand-50 font-semibold text-brand-800"
             : "text-ink-700 hover:bg-ink-100 hover:text-ink-900",
@@ -55,15 +55,15 @@ export function DocsNav() {
   const current = normalize(usePathname());
   return (
     <nav aria-label="Documentation">
-      <details className="group rounded-xl border border-ink-200 bg-white lg:hidden">
-        <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-ink-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 [&::-webkit-details-marker]:hidden">
+      <details className="group border border-ink-400 bg-white lg:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-ink-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 [&::-webkit-details-marker]:hidden">
           Documentation menu
           <ChevronDown
             className="size-4 transition-transform group-open:rotate-180"
             aria-hidden="true"
           />
         </summary>
-        <div className="border-t border-ink-200 p-3">
+        <div className="border-t border-ink-400 p-3">
           <NavList current={current} />
         </div>
       </details>

@@ -2,31 +2,31 @@ import { cn } from "@/lib/cn";
 import { jobRows, type JobRow, type JobStatus } from "./data";
 import { surface } from "./surface";
 
-/** Pill colours follow the order lifecycle: waiting (cyan, amber), in production (grey, blue,
- * violet, fuchsia), done (green, then outlined once collected). */
-const statusStyle: Record<JobStatus, { pill: string; dot: string }> = {
-  "Needs acceptance": { pill: "bg-cyan-50 text-cyan-800", dot: "bg-cyan-500" },
-  "Awaiting payment": { pill: "bg-amber-50 text-amber-900", dot: "bg-amber-500" },
-  Queued: { pill: "bg-ink-100 text-ink-700", dot: "bg-ink-400" },
-  Printing: { pill: "bg-brand-50 text-brand-800", dot: "bg-brand-600" },
-  Rerouted: { pill: "bg-violet-50 text-violet-800", dot: "bg-violet-500" },
-  "Quality check": { pill: "bg-fuchsia-50 text-fuchsia-800", dot: "bg-fuchsia-500" },
-  "Ready for pickup": { pill: "bg-emerald-50 text-emerald-800", dot: "bg-emerald-500" },
-  Collected: { pill: "bg-white text-ink-600 ring-1 ring-inset ring-ink-200", dot: "bg-ink-300" },
-  Failed: { pill: "bg-rose-50 text-rose-800", dot: "bg-rose-500" },
+/** Pill styles follow the order lifecycle in one ink: waiting is outlined (solid rule when
+ * it needs a person, dashed when it is only waiting), in production steps from grey to
+ * solid charcoal, and done is outlined again. The label always carries the status. */
+const statusStyle: Record<JobStatus, string> = {
+  "Needs acceptance": "border border-ink-900 text-ink-950",
+  "Awaiting payment": "border border-dashed border-ink-900 text-ink-950",
+  Queued: "bg-ink-100 text-ink-700",
+  Printing: "bg-ink-900 text-ink-50",
+  Rerouted: "bg-ink-700 text-ink-50",
+  "Quality check": "bg-ink-600 text-ink-50",
+  "Ready for pickup": "border-2 border-ink-900 bg-white font-semibold text-ink-950",
+  Collected: "border border-ink-200 text-ink-600",
+  Failed: "border border-dashed border-ink-900 bg-ink-100 font-semibold text-ink-950",
 };
 
 export function StatusPill({ status, className }: { status: JobStatus; className?: string }) {
-  const s = statusStyle[status];
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
-        s.pill,
+        "inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-0.5 text-xs font-medium",
+        statusStyle[status],
         className,
       )}
     >
-      <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", s.dot)} />
+      <span aria-hidden="true" className="size-1.5 shrink-0 bg-current" />
       {status}
     </span>
   );
@@ -50,7 +50,7 @@ export function JobQueueTable({
     <div className={cn(surface, "@container relative overflow-x-auto", className)}>
       <table className="w-full text-left text-xs @lg:text-[13px] @3xl:text-sm">
         <caption className="sr-only">{caption}</caption>
-        <thead className="border-b border-ink-100 bg-ink-50/70 text-xs text-ink-600">
+        <thead className="border-b border-ink-200 bg-ink-50 text-xs text-ink-600">
           <tr>
             <th scope="col" className="px-3 py-2.5 font-medium @md:px-4">
               Order
@@ -66,7 +66,7 @@ export function JobQueueTable({
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-ink-100">
+        <tbody className="divide-y divide-ink-200">
           {rows.map((r) => (
             <tr key={r.order}>
               <th scope="row" className="px-3 py-2.5 font-normal @md:px-4">

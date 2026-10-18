@@ -20,7 +20,7 @@ export default function TutorialsPage() {
         crumbs={[{ label: "Home", href: "/" }, { label: "Tutorials" }]}
       />
 
-      <div className="bg-white py-14 md:py-20">
+      <div className="border-t border-ink-400 bg-ink-50 py-14 md:py-20">
         <Container className="grid gap-12 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-16">
           <nav aria-label="Tutorials" className="lg:sticky lg:top-24 lg:self-start">
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-ink-600">
@@ -31,7 +31,7 @@ export default function TutorialsPage() {
                 <li key={t.id}>
                   <a
                     href={`#${t.id}`}
-                    className="rounded text-ink-700 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                    className="text-ink-700 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
                   >
                     {t.title}
                   </a>
@@ -74,18 +74,15 @@ export default function TutorialsPage() {
                 <p className="mt-2 text-ink-700">{t.summary}</p>
                 <ol className="mt-6 space-y-4">
                   {t.steps.map((s, i) => (
-                    <li
-                      key={s.title}
-                      className="flex gap-4 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm"
-                    >
+                    <li key={s.title} className="flex gap-4 border border-ink-400 bg-white p-4">
                       <span
                         aria-hidden="true"
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-600 font-mono text-sm font-semibold text-white"
+                        className="flex size-8 shrink-0 items-center justify-center bg-ink-900 font-mono text-sm font-medium text-ink-50"
                       >
                         {i + 1}
                       </span>
                       <div className="min-w-0">
-                        <h3 className="font-semibold text-ink-900">{s.title}</h3>
+                        <h3 className="font-bold text-ink-950">{s.title}</h3>
                         <p className="mt-1 text-sm leading-relaxed text-ink-700">{s.body}</p>
                       </div>
                     </li>

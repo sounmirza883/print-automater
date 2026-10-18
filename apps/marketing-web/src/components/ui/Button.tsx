@@ -22,27 +22,34 @@ type NativeButtonProps = Common & { href?: undefined } & ButtonHTMLAttributes<HT
 
 export type ButtonProps = AnchorProps | NativeButtonProps;
 
+// Every variant carries a 1px border so the hover inversion never shifts the layout.
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex items-center justify-center gap-2 border font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50";
 
+// md and lg meet the 48px touch target.
 const sizes: Record<ButtonSize, string> = {
-  sm: "h-9 px-3.5 text-sm",
-  md: "h-11 px-5 text-sm",
-  lg: "h-12 px-6 text-base",
+  sm: "h-10 px-4 text-sm",
+  md: "h-12 px-6 text-base",
+  lg: "h-14 px-8 text-base",
 };
 
+/** Primary is charcoal on cream and inverts on hover; secondary is cream with a grey
+ * rule and fills charcoal on hover. "dark" tone flips both for charcoal bands. */
 function variantClasses(variant: ButtonVariant, tone: ButtonTone): string {
+  const dark = tone === "dark";
   if (variant === "primary") {
-    return "bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800";
+    return dark
+      ? "border-ink-50 bg-ink-50 text-ink-900 hover:bg-transparent hover:text-ink-50"
+      : "border-ink-900 bg-ink-900 text-ink-50 hover:bg-ink-50 hover:text-ink-900";
   }
   if (variant === "secondary") {
-    return tone === "dark"
-      ? "border border-white/25 bg-white/5 text-white hover:bg-white/10"
-      : "border border-ink-200 bg-white text-ink-900 hover:bg-ink-50";
+    return dark
+      ? "border-ink-400 bg-transparent text-ink-50 hover:border-ink-50 hover:bg-ink-50 hover:text-ink-900"
+      : "border-ink-400 bg-ink-50 text-ink-900 hover:border-ink-900 hover:bg-ink-900 hover:text-ink-50";
   }
-  return tone === "dark"
-    ? "text-ink-100 hover:bg-white/10 hover:text-white"
-    : "text-ink-700 hover:bg-ink-100 hover:text-ink-900";
+  return dark
+    ? "border-transparent text-ink-100 hover:text-ink-50 hover:underline"
+    : "border-transparent text-ink-950 hover:underline";
 }
 
 /** Renders <a> when `href` is set, otherwise <button type="button"> by default. */

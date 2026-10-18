@@ -7,7 +7,7 @@ function Cell({ value }: { value: string | undefined }) {
   if (cell.kind === "yes") {
     return (
       <>
-        <Check aria-hidden="true" className="mx-auto size-5 text-emerald-600" />
+        <Check aria-hidden="true" className="mx-auto size-5 text-ink-950" />
         <span className="sr-only">Included</span>
       </>
     );
@@ -20,7 +20,7 @@ function Cell({ value }: { value: string | undefined }) {
       </>
     );
   }
-  return <span className="font-medium text-ink-900">{cell.text}</span>;
+  return <span className="font-medium text-ink-950">{cell.text}</span>;
 }
 
 /** The Compare plans table: one column per live plan, one row per feature the admin
@@ -34,15 +34,15 @@ export function CompareTable({
 }) {
   return (
     <>
-      <h3 className="mt-16 text-center text-xl font-semibold text-ink-900">Compare plans</h3>
-      <div className="relative mt-6 overflow-x-auto rounded-2xl border border-ink-100">
+      <h3 className="mt-20 text-2xl font-bold text-ink-950">Compare plans</h3>
+      <div className="relative mt-6 overflow-x-auto border border-ink-400">
         <table className="w-full min-w-160 border-collapse text-left text-sm">
           <caption className="sr-only">
             Comparison of {plans.map((p) => p.name).join(", ")} plans
           </caption>
           <thead>
-            <tr className="bg-ink-50">
-              <th scope="col" className="px-5 py-4 font-semibold text-ink-900">
+            <tr className="bg-ink-100">
+              <th scope="col" className="px-5 py-4 font-bold text-ink-950">
                 Feature
               </th>
               {plans.map((p) => (
@@ -50,8 +50,8 @@ export function CompareTable({
                   key={p.name}
                   scope="col"
                   className={cn(
-                    "px-5 py-4 text-center font-semibold text-ink-900",
-                    p.highlighted && "bg-brand-50 text-brand-800",
+                    "px-5 py-4 text-center font-bold text-ink-950",
+                    p.highlighted && "bg-ink-200",
                   )}
                 >
                   {p.name}
@@ -60,25 +60,25 @@ export function CompareTable({
             </tr>
           </thead>
           {groupFeatures(features).map((group) => (
-            <tbody key={group.section} className="border-t border-ink-100">
+            <tbody key={group.section} className="border-t border-ink-400">
               <tr>
                 <th
                   scope="colgroup"
                   colSpan={plans.length + 1}
-                  className="bg-white px-5 pt-5 pb-2 font-mono text-xs tracking-wide text-ink-600 uppercase"
+                  className="bg-ink-50 px-5 pt-5 pb-2 font-mono text-xs tracking-wider text-ink-600 uppercase"
                 >
                   {group.section}
                 </th>
               </tr>
               {group.rows.map((row) => (
-                <tr key={row.label} className="border-t border-ink-100 hover:bg-ink-50/60">
+                <tr key={row.label} className="border-t border-ink-400 hover:bg-white">
                   <th scope="row" className="px-5 py-3.5 font-normal text-ink-700">
                     {row.label}
                   </th>
                   {plans.map((p) => (
                     <td
                       key={p.name}
-                      className={cn("px-5 py-3.5 text-center", p.highlighted && "bg-brand-50/50")}
+                      className={cn("px-5 py-3.5 text-center", p.highlighted && "bg-ink-100")}
                     >
                       <Cell value={row.values[p.name]} />
                     </td>

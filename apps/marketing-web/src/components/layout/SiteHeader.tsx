@@ -1,44 +1,30 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import { headerCtas, primaryNav } from "@/content/navigation";
 import { siteConfig } from "@/content/site";
-import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { MobileNav } from "./MobileNav";
 
-/** Sticky, blurred dark bar (pairs with the dark hero band). */
-export function SiteHeader() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
+/** A sheet of paper, stacked: an outlined square behind a solid one. */
+function LogoMark() {
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-50 h-16 border-b transition-colors",
-        scrolled
-          ? "border-white/10 bg-ink-950/85 backdrop-blur-lg"
-          : "border-transparent bg-ink-950/60 backdrop-blur-sm",
-      )}
-    >
+    <span aria-hidden="true" className="relative block size-5 shrink-0">
+      <span className="absolute inset-0 translate-x-0.5 translate-y-0.5 border border-ink-950" />
+      <span className="absolute inset-0 -translate-x-0.5 -translate-y-0.5 bg-ink-950" />
+    </span>
+  );
+}
+
+/** Sticky cream bar with a grey rule: it reads as part of the page, not a layer on it. */
+export function SiteHeader() {
+  return (
+    <header className="sticky top-0 z-50 h-16 border-b border-ink-400 bg-ink-50">
       <Container className="flex h-full items-center justify-between gap-6">
         <a
           href="/"
-          className="flex items-center gap-2 text-base font-semibold text-white"
+          className="flex h-12 items-center gap-3 font-display text-lg font-bold text-ink-950"
           aria-label={`${siteConfig.name} home`}
         >
-          <span aria-hidden="true" className="flex gap-0.5">
-            <span className="size-2 rounded-full bg-cmyk-cyan" />
-            <span className="size-2 rounded-full bg-cmyk-magenta" />
-            <span className="size-2 rounded-full bg-cmyk-yellow" />
-          </span>
+          <LogoMark />
           {siteConfig.name}
         </a>
         <nav aria-label="Primary" className="hidden lg:block">
@@ -47,7 +33,7 @@ export function SiteHeader() {
               <li key={l.href}>
                 <a
                   href={l.href}
-                  className="rounded-md px-3 py-2 text-sm text-ink-100 transition-colors hover:bg-white/10 hover:text-white"
+                  className="px-3 py-2 text-sm font-medium text-ink-950 hover:underline hover:underline-offset-4"
                 >
                   {l.label}
                 </a>
@@ -56,7 +42,7 @@ export function SiteHeader() {
           </ul>
         </nav>
         <div className="hidden items-center gap-2 lg:flex">
-          <Button href={headerCtas.login.href} variant="ghost" tone="dark" size="sm">
+          <Button href={headerCtas.login.href} variant="primary" size="sm">
             {headerCtas.login.label}
           </Button>
         </div>

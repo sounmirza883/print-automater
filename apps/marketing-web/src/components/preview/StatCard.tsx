@@ -11,8 +11,8 @@ export type StatCardProps = {
 };
 
 const trendClass = {
-  up: "text-emerald-700",
-  down: "text-rose-700",
+  up: "font-medium text-ink-950",
+  down: "font-medium text-ink-950",
   flat: "text-ink-600",
 } as const;
 

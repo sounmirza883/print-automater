@@ -71,7 +71,7 @@ export function MobileNav() {
         aria-controls="mobile-nav-dialog"
         aria-label="Open menu"
         onClick={() => setOpen(true)}
-        className="inline-flex size-10 items-center justify-center rounded-lg text-white hover:bg-white/10"
+        className="inline-flex size-12 items-center justify-center border border-ink-400 text-ink-950 hover:border-ink-900 hover:bg-ink-900 hover:text-ink-50"
       >
         <Menu aria-hidden="true" className="size-6" />
       </button>
@@ -82,14 +82,15 @@ export function MobileNav() {
           role="dialog"
           aria-modal="true"
           aria-label="Site menu"
-          className="fixed inset-0 z-[60] flex flex-col bg-ink-950 px-4 pb-8 pt-3 text-white"
+          data-tone="dark"
+          className="fixed inset-0 z-60 flex flex-col bg-ink-900 px-4 pb-8 pt-3 text-ink-50"
         >
           <div className="flex h-12 items-center justify-end">
             <button
               type="button"
               aria-label="Close menu"
               onClick={close}
-              className="inline-flex size-10 items-center justify-center rounded-lg hover:bg-white/10"
+              className="inline-flex size-12 items-center justify-center border border-ink-600 hover:border-ink-50 hover:bg-ink-50 hover:text-ink-900"
             >
               <X aria-hidden="true" className="size-6" />
             </button>
@@ -101,7 +102,7 @@ export function MobileNav() {
                   <a
                     href={l.href}
                     onClick={() => setOpen(false)}
-                    className="block border-b border-white/10 py-4 text-lg font-medium"
+                    className="block border-b border-ink-700 py-4 font-display text-xl font-bold"
                   >
                     {l.label}
                   </a>
@@ -110,7 +111,7 @@ export function MobileNav() {
             </ul>
           </nav>
           <div className="mt-6 flex flex-col gap-3">
-            <Button href={headerCtas.login.href} variant="secondary" tone="dark" fullWidth>
+            <Button href={headerCtas.login.href} variant="primary" tone="dark" fullWidth>
               {headerCtas.login.label}
             </Button>
           </div>

@@ -7,6 +7,6 @@ export { SectionHeader } from "./SectionHeader";
 export type { SectionHeaderProps } from "./SectionHeader";
 export { Card } from "./Card";
 export { Badge } from "./Badge";
-export type { BadgeVariant, BadgeDot } from "./Badge";
+export type { BadgeVariant } from "./Badge";
 export { IconTile } from "./IconTile";
 export { Reveal } from "./Reveal";

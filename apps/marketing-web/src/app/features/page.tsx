@@ -26,13 +26,11 @@ export default function FeaturesPage() {
             <li key={f.slug}>
               <a
                 href={`/features/${f.slug}`}
-                className="group block h-full rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
+                className="group block h-full focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
               >
                 <Card interactive className="h-full">
                   <IconTile icon={f.icon} size="lg" tone="brand" />
-                  <h2 className="mt-5 text-xl font-semibold tracking-tight text-ink-900">
-                    {f.name}
-                  </h2>
+                  <h2 className="mt-5 text-xl font-bold text-ink-950">{f.name}</h2>
                   <p className="mt-2 text-sm leading-relaxed text-ink-600">{f.summary}</p>
                   <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 group-hover:text-brand-800">
                     Learn more

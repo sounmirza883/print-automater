@@ -37,7 +37,7 @@ export default function AboutPage() {
 
       <Container className="space-y-16 py-14 md:space-y-24 md:py-20">
         <section aria-labelledby="story" className="max-w-3xl">
-          <h2 id="story" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="story" className="text-2xl font-bold text-ink-950">
             Our story
           </h2>
           <Prose>
@@ -48,14 +48,14 @@ export default function AboutPage() {
         </section>
 
         <section aria-labelledby="principles">
-          <h2 id="principles" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="principles" className="text-2xl font-bold text-ink-950">
             How we build
           </h2>
           <ul className="mt-6 grid gap-4 sm:grid-cols-2">
             {principles.map((p) => (
               <li key={p.title}>
                 <Card className="h-full">
-                  <h3 className="font-semibold text-ink-900">{p.title}</h3>
+                  <h3 className="font-bold text-ink-950">{p.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-ink-700">{p.body}</p>
                 </Card>
               </li>
@@ -64,7 +64,7 @@ export default function AboutPage() {
         </section>
 
         <section aria-labelledby="values">
-          <h2 id="values" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="values" className="text-2xl font-bold text-ink-950">
             Our values
           </h2>
           <dl className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -78,21 +78,21 @@ export default function AboutPage() {
         </section>
 
         <section aria-labelledby="timeline">
-          <h2 id="timeline" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="timeline" className="text-2xl font-bold text-ink-950">
             What is built and what is planned
           </h2>
           <p className="mt-3 max-w-2xl text-ink-700">
             We label each item honestly, so you know what you can use today.
           </p>
-          <ol className="mt-8 space-y-4 border-l border-ink-200 pl-6">
+          <ol className="mt-8 space-y-4 border-l border-ink-400 pl-6">
             {timeline.map((item) => (
               <li key={item.title} className="relative">
                 <span
                   aria-hidden="true"
-                  className="absolute -left-[1.85rem] top-1.5 size-3 rounded-full border-2 border-white bg-brand-600 ring-1 ring-ink-200"
+                  className="absolute -left-[1.85rem] top-1.5 size-3 border-2 border-ink-50 bg-ink-900 ring-1 ring-ink-400"
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold text-ink-900">{item.title}</h3>
+                  <h3 className="font-bold text-ink-950">{item.title}</h3>
                   <Badge variant={statusVariant[item.status]}>{item.status}</Badge>
                 </div>
                 <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-700">{item.body}</p>
@@ -102,18 +102,18 @@ export default function AboutPage() {
         </section>
 
         <section aria-labelledby="team">
-          <h2 id="team" className="text-2xl font-semibold tracking-tight text-ink-900">
+          <h2 id="team" className="text-2xl font-bold text-ink-950">
             The team
           </h2>
-          <p className="mt-3 inline-block rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <p className="mt-3 inline-block border border-dashed border-ink-900 bg-ink-50 px-3 py-2 text-sm text-ink-950">
             Placeholder: team details to be added before launch.
           </p>
           <ul className="mt-6 grid gap-4 sm:grid-cols-3">
             {team.map((m) => (
               <li key={m.role}>
                 <Card className="h-full">
-                  <div aria-hidden="true" className="size-14 rounded-full bg-ink-100" />
-                  <h3 className="mt-4 font-semibold text-ink-900">{m.name}</h3>
+                  <div aria-hidden="true" className="size-14 bg-ink-100" />
+                  <h3 className="mt-4 font-bold text-ink-950">{m.name}</h3>
                   <p className="text-sm text-ink-600">{m.role}</p>
                   <p className="mt-2 text-sm text-ink-700">{m.bio}</p>
                 </Card>
@@ -124,13 +124,14 @@ export default function AboutPage() {
 
         <section
           aria-labelledby="about-cta"
-          className="rounded-2xl bg-ink-950 p-8 text-white md:p-12"
+          data-tone="dark"
+          className="bg-ink-900 p-8 text-ink-50 md:p-12"
         >
-          <h2 id="about-cta" className="text-2xl font-semibold tracking-tight">
+          <h2 id="about-cta" className="text-2xl font-bold">
             Want to see it in your shop?
           </h2>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Button href="/careers" variant="secondary" tone="dark">
+            <Button href="/careers" tone="dark">
               Join the team
             </Button>
           </div>

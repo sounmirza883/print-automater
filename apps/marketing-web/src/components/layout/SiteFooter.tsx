@@ -13,20 +13,23 @@ const socialPaths: Record<SocialId, string> = {
     "M21.6 7.2a2.5 2.5 0 0 0-1.76-1.77C18.27 5 12 5 12 5s-6.27 0-7.84.43A2.5 2.5 0 0 0 2.4 7.2C2 8.78 2 12 2 12s0 3.22.4 4.8a2.5 2.5 0 0 0 1.76 1.77C5.73 19 12 19 12 19s6.27 0 7.84-.43a2.5 2.5 0 0 0 1.76-1.77C22 15.22 22 12 22 12s0-3.22-.4-4.8ZM10 15V9l5.2 3-5.2 3Z",
 };
 
-const headingCls = "font-mono text-xs font-medium uppercase tracking-[0.18em] text-white";
+const headingCls = "font-mono text-sm font-medium uppercase tracking-[0.12em] text-ink-950";
 
 export function SiteFooter() {
   return (
-    <footer className="bg-ink-950 text-ink-200">
+    <footer className="border-t border-ink-400 bg-ink-50 text-ink-600">
       <Container className="py-16">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           {footerColumns.map((col) => (
             <nav key={col.title} aria-label={col.title}>
               <h2 className={headingCls}>{col.title}</h2>
-              <ul className="mt-4 space-y-3">
+              <ul className="mt-3 lg:space-y-1">
                 {col.links.map((l) => (
                   <li key={l.label}>
-                    <a href={l.href} className="text-sm text-ink-200 hover:text-white">
+                    <a
+                      href={l.href}
+                      className="block py-3 text-sm text-ink-950 hover:underline hover:underline-offset-4 lg:py-1.5"
+                    >
                       {l.label}
                     </a>
                   </li>
@@ -42,15 +45,15 @@ export function SiteFooter() {
               ))}
               <a
                 href={`mailto:${footerContact.email}`}
-                className="block break-all text-white hover:underline"
+                className="block break-all py-3 text-ink-950 hover:underline hover:underline-offset-4 lg:py-1"
               >
                 {footerContact.email}
               </a>
             </div>
           </div>
         </div>
-        <div className="mt-14 flex flex-col items-start justify-between gap-6 border-t border-white/10 pt-8 sm:flex-row sm:items-center">
-          <p className="text-sm text-ink-300">
+        <div className="mt-14 flex flex-col items-start justify-between gap-6 border-t border-ink-400 pt-8 sm:flex-row sm:items-center">
+          <p className="font-mono text-xs uppercase tracking-wider text-ink-600">
             &copy; {new Date().getFullYear()} {siteConfig.name}. All rights reserved.
           </p>
           <ul className="flex items-center gap-2">
@@ -59,7 +62,7 @@ export function SiteFooter() {
                 <a
                   href={s.href}
                   aria-label={s.label}
-                  className="inline-flex size-10 items-center justify-center rounded-lg text-ink-200 hover:bg-white/10 hover:text-white"
+                  className="inline-flex size-12 items-center justify-center border border-ink-400 text-ink-950 hover:border-ink-900 hover:bg-ink-900 hover:text-ink-50"
                 >
                   <svg
                     aria-hidden="true"

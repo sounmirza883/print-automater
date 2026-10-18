@@ -1,50 +1,65 @@
 @import "tailwindcss";
 
-/* Namespaced tokens so nothing collides with Tailwind's own --spacing-* /
-   --radius-* scales. Brand blue is anchored on design-tokens primaryAction
-   (#2563EB = brand-600). */
+/* ArtCraft design system (getartcraft-com-design.md): cream canvas, black type,
+   charcoal actions, grey rules. Flat and square: no radius, no shadow, and no
+   hues outside this palette.
+
+   The `ink` and `brand` scales keep their names so existing class names resolve,
+   but both are now neutral ramps:
+     ink-50   #f2f1ee  cream, the page background
+     ink-400  #989797  medium grey, borders and rings
+     ink-600  #666667  mid grey, body copy
+     ink-900  #101014  deep charcoal, primary action and dark surfaces
+     ink-950  #000000  pure black, headlines and links
+   `brand` is the accent ramp. It is charcoal where it marks an action or state, and
+   greys where it tints. */
 @theme {
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-brand-800: #1e40af;
-  --color-brand-900: #1e3a8a;
+  --color-brand-50: #e6e5e1;
+  --color-brand-100: #d4d3d0;
+  --color-brand-200: #bab9b7;
+  --color-brand-300: #bab9b7;
+  --color-brand-400: #989797;
+  --color-brand-500: #101014;
+  --color-brand-600: #101014;
+  --color-brand-700: #101014;
+  --color-brand-800: #000000;
+  --color-brand-900: #000000;
 
-  --color-ink-50: #f4f6fb;
-  --color-ink-100: #e6eaf3;
-  --color-ink-200: #ccd4e4;
-  --color-ink-300: #a3afc9;
-  --color-ink-400: #7382a5;
-  --color-ink-500: #52618a;
-  --color-ink-600: #3b4870;
-  --color-ink-700: #2a3556;
-  --color-ink-800: #1a2340;
-  --color-ink-900: #0f1630;
-  --color-ink-950: #080d21;
-
-  /* CMYK registration-mark accents: tiny details and status dots only. */
-  --color-cmyk-cyan: #00aeef;
-  --color-cmyk-magenta: #ec008c;
-  --color-cmyk-yellow: #ffd400;
+  --color-ink-50: #f2f1ee;
+  --color-ink-100: #e6e5e1;
+  --color-ink-200: #d4d3d0;
+  --color-ink-300: #bab9b7;
+  --color-ink-400: #989797;
+  --color-ink-500: #7e7e7f;
+  --color-ink-600: #666667;
+  --color-ink-700: #4b4b4d;
+  --color-ink-800: #2b2b2f;
+  --color-ink-900: #101014;
+  --color-ink-950: #000000;
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+  --font-display: var(--font-archivo), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
 
-  --animate-float: float 6s ease-in-out infinite;
-  @keyframes float {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-6px);
-    }
-  }
+  /* Square corners everywhere. `rounded-full` is not theme-driven, so it is not
+     used in the source; these zero out the named steps as a safety net. */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+
+  /* No elevation: depth comes from contrast and rules, not shadow. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 0 #0000;
+  --shadow-xl: 0 0 #0000;
+  --shadow-2xl: 0 0 #0000;
 
   /* Print-head sweep across a busy printer's load bar in the dashboard mock.
      Animates `translate` (what Tailwind v4's translate-* utilities set), and
@@ -61,15 +76,41 @@
   }
 }
 
+@layer base {
+  /* Archivo carries the headlines. The product mocks stand in for the app's own
+     UI, so they keep the body face. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+  [data-app-mock] :is(h1, h2, h3, h4) {
+    font-family: var(--font-sans);
+  }
+
+  /* A grey rule between two stacked cream bands (Section tones "light" and "muted"). */
+  section:is([data-tone="light"], [data-tone="muted"])
+    + section:is([data-tone="light"], [data-tone="muted"]) {
+    border-top: 1px solid var(--color-ink-400);
+  }
+}
+
 html {
   scroll-behavior: smooth;
 }
 
 body {
-  background: #fff;
-  color: var(--color-ink-900);
+  background: var(--color-ink-50);
+  color: var(--color-ink-600);
   font-family: var(--font-sans);
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-ink-900);
+  color: var(--color-ink-50);
 }
 
 /* Sticky header is 4rem; keep anchor targets clear of it. */
@@ -78,9 +119,26 @@ main[id] {
   scroll-margin-top: 5rem;
 }
 
+/* Focus is a crisp charcoal outline; on charcoal bands it flips to cream. */
 :focus-visible {
-  outline: 2px solid var(--color-brand-500);
+  outline: 2px solid var(--color-ink-900);
   outline-offset: 2px;
+}
+[data-tone="dark"] :focus-visible {
+  outline-color: var(--color-ink-50);
+}
+
+/* Numbered section markers (01/, 02/, ...). Each <main> counts the eyebrows that
+   opt in with data-marker, so the numbers follow page order without being typed
+   into every section. The second `content` declaration adds an empty alt text so
+   screen readers skip the counter; browsers without alt-text support use the first. */
+main {
+  counter-reset: marker;
+}
+[data-marker]::before {
+  counter-increment: marker;
+  content: counter(marker, decimal-leading-zero) "/ ";
+  content: counter(marker, decimal-leading-zero) "/ " / "";
 }
 
 /* Reveal: content is visible by default; JS opts in with data-reveal. */

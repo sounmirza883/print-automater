@@ -49,7 +49,7 @@ function MeterList({
               <span
                 className={cn(
                   "whitespace-nowrap font-mono text-xs tabular-nums",
-                  low ? "font-semibold text-rose-700" : "text-ink-600",
+                  low ? "font-bold text-ink-950" : "text-ink-600",
                 )}
               >
                 {s.remaining} {s.unit}
@@ -63,10 +63,10 @@ function MeterList({
               aria-valuemax={100}
               aria-valuenow={s.level}
               aria-valuetext={`${s.level}% remaining${low ? ", below reorder threshold" : ""}`}
-              className="relative mt-1.5 h-2 overflow-hidden rounded-full bg-ink-100"
+              className="relative mt-1.5 h-2 overflow-hidden bg-ink-100"
             >
               <div
-                className={cn("h-full rounded-full", low ? "bg-rose-600" : "bg-brand-600")}
+                className={cn("h-full", low ? "bg-ink-400" : "bg-ink-900")}
                 style={{ width: `${s.level}%` }}
               />
               <span

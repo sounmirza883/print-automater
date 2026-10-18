@@ -14,10 +14,13 @@ export type SectionProps = Omit<HTMLAttributes<HTMLElement>, "id"> & {
   containerClassName?: string;
 };
 
+// Cream bands are divided by a grey rule instead of alternating fills (the rule is a
+// sibling selector in globals.css, so it only appears between two cream bands). "muted"
+// is kept for call sites and currently matches "light". "dark" is the charcoal band.
 const tones: Record<SectionTone, string> = {
-  light: "bg-white text-ink-900",
+  light: "bg-ink-50 text-ink-900",
   muted: "bg-ink-50 text-ink-900",
-  dark: "bg-ink-950 text-white",
+  dark: "bg-ink-900 text-ink-50",
 };
 
 /** Standard band: py-20 md:py-28, tone background, inner Container. */
