@@ -7,6 +7,7 @@ import { Segmented } from "@/components/segmented";
 import { useSession } from "@/components/session-provider";
 import { AccountMenu } from "@/components/shell/account-menu";
 import { BottomTabs } from "@/components/shell/bottom-tabs";
+import { BranchSwitcher } from "@/components/shell/branch-switcher";
 import { BusinessSwitcher } from "@/components/shell/business-switcher";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { Icon } from "@/components/shell/icons";
@@ -60,6 +61,7 @@ export function ConsoleShell({
       <aside className="sticky top-0 z-40 hidden h-screen flex-col gap-3 border-r border-side-line bg-side p-3 lg:flex">
         <Brand />
         <BusinessSwitcher />
+        <BranchSwitcher />
         <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-1">
           <NavList />
         </div>
@@ -69,40 +71,47 @@ export function ConsoleShell({
       </aside>
 
       <div className="flex min-w-0 flex-col">
-        <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/90 px-3 py-2 backdrop-blur sm:px-6 lg:gap-3">
-          <div className="min-w-0 lg:hidden">
-            {business !== null ? <BusinessSwitcher compact /> : <Brand compact />}
+        <div className="sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur">
+          <div className="flex items-center gap-2 px-3 py-2 sm:px-6 lg:gap-3">
+            <div className="min-w-0 lg:hidden">
+              {business !== null ? <BusinessSwitcher compact /> : <Brand compact />}
+            </div>
+            <div className="flex-1 lg:hidden" />
+            <CommandPalette />
+            <div className="flex-1 max-lg:hidden" />
+            <Segmented
+              value={resolved}
+              onChange={setTheme}
+              ariaLabel="Theme"
+              className="max-lg:hidden"
+              options={[
+                {
+                  value: "light",
+                  label: (
+                    <>
+                      <Icon name="sun" /> Light
+                    </>
+                  ),
+                },
+                {
+                  value: "dark",
+                  label: (
+                    <>
+                      <Icon name="moon" /> Dark
+                    </>
+                  ),
+                },
+              ]}
+            />
+            {topBarExtras}
+            <div className="lg:hidden">
+              <AccountMenu placement="topbar" />
+            </div>
           </div>
-          <div className="flex-1 lg:hidden" />
-          <CommandPalette />
-          <div className="flex-1 max-lg:hidden" />
-          <Segmented
-            value={resolved}
-            onChange={setTheme}
-            ariaLabel="Theme"
-            className="max-lg:hidden"
-            options={[
-              {
-                value: "light",
-                label: (
-                  <>
-                    <Icon name="sun" /> Light
-                  </>
-                ),
-              },
-              {
-                value: "dark",
-                label: (
-                  <>
-                    <Icon name="moon" /> Dark
-                  </>
-                ),
-              },
-            ]}
-          />
-          {topBarExtras}
-          <div className="lg:hidden">
-            <AccountMenu placement="topbar" />
+          {/* Phone only: the top bar has no room for the sidebar's branch control, so it gets a
+              line of its own. The line is empty (and so hidden) when there is nothing to show. */}
+          <div className="px-3 pb-1 empty:hidden sm:px-6 lg:hidden">
+            <BranchSwitcher compact />
           </div>
         </div>
         <PlanBanner />

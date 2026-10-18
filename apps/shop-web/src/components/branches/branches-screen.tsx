@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import type { BranchSummary } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
+import { ShopQrCode } from "@/components/admin/shop-qr-code";
 import { CheckField, TextField } from "@/components/form-kit";
-import { FormDialog } from "@/components/modal";
+import { FormDialog, Modal } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
 import { useSession } from "@/components/session-provider";
@@ -32,6 +33,7 @@ import { useResource } from "@/lib/use-resource";
 type Dialog =
   | { kind: "create" }
   | { kind: "edit"; branch: BranchSummary }
+  | { kind: "qr"; branch: BranchSummary }
   | { kind: "archive"; branch: BranchSummary };
 
 /** A business's physical locations. Only owners reach this page (business settings access): they
@@ -39,7 +41,8 @@ type Dialog =
  * archived, never deleted, so its history stays; it cannot be archived while people work there
  * (move them on the Staff page first) or while it is the business's last branch.
  *
- * Orders, printers and stock are not split by branch yet, so for now a branch is who works where. */
+ * Each branch has its own guest-ordering QR code: a customer who scans it orders from that branch.
+ * Orders and printers belong to a branch; stock is not split by branch yet. */
 export function BranchesScreen(): ReactNode {
   return (
     <RequirePermission permission={Permission.MANAGE_SETTINGS} what="branches">
@@ -49,7 +52,7 @@ export function BranchesScreen(): ReactNode {
 }
 
 function BranchesBody(): ReactNode {
-  const { business, businessRole, permissions } = useSession();
+  const { business, businessRole, permissions, reloadBranches } = useSession();
   const shopId = business?.id ?? "";
   const [showArchived, setShowArchived] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -58,7 +61,13 @@ function BranchesBody(): ReactNode {
     [shopId, showArchived],
     { intervalMs: 60_000, enabled: shopId !== "" },
   );
-  const toggle = useActionRunner(list.reload);
+  // A change here also reaches the console's branch switcher, which holds its own copy of the list.
+  const reloadList = list.reload;
+  const refresh = useCallback(() => {
+    reloadList();
+    reloadBranches();
+  }, [reloadList, reloadBranches]);
+  const toggle = useActionRunner(refresh);
   const actor = { permissions, role: businessRole, branchId: business?.branchId ?? null };
 
   return (
@@ -81,7 +90,8 @@ function BranchesBody(): ReactNode {
       />
       <p className="mb-4 max-w-2xl text-sm text-muted">
         Each branch is one location of {business?.name ?? "the business"}. Give every branch its own
-        manager on the Staff page. Prices, products and settings stay shared by all branches.
+        manager on the Staff page. Prices, products and settings stay shared by all branches. Each
+        branch has its own QR code: a customer who scans it orders from that branch.
       </p>
       {toggle.error !== null && (
         <Notice tone="danger" role="alert" className="mb-4">
@@ -151,6 +161,12 @@ function BranchesBody(): ReactNode {
                           <>
                             <Button
                               variant="ghost"
+                              onClick={() => setDialog({ kind: "qr", branch })}
+                            >
+                              QR code
+                            </Button>
+                            <Button
+                              variant="ghost"
                               onClick={() => setDialog({ kind: "edit", branch })}
                             >
                               Edit
@@ -186,24 +202,61 @@ function BranchesBody(): ReactNode {
         }
       </ResourceBoundary>
       {dialog?.kind === "create" && (
-        <BranchFormDialog shopId={shopId} onClose={() => setDialog(null)} onSaved={list.reload} />
+        <BranchFormDialog shopId={shopId} onClose={() => setDialog(null)} onSaved={refresh} />
       )}
       {dialog?.kind === "edit" && (
         <BranchFormDialog
           shopId={shopId}
           branch={dialog.branch}
           onClose={() => setDialog(null)}
-          onSaved={list.reload}
+          onSaved={refresh}
+        />
+      )}
+      {dialog?.kind === "qr" && (
+        <QrDialog
+          shopId={shopId}
+          shopName={business?.name}
+          branch={dialog.branch}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === "archive" && (
-        <ArchiveDialog
-          branch={dialog.branch}
-          onClose={() => setDialog(null)}
-          onSaved={list.reload}
-        />
+        <ArchiveDialog branch={dialog.branch} onClose={() => setDialog(null)} onSaved={refresh} />
       )}
     </>
+  );
+}
+
+/** The branch's guest-ordering code and link. A closed branch still has its code (it works again
+ * once the branch is opened), and says so, so nobody prints one and wonders why orders bounce. */
+function QrDialog({
+  shopId,
+  shopName,
+  branch,
+  onClose,
+}: {
+  shopId: string;
+  shopName: string | undefined;
+  branch: BranchSummary;
+  onClose: () => void;
+}): ReactNode {
+  return (
+    <Modal title={`QR code for ${branch.name}`} onClose={onClose} dismissOnBackdrop>
+      <div className="grid gap-3 px-5 py-4 text-sm">
+        {!branch.isOpen && (
+          <Notice tone="caution" role="note">
+            {branch.name} is closed, so customers who scan this code are told so until you open it.
+          </Notice>
+        )}
+        <ShopQrCode
+          framed={false}
+          shopId={shopId}
+          shopName={shopName}
+          branchId={branch.id}
+          branchName={branch.name}
+        />
+      </div>
+    </Modal>
   );
 }
 

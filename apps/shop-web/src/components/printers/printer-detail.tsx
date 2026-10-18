@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import type { PrinterResponse, UpdatePrinterInput } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
-import { INPUT } from "@/components/form-kit";
+import { INPUT, SelectField } from "@/components/form-kit";
 import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { CapabilityToggles } from "@/components/printers/printers-screen";
 import { usePrinterRows } from "@/components/printers/use-printer-rows";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
+import { useSession } from "@/components/session-provider";
 import {
   BackLink,
   Button,
@@ -30,12 +31,15 @@ import { printerStatusTone } from "@/lib/job-status";
 import {
   PERIOD_LABELS,
   effectiveStatus,
+  moveBranchOptions,
   parsePageLimit,
   periodWord,
+  printersOnSameComputer,
   supportedCapabilities,
   usageStanding,
   type PrinterRow,
 } from "@/lib/printers-view";
+import { resolveBranchChoice } from "@/lib/staff-view";
 import type { ActionOutcome } from "@/components/orders/use-action-runner";
 
 interface Runner {
@@ -58,7 +62,7 @@ export function PrinterDetail({ printerId }: { printerId: string }): ReactNode {
 }
 
 function PrinterDetailBody({ printerId }: { printerId: string }): ReactNode {
-  const { state } = usePrinterRows();
+  const { state } = usePrinterRows({ scoped: false });
   const runner = useActionRunner(state.reload);
   const row = state.data?.find((entry) => entry.printer.id === printerId) ?? null;
 
@@ -85,7 +89,7 @@ function PrinterDetailBody({ printerId }: { printerId: string }): ReactNode {
               </p>
             </Panel>
           ) : (
-            <PrinterBody row={row} runner={runner} />
+            <PrinterBody row={row} rows={state.data ?? []} runner={runner} onMoved={state.reload} />
           )
         }
       </ResourceBoundary>
@@ -93,7 +97,17 @@ function PrinterDetailBody({ printerId }: { printerId: string }): ReactNode {
   );
 }
 
-function PrinterBody({ row, runner }: { row: PrinterRow; runner: Runner }): ReactNode {
+function PrinterBody({
+  row,
+  rows,
+  runner,
+  onMoved,
+}: {
+  row: PrinterRow;
+  rows: readonly PrinterRow[];
+  runner: Runner;
+  onMoved: () => void;
+}): ReactNode {
   const { printer, live } = row;
   const status = effectiveStatus(row);
   const disabled = printer.status === "DISABLED";
@@ -169,6 +183,7 @@ function PrinterBody({ row, runner }: { row: PrinterRow; runner: Runner }): Reac
                 {live.maintenanceStatus}
               </Panel>
             )}
+            <BranchPanel row={row} rows={rows} busy={runner.busy} onMoved={onMoved} />
             <Panel title="Availability and rules" id="availability">
               <div className="grid gap-3 text-sm">
                 <p>
@@ -219,6 +234,115 @@ function PrinterBody({ row, runner }: { row: PrinterRow; runner: Runner }): Reac
         aside={<ProfileForm key={`name:${printer.name}`} printer={printer} runner={runner} />}
       />
     </div>
+  );
+}
+
+/** Which branch this printer is at, for someone who works at several; the owner can move it.
+ * A printer belongs to its computer's branch, so moving one moves the computer and every printer
+ * on it. Nothing here for a one-branch business or a branch-bound person. */
+function BranchPanel({
+  row,
+  rows,
+  busy,
+  onMoved,
+}: {
+  row: PrinterRow;
+  rows: readonly PrinterRow[];
+  busy: boolean;
+  onMoved: () => void;
+}): ReactNode {
+  const { branches, branchMode, can } = useSession();
+  const [moving, setMoving] = useState(false);
+  if (branchMode !== "choice") {
+    return null;
+  }
+  const { printer } = row;
+  const canMove =
+    can(Permission.MANAGE_SETTINGS) && moveBranchOptions(printer.branchId, branches).length > 0;
+  return (
+    <Panel title="Branch" id="branch">
+      <div className="grid gap-3 text-sm">
+        <p>
+          This printer is at <strong>{printer.branchName ?? "its branch"}</strong>. Only jobs from
+          that branch print on it.
+        </p>
+        {canMove ? (
+          <div>
+            <Button disabled={busy} onClick={() => setMoving(true)}>
+              Move to another branch…
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">Only an owner can move a printer to another branch.</p>
+        )}
+      </div>
+      {moving && (
+        <MovePrinterDialog
+          printer={printer}
+          alsoMoving={printersOnSameComputer(rows, row)}
+          onClose={() => setMoving(false)}
+          onMoved={onMoved}
+        />
+      )}
+    </Panel>
+  );
+}
+
+function MovePrinterDialog({
+  printer,
+  alsoMoving,
+  onClose,
+  onMoved,
+}: {
+  printer: PrinterResponse;
+  /** How many other printers are on the same computer; null when not known. */
+  alsoMoving: number | null;
+  onClose: () => void;
+  onMoved: () => void;
+}): ReactNode {
+  const { branches } = useSession();
+  const runner = useActionRunner(onMoved);
+  const options = moveBranchOptions(printer.branchId, branches);
+  const [chosen, setChosen] = useState("");
+  // Nothing is pre-chosen when there is a real choice: moving a computer is deliberate.
+  const target = resolveBranchChoice(options, chosen);
+  const targetName = options.find((option) => option.value === target)?.label;
+  const from = printer.branchName ?? "its branch";
+  return (
+    <FormDialog
+      title={`Move ${printer.name} to another branch`}
+      submitLabel={targetName === undefined ? "Move" : `Move to ${targetName}`}
+      busy={runner.busy}
+      error={runner.error}
+      disabled={target === ""}
+      onCancel={onClose}
+      onSubmit={() =>
+        void runner
+          .run(() => getApi().printers.moveBranch(printer.id, target))
+          .then((outcome) => outcome === "ok" && onClose())
+      }
+    >
+      <p>
+        This moves the computer that <strong>{printer.name}</strong> is connected to,{" "}
+        <strong>and every printer on that computer</strong>
+        {alsoMoving !== null && alsoMoving > 0
+          ? ` (${alsoMoving} other${alsoMoving === 1 ? "" : "s"})`
+          : ""}
+        , from {from} to the branch you choose.
+      </p>
+      <SelectField
+        label="Move to"
+        value={target}
+        onChange={setChosen}
+        options={options}
+        emptyLabel="Choose a branch"
+      />
+      <p className="text-xs text-muted">
+        From then on they print only jobs from the new branch. Orders and jobs already placed stay
+        with {from}. A computer cannot be moved while any of its printers has a job queued or
+        printing: let those finish first.
+      </p>
+    </FormDialog>
   );
 }
 

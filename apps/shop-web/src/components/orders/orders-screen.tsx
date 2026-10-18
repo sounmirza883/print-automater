@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { ShopOrderResponse } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
 import { BlockedNote } from "@/components/blocked-note";
@@ -61,7 +61,7 @@ export function OrdersScreen(): ReactNode {
 function OrdersBody(): ReactNode {
   const router = useRouter();
   const params = useSearchParams();
-  const { business } = useSession();
+  const { business, branchFilter, showBranchColumn } = useSession();
   const shopId = business?.id ?? "";
   const query = parseOrdersQuery(params);
   const searching = isSearching(query);
@@ -91,25 +91,48 @@ function OrdersBody(): ReactNode {
     router.replace(`/orders${toSearchString(next)}`);
   };
 
+  // The selected branch narrows the queue, the search and the printer filter alike. Changing it
+  // starts the list over: a page number or a printer chosen for one branch means nothing at
+  // another (page 3 of a shorter list would be empty, with no pager to get back).
+  const lastBranch = useRef(branchFilter);
+  useEffect(() => {
+    if (lastBranch.current === branchFilter) {
+      return;
+    }
+    lastBranch.current = branchFilter;
+    if (query.page > 0 || query.printerId !== "") {
+      // (The search form follows the URL, so its printer field clears with it.)
+      go({ ...query, printerId: "", page: 0 });
+    }
+    // Only a change of branch should reset; `query` and `go` are read as they are at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchFilter]);
+
   const state = useResource(
     () =>
       searching
-        ? getApi().shopOrders.search(shopId, searchParamsFor(query))
+        ? getApi().shopOrders.search(shopId, {
+            ...searchParamsFor(query),
+            branchId: branchFilter,
+          })
         : getApi().shopOrders.listPage(shopId, {
             group: query.group ?? undefined,
+            branchId: branchFilter,
             limit: PAGE_SIZE,
             offset: query.page * PAGE_SIZE,
           }),
-    [shopId, toSearchString(query)],
+    [shopId, branchFilter, toSearchString(query)],
     // Plain listing is never throttled and is what a floor screen watches;
     // searches draw on a 60/minute budget so they are run on demand only.
     { intervalMs: searching ? undefined : POLL_MS, enabled: shopId !== "" },
   );
 
   // For the printer filter (every staff role may read the printer list since 23.14).
-  const printers = useResource(() => getApi().printers.listPage(shopId, { limit: 100 }), [shopId], {
-    enabled: shopId !== "",
-  });
+  const printers = useResource(
+    () => getApi().printers.listPage(shopId, { limit: 100, branchId: branchFilter }),
+    [shopId, branchFilter],
+    { enabled: shopId !== "" },
+  );
 
   function submitSearch(event: FormEvent): void {
     event.preventDefault();
@@ -359,6 +382,7 @@ function OrdersBody(): ReactNode {
                   key={order.id}
                   order={order}
                   emphasis={query.group === "needsAttention" && !searching}
+                  showBranch={showBranchColumn}
                 />
               ))}
             </ul>
@@ -412,7 +436,16 @@ function UuidField({
   );
 }
 
-function OrderRow({ order, emphasis }: { order: ShopOrderResponse; emphasis: boolean }): ReactNode {
+function OrderRow({
+  order,
+  emphasis,
+  showBranch,
+}: {
+  order: ShopOrderResponse;
+  emphasis: boolean;
+  /** True while looking at all of several branches: each order then says where it was placed. */
+  showBranch: boolean;
+}): ReactNode {
   const reasons = blockedReasonsOf(order);
   const quote = order.pricingSnapshot?.quote;
   return (
@@ -435,6 +468,9 @@ function OrderRow({ order, emphasis }: { order: ShopOrderResponse; emphasis: boo
         <QrAwaitingPaymentPill order={order} />
         {order.printJobs.some((job) => job.blockedReason === "MANUAL_APPROVAL_REQUIRED") && (
           <Pill tone="danger">Held by late print</Pill>
+        )}
+        {showBranch && order.branchName !== undefined && (
+          <span className="text-xs font-medium text-muted">Branch: {order.branchName}</span>
         )}
         <span className="ml-auto text-xs text-muted">{formatAge(order.createdAt)}</span>
       </div>

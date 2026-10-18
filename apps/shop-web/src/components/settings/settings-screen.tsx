@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import type { OperatingHours, ShopSettings } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
-import { ShopQrCode } from "@/components/admin/shop-qr-code";
 import { CheckField, ErrorBanner, INPUT, TextField } from "@/components/form-kit";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { RequirePermission, ResourceBoundary } from "@/components/resource-boundary";
@@ -82,7 +81,7 @@ function SettingsForm({
   shopId: string;
   reload: () => void;
 }): ReactNode {
-  const { can, business } = useSession();
+  const { can } = useSession();
   const canBusiness = can(Permission.MANAGE_SETTINGS);
   const canAutomation = can(Permission.MANAGE_AUTOMATION);
   const runner = useActionRunner(reload);
@@ -179,7 +178,24 @@ function SettingsForm({
         )}
       </Panel>
 
-      <ShopQrCode shopId={shopId} shopName={business?.name} />
+      <Panel title="Guest ordering QR codes" id="qr-code">
+        <p className="text-sm text-muted">
+          Each branch has its own QR code, and a customer who scans it orders from that branch.{" "}
+          {canBusiness ? (
+            <>
+              Print them from the{" "}
+              <Link href="/branches" className="font-medium text-ink underline">
+                Branches page
+              </Link>
+              .
+            </>
+          ) : (
+            "The owner prints them from the Branches page."
+          )}{" "}
+          Codes already printed and posted keep working: they send orders to the business&apos;s
+          first branch.
+        </p>
+      </Panel>
 
       <Panel
         title="Automation"

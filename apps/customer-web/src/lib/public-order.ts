@@ -47,7 +47,11 @@ export interface PublicOrderResult {
  * guest ever sees -- shown on the confirmation screen this resolves
  * to, not before. Sent straight to the API's own public route from the
  * browser (see `public-api.ts`); the `Idempotency-Key` header crosses
- * origins under the API's CORS config like any other request header. */
+ * origins under the API's CORS config like any other request header.
+ *
+ * `branchId` is the branch whose QR code was scanned. It is left out of the body altogether when
+ * there is none (a code printed before branches existed), and the API then uses the business's
+ * oldest branch. It comes last so the earlier positional calls keep working. */
 export async function createPublicOrder(
   shopId: string,
   name: string,
@@ -56,13 +60,20 @@ export async function createPublicOrder(
   printConfiguration: PrintConfiguration,
   idempotencyKey: string,
   fetchImpl: typeof fetch = fetch,
+  branchId?: string,
 ): Promise<PublicOrderResult> {
   let response: Response;
   try {
     response = await fetchImpl(publicApiUrl(`/v1/public/shops/${shopId}/orders`), {
       method: "POST",
       headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify({ name, phone, documentId, printConfiguration }),
+      body: JSON.stringify({
+        ...(branchId !== undefined ? { branchId } : {}),
+        name,
+        phone,
+        documentId,
+        printConfiguration,
+      }),
     });
   } catch {
     throw new Error(UNREACHABLE_MESSAGE);

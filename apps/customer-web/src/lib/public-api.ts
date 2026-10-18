@@ -33,9 +33,22 @@ export async function publicErrorMessage(response: Response, fallback: string): 
   if (response.status === 429) {
     return rateLimitedMessage(response.headers.get("Retry-After"));
   }
-  const body = (await response.json().catch(() => undefined)) as { message?: unknown } | undefined;
+  const body = (await response.json().catch(() => undefined)) as
+    { error_code?: unknown; message?: unknown } | undefined;
+  const code = typeof body?.error_code === "string" ? body.error_code : undefined;
+  if (code !== undefined && BRANCH_REFUSALS[code] !== undefined) {
+    return BRANCH_REFUSALS[code];
+  }
   return typeof body?.message === "string" ? body.message : fallback;
 }
+
+/** A guest who scanned a branch's code is told in plain words when that branch cannot take the
+ * order, whatever the API's own message says. */
+const BRANCH_REFUSALS: Record<string, string> = {
+  BRANCH_CLOSED:
+    "This branch is closed right now, so it cannot take your order. Please try again when it is open.",
+  BRANCH_ARCHIVED: "This branch no longer takes orders. Please ask the shop for its current code.",
+};
 
 export function rateLimitedMessage(retryAfter: string | null): string {
   const lead = "Too many attempts from this connection.";

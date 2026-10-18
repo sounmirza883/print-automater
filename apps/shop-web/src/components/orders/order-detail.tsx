@@ -55,7 +55,7 @@ export function OrderDetail({ orderId }: { orderId: string }): ReactNode {
 }
 
 function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
-  const { business, can } = useSession();
+  const { business, can, branchMode } = useSession();
   const focusJob = useSearchParams().get("job");
   const state = useResource(() => getApi().shopOrders.get(orderId), [orderId], {
     intervalMs: POLL_MS,
@@ -115,7 +115,15 @@ function OrderDetailBody({ orderId }: { orderId: string }): ReactNode {
       <BackLink href="/orders">Orders</BackLink>
       <PageHeader
         title={order?.publicOrderNumber ?? "Order"}
-        subtitle={order !== null ? order.customerName : undefined}
+        subtitle={
+          order !== null
+            ? // Someone who can work at several branches is told which one this order belongs to,
+              // whichever branch the console is narrowed to (a link from an alert can lead to any).
+              [order.customerName, branchMode === "choice" ? order.branchName : undefined]
+                .filter((part) => part !== undefined && part !== "")
+                .join(" · ")
+            : undefined
+        }
         actions={
           <LiveStatus
             lastUpdated={state.lastUpdated}

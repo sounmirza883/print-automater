@@ -1,10 +1,12 @@
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ColorMode, Orientation, PaperSize, PaperType, Sides } from "@print-automated/types";
+import type { PublicBranch } from "@/lib/public-branch";
 import { fetchPublicInvoice, type PublicOrderResult } from "@/lib/public-order";
 import { ConfigureStep, type WizardStep } from "@/components/qr/configure-step";
 import { ConfirmationScreen } from "@/components/qr/confirmation";
 import { GuestDetailsStep } from "@/components/qr/details-step";
+import { BranchClosedScreen, OrderingBranchContext } from "@/components/qr/ordering-branch";
 import { StepIndicator } from "@/components/qr/step-indicator";
 import { UploadStep } from "@/components/qr/upload-step";
 
@@ -184,6 +186,72 @@ describe("ConfirmationScreen", () => {
     expect(html).toContain("QR code for order PA-1042");
     expect(html).toContain("Download invoice (PDF)");
     expect(html).toContain("Place another order");
+  });
+
+  it("says where to collect when the code named a branch, and nothing more when it did not", () => {
+    const branch: PublicBranch = {
+      id: "9a7d6c5b-4e3f-4a2b-8c1d-0e9f8a7b6c5d",
+      name: "Gulberg",
+      city: "Lahore",
+      address: "12 Main Boulevard",
+      isOpen: true,
+    };
+    const render = (value: PublicBranch | null): string =>
+      renderToStaticMarkup(
+        createElement(
+          OrderingBranchContext.Provider,
+          { value },
+          createElement(ConfirmationScreen, { order, onOrderAgain: () => undefined }),
+        ),
+      );
+    expect(render(branch)).toContain("Collect at");
+    expect(render(branch)).toContain("12 Main Boulevard");
+    expect(render(null)).not.toContain("Collect at");
+  });
+});
+
+describe("the branch a QR code names", () => {
+  const gulberg: PublicBranch = {
+    id: "9a7d6c5b-4e3f-4a2b-8c1d-0e9f8a7b6c5d",
+    name: "Gulberg",
+    city: "Lahore",
+    address: "12 Main Boulevard",
+    isOpen: true,
+  };
+  const within = (branch: PublicBranch | null, node: ReactElement): string =>
+    renderToStaticMarkup(createElement(OrderingBranchContext.Provider, { value: branch }, node));
+
+  it("says on each step which branch the order goes to", () => {
+    const steps = [
+      createElement(GuestDetailsStep, { onContinue: () => undefined }),
+      createElement(UploadStep, { shopId: "shop-1", onReady: () => undefined }),
+      createElement(ConfigureStep, { step: configureStep, onSubmit: () => undefined }),
+    ];
+    for (const step of steps) {
+      const html = within(gulberg, step);
+      expect(html).toContain("Ordering from");
+      expect(html).toContain("Gulberg");
+      expect(html).toContain("Lahore");
+    }
+  });
+
+  it("shows nothing extra for a code that names no branch", () => {
+    const html = within(null, createElement(GuestDetailsStep, { onContinue: () => undefined }));
+    expect(html).not.toContain("Ordering from");
+  });
+
+  it("tells a guest the branch is closed, and offers no way to carry on but checking again", () => {
+    const html = renderToStaticMarkup(
+      createElement(BranchClosedScreen, {
+        branch: { ...gulberg, isOpen: false },
+        onCheckAgain: () => undefined,
+      }),
+    );
+    expect(html).toContain("Gulberg is closed right now");
+    expect(html).toContain("12 Main Boulevard");
+    expect(html).toContain("Check again");
+    expect(html).not.toContain('type="file"');
+    expect(html).not.toContain('type="tel"');
   });
 });
 

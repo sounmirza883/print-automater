@@ -7,9 +7,10 @@ import { UserRole, type Permission } from "@print-automated/types";
 import { ConsoleShell } from "@/components/console-shell";
 import { SessionContext } from "@/components/session-provider";
 import { BottomTabs } from "@/components/shell/bottom-tabs";
+import { BranchSwitcher } from "@/components/shell/branch-switcher";
 import { BusinessSwitcher } from "@/components/shell/business-switcher";
 import { NavList } from "@/components/shell/nav-list";
-import { renderAs } from "@/components/test-session";
+import { SINGLE_BRANCH_SESSION, renderAs, testBranch } from "@/components/test-session";
 import { serverPermissionsFor } from "@/components/test-role-permissions";
 import { ThemeProvider } from "@/components/theme-provider";
 import { membershipPermissions } from "@/lib/permissions";
@@ -48,6 +49,7 @@ function renderAsPlatformAdmin(node: ReactNode): string {
         permissions: new Set<Permission>(),
         can: () => false,
         isAdmin: true,
+        ...SINGLE_BRANCH_SESSION,
       },
       children: node,
     }),
@@ -80,6 +82,7 @@ function renderInTwoBusinesses(node: ReactNode): string {
         permissions,
         can: (permission) => permissions.has(permission),
         isAdmin: false,
+        ...SINGLE_BRANCH_SESSION,
       },
       children: node,
     }),
@@ -136,6 +139,66 @@ describe("BusinessSwitcher", () => {
   });
 });
 
+describe("BranchSwitcher", () => {
+  const main = testBranch("a", "Main");
+  const gulberg = testBranch("b", "Gulberg");
+  /** An all-branches person in a business with two branches, looking at all of them. */
+  const choosing = { branches: [main, gulberg], branchMode: "choice" as const, branch: null };
+
+  it("shows nothing for a business with one branch, so it notices no new control", () => {
+    expect(renderAs(UserRole.SHOP_OWNER, createElement(BranchSwitcher))).toBe("");
+    expect(renderAs(UserRole.SHOP_OWNER, createElement(BranchSwitcher, { compact: true }))).toBe(
+      "",
+    );
+  });
+
+  it("renders nothing for a platform admin, who has no business", () => {
+    expect(renderAsPlatformAdmin(createElement(BranchSwitcher))).toBe("");
+  });
+
+  it("is a popover button saying all branches for someone who works at all of several", () => {
+    const html = renderAs(UserRole.SHOP_OWNER, createElement(BranchSwitcher), {
+      branch: choosing,
+    });
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain("All branches");
+  });
+
+  it("names the branch the console is narrowed to", () => {
+    const html = renderAs(UserRole.SHOP_OWNER, createElement(BranchSwitcher), {
+      branch: { ...choosing, branch: gulberg },
+    });
+    expect(html).toContain("Gulberg");
+    expect(html).not.toContain("All branches");
+  });
+
+  it("is a labelled button on the phone bar too", () => {
+    const html = renderAs(UserRole.SHOP_OWNER, createElement(BranchSwitcher, { compact: true }), {
+      branch: { ...choosing, branch: gulberg },
+    });
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain("Gulberg");
+  });
+
+  it("is plain text, not a menu, for a branch-bound person: their own branch's name", () => {
+    const html = renderAs(UserRole.SHOP_MANAGER, createElement(BranchSwitcher), {
+      membership: { branchId: "a", branchName: "Main" },
+      branch: { branches: [main], branchMode: "bound", branch: main },
+    });
+    expect(html).toContain("Main");
+    expect(html).not.toContain("aria-haspopup");
+    expect(html).not.toContain("<button");
+  });
+
+  it("still names a branch-bound person's branch when the branch list did not load", () => {
+    const html = renderAs(UserRole.SHOP_MANAGER, createElement(BranchSwitcher), {
+      membership: { branchId: "a", branchName: "Main" },
+      branch: { branches: [], branchMode: "bound", branch: null },
+    });
+    expect(html).toContain("Main");
+  });
+});
+
 describe("BottomTabs", () => {
   it("marks More, and no tab, as current on a screen that is not one of the tabs", () => {
     mockPathname = "/settings";
@@ -169,6 +232,31 @@ describe("ConsoleShell", () => {
     );
     expect(html.match(/Skip to content/g)).toHaveLength(1);
     expect(html.match(/<main/g)).toHaveLength(1);
+  });
+
+  it("adds no branch control to the shell of a one-branch business", () => {
+    const html = renderAs(
+      UserRole.SHOP_OWNER,
+      themed(createElement(ConsoleShell, { children: "SCREEN-BODY" })),
+    );
+    // (The owner's "Branches" page is in the navigation: this is about the switcher and label.)
+    expect(html).not.toContain("Switch branch");
+    expect(html).not.toContain("Branch: ");
+    expect(html).not.toContain(">Branch<");
+  });
+
+  it("names a branch-bound manager's branch in the sidebar and on the phone bar, with no menu", () => {
+    const main = testBranch("a", "Main");
+    const html = renderAs(
+      UserRole.SHOP_MANAGER,
+      themed(createElement(ConsoleShell, { children: "SCREEN-BODY" })),
+      {
+        membership: { branchId: "a", branchName: "Main" },
+        branch: { branches: [main], branchMode: "bound", branch: main },
+      },
+    );
+    expect(html.match(/>Main</g)).toHaveLength(2);
+    expect(html).not.toContain("Switch branch");
   });
 
   it("renders for a platform admin with no business selected", () => {

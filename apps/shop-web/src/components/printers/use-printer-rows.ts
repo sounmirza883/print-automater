@@ -12,19 +12,25 @@ const POLL_MS = 15_000;
 /** The business's printers: profiles from the printer list, joined with
  * live queue/agent/error data when the role may read the printer
  * dashboard. The live half failing (or being forbidden) never blanks the
- * screen; the profile list is what the management screens need. */
-export function usePrinterRows(): {
+ * screen; the profile list is what the management screens need.
+ *
+ * The fleet list follows the branch selected in the console. One printer's own page (`scoped:
+ * false`) asks for every branch the person may see, so a printer opened from a link is found
+ * whichever branch is selected; the server still refuses another branch to a branch-bound person. */
+export function usePrinterRows({ scoped = true }: { scoped?: boolean } = {}): {
   state: ResourceState<PrinterRow[]>;
   hasLiveData: boolean;
 } {
-  const { business, can } = useSession();
+  const { business, can, branchFilter } = useSession();
   const shopId = business?.id ?? "";
   const wantsLive = can(Permission.VIEW_PRINTER_DASHBOARD);
+  const branchId = scoped ? branchFilter : undefined;
 
-  const list = useResource(() => getApi().printers.listPage(shopId, { limit: 100 }), [shopId], {
-    intervalMs: POLL_MS,
-    enabled: shopId !== "",
-  });
+  const list = useResource(
+    () => getApi().printers.listPage(shopId, { limit: 100, branchId }),
+    [shopId, branchId],
+    { intervalMs: POLL_MS, enabled: shopId !== "" },
+  );
   const live = useResource(() => getApi().dashboard.printers(shopId), [shopId], {
     intervalMs: POLL_MS,
     enabled: shopId !== "" && wantsLive,

@@ -12,7 +12,7 @@ function count(file: string, needle: string): number {
  * duplicate one; a deliberate change to a screen's sections updates its row. */
 const SCREENS: ReadonlyArray<[string, number, number]> = [
   ["orders/order-detail.tsx", 4, 0],
-  ["printers/printer-detail.tsx", 7, 1],
+  ["printers/printer-detail.tsx", 8, 1], // + Branch (step 3)
   ["inventory/inventory-item-screen.tsx", 3, 1],
   ["suppliers/supplier-detail.tsx", 2, 0],
   ["purchase-orders/po-detail.tsx", 3, 1],

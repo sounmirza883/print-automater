@@ -3,7 +3,10 @@ import type { DashboardPrinter } from "@print-automated/types";
 import {
   effectiveStatus,
   mergePrinters,
+  moveBranchOptions,
+  pairingBranchOptions,
   parsePageLimit,
+  printersOnSameComputer,
   supportedCapabilities,
   usageStanding,
 } from "./printers-view";
@@ -79,5 +82,76 @@ describe("supportedCapabilities", () => {
       "A4",
     ]);
     expect(supportedCapabilities(null)).toEqual([]);
+  });
+});
+
+describe("pairingBranchOptions", () => {
+  const branches = [
+    { id: "a", name: "Main", archivedAt: null },
+    { id: "b", name: "Gulberg", archivedAt: null },
+    { id: "c", name: "Old Town", archivedAt: "2026-10-05T10:00:00.000Z" },
+  ];
+
+  it("offers someone who works at all branches every active branch, and never all branches", () => {
+    // A computer sits at one place, so unlike a person it cannot belong to every branch.
+    expect(pairingBranchOptions({ branchId: null }, branches)).toEqual([
+      { value: "a", label: "Main" },
+      { value: "b", label: "Gulberg" },
+    ]);
+  });
+
+  it("offers a branch-bound person only their own branch", () => {
+    expect(pairingBranchOptions({ branchId: "b" }, branches)).toEqual([
+      { value: "b", label: "Gulberg" },
+    ]);
+  });
+
+  it("never offers an archived branch", () => {
+    expect(pairingBranchOptions({ branchId: "c" }, branches)).toEqual([]);
+  });
+});
+
+describe("moveBranchOptions", () => {
+  const branches = [
+    { id: "a", name: "Main", archivedAt: null },
+    { id: "b", name: "Gulberg", archivedAt: null },
+    { id: "c", name: "Old Town", archivedAt: "2026-10-05T10:00:00.000Z" },
+  ];
+
+  it("offers the other active branches, not the one the computer is already at", () => {
+    expect(moveBranchOptions("a", branches)).toEqual([{ value: "b", label: "Gulberg" }]);
+  });
+
+  it("offers nothing when the business has no other active branch", () => {
+    expect(moveBranchOptions("a", [branches[0]!, branches[2]!])).toEqual([]);
+  });
+
+  it("offers every active branch when the printer's own branch is not known", () => {
+    expect(moveBranchOptions(undefined, branches).map((option) => option.value)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+});
+
+describe("printersOnSameComputer", () => {
+  const agentRow = (id: string, agentId: string | null) => ({
+    printer: printer({ id }),
+    live: {
+      id,
+      agent: agentId === null ? null : { id: agentId, status: "ACTIVE", lastSeenAt: null },
+    } as DashboardPrinter,
+  });
+
+  it("counts the other printers paired through the same agent", () => {
+    const rows = [agentRow("p1", "ag1"), agentRow("p2", "ag1"), agentRow("p3", "ag2")];
+    expect(printersOnSameComputer(rows, rows[0]!)).toBe(1);
+    expect(printersOnSameComputer(rows, rows[2]!)).toBe(0);
+  });
+
+  it("is unknown (null) without live data or a paired agent, so the screen speaks generally", () => {
+    const rows = [agentRow("p1", null), { printer: printer({ id: "p2" }), live: null }];
+    expect(printersOnSameComputer(rows, rows[0]!)).toBeNull();
+    expect(printersOnSameComputer(rows, rows[1]!)).toBeNull();
   });
 });

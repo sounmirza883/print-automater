@@ -22,6 +22,7 @@ import {
   SiteFrame,
   Stepper,
 } from "@/components/ui";
+import { OrderingFrom } from "@/components/qr/ordering-branch";
 import { StepIndicator } from "@/components/qr/step-indicator";
 import { validatePageSelection } from "@/lib/page-selection";
 import type { PublicOrderResult } from "@/lib/public-order";
@@ -132,6 +133,7 @@ export function ConfigureStep({
 
   return (
     <SiteFrame width="narrow">
+      <OrderingFrom />
       <StepIndicator current={3} />
 
       <div className="mb-6 grid gap-4">

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { ConsoleShell } from "@/components/console-shell";
 import { SessionProvider, useSession } from "@/components/session-provider";
-import { Button, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { Button, EmptyState, ErrorState, LoadingGrid, Skeleton } from "@/components/ui";
 
 function SessionLoading(): ReactNode {
   return (
@@ -54,6 +54,14 @@ function NoBusiness({ children }: { children: ReactNode }): ReactNode {
   );
 }
 
+/** A screen fetches with the selected branch, so it waits until the business's branches are known:
+ * otherwise someone who narrowed to one branch would see everything load first, then again. The
+ * shell stays up meanwhile, and the wait is brief (and only on opening or switching business). */
+function WaitForBranches({ children }: { children: ReactNode }): ReactNode {
+  const { branchesReady } = useSession();
+  return branchesReady ? children : <LoadingGrid label="Loading your branches" />;
+}
+
 /** Session loading -> shell -> screen. Everything under `(console)`
  * renders inside this, so a screen can call `useSession()` and rely on
  * the person, their businesses and their role being known. */
@@ -70,7 +78,9 @@ export function ConsoleFrame({
       errorFallback={(retry, error) => <SessionFailed retry={retry} error={error} />}
     >
       <ConsoleShell topBarExtras={topBarExtras}>
-        <NoBusiness>{children}</NoBusiness>
+        <NoBusiness>
+          <WaitForBranches>{children}</WaitForBranches>
+        </NoBusiness>
       </ConsoleShell>
     </SessionProvider>
   );

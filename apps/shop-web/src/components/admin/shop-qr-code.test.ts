@@ -48,13 +48,47 @@ describe("shopUploadUrl", () => {
       expect(shopUploadUrl("shop-123")).toBeNull();
     }
   });
+
+  it("adds the branch as a query parameter, leaving the business-wide address (printed codes) as it was", () => {
+    env[ENV_KEY] = "https://order.example.com";
+    expect(shopUploadUrl("shop-123", "branch-9")).toBe(
+      "https://order.example.com/s/shop-123/upload?branch=branch-9",
+    );
+    expect(shopUploadUrl("shop-123")).toBe("https://order.example.com/s/shop-123/upload");
+  });
+
+  it("encodes the branch id, and still refuses an unusable origin", () => {
+    env[ENV_KEY] = "https://order.example.com";
+    expect(shopUploadUrl("shop-123", "a b&c")).toBe(
+      "https://order.example.com/s/shop-123/upload?branch=a%20b%26c",
+    );
+    env[ENV_KEY] = "order.example.com";
+    expect(shopUploadUrl("shop-123", "branch-9")).toBeNull();
+  });
 });
 
 describe("ShopQrCode (rendered)", () => {
-  const render = (props: { notReady?: string } = {}) =>
+  const render = (props: { notReady?: string; branchId?: string; branchName?: string } = {}) =>
     renderToStaticMarkup(
       createElement(ShopQrCode, { shopId: "shop-xyz", shopName: "Test Print Co", ...props }),
     );
+
+  it("for a branch, encodes that branch's address, names the branch, and offers to copy the link", () => {
+    delete env[ENV_KEY];
+    const html = render({ branchId: "branch-7", branchName: "Gulberg" });
+    expect(html).toContain("http://localhost:3001/s/shop-xyz/upload?branch=branch-7");
+    expect(html).toContain("QR code for Gulberg");
+    expect(html).toContain("Download PNG");
+    expect(html).toContain("Copy link");
+    expect(html).toContain("<canvas");
+  });
+
+  it("for the business as a whole, has no branch in its address", () => {
+    delete env[ENV_KEY];
+    const html = render();
+    expect(html).not.toContain("?branch=");
+    expect(html).toContain("Guest ordering QR code");
+  });
 
   it("encodes the shop's own upload URL into the QR canvas, and shows it as text", () => {
     delete env[ENV_KEY];

@@ -3,6 +3,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { createPublicOrderSchema } from "@print-automated/validation";
 import { Button, Field, INPUT_LG, Notice, SiteFrame } from "@/components/ui";
+import { OrderingFrom } from "@/components/qr/ordering-branch";
 import { StepIndicator } from "@/components/qr/step-indicator";
 
 /** Step 1: name + phone, no account. Validated with the exact same
@@ -37,6 +38,7 @@ export function GuestDetailsStep({
 
   return (
     <SiteFrame width="narrow">
+      <OrderingFrom />
       <StepIndicator current={1} />
 
       <div className="mb-6 grid gap-2">

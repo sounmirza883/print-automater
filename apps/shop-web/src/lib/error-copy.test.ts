@@ -44,6 +44,8 @@ describe("errorMessageFor", () => {
     ["BRANCH_ARCHIVED", /archived/],
     ["BRANCH_REQUIRED", /Choose which branch/],
     ["BRANCH_NOT_FOUND", /no longer exists/],
+    ["BRANCH_CLOSED", /closed.*Branches page/],
+    ["AGENT_HAS_ACTIVE_JOBS", /queued or printing/],
     ["OWNER_EMAIL_IN_USE", /already has an account.*different email address/],
     ["OWNER_ALREADY_ACTIVE", /already set their password.*sign in normally/],
   ])("gives %s its own precise copy", (code, pattern) => {
@@ -118,5 +120,13 @@ describe("interpretActionFailure", () => {
     }
     // Fix wave 1: the owner activated meanwhile -- reload so the page shows them as active.
     expect(isStaleStateError(apiError(409, "OWNER_ALREADY_ACTIVE"))).toBe(true);
+    // A computer that cannot move because of its jobs: reload, so its queue shows as it is now.
+    expect(isStaleStateError(apiError(409, "AGENT_HAS_ACTIVE_JOBS"))).toBe(true);
+  });
+
+  it("words BRANCH_REQUIRED so it fits staff, pairing codes and orders alike", () => {
+    expect(errorMessageFor(apiError(400, "BRANCH_REQUIRED"))).toBe(
+      "Choose which branch this is for.",
+    );
   });
 });

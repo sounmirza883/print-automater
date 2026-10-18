@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import type { PairingCode } from "@print-automated/api-client";
+import type { PairingCode, RegisterPrinterInput } from "@print-automated/api-client";
 import { Permission } from "@print-automated/types";
-import { INPUT } from "@/components/form-kit";
+import { INPUT, SelectField } from "@/components/form-kit";
 import { FormDialog } from "@/components/modal";
 import { useActionRunner } from "@/components/orders/use-action-runner";
 import { usePrinterRows } from "@/components/printers/use-printer-rows";
@@ -16,11 +16,13 @@ import { formatCount, formatDateTime, humanizeEnum } from "@/lib/format";
 import { printerStatusTone } from "@/lib/job-status";
 import {
   effectiveStatus,
+  pairingBranchOptions,
   periodWord,
   supportedCapabilities,
   usageStanding,
   type PrinterRow,
 } from "@/lib/printers-view";
+import { resolveBranchChoice } from "@/lib/staff-view";
 
 /** PRD 109 (fleet view): every printer with its state, queue, pages used
  * against its limit and what it can do; add a printer; open one to manage
@@ -35,7 +37,7 @@ export function PrintersScreen(): ReactNode {
 }
 
 function PrintersBody(): ReactNode {
-  const { business } = useSession();
+  const { business, showBranchColumn } = useSession();
   const { state, hasLiveData } = usePrinterRows();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -130,7 +132,7 @@ function PrintersBody(): ReactNode {
             ) : (
               <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Printers">
                 {rows.map((row) => (
-                  <PrinterCard key={row.printer.id} row={row} />
+                  <PrinterCard key={row.printer.id} row={row} showBranch={showBranchColumn} />
                 ))}
               </ul>
             )}
@@ -157,8 +159,73 @@ function PrintersBody(): ReactNode {
   );
 }
 
+/** Where a new computer or printer will be, asked the way the staff invitation asks where a person
+ * works: a business with one location has nothing to choose; a branch-bound person's is their own
+ * branch (the server uses it); anyone who works at all branches must pick one, with nothing
+ * pre-chosen. A computer sits at a single place, so "All branches" is never an option. */
+function useBranchPlacement(): {
+  /** Whether the person has to pick (and the select is shown). */
+  mustChoose: boolean;
+  /** A branch-bound person's own branch, named for them; null otherwise. */
+  ownBranchName: string | null;
+  options: Array<{ value: string; label: string }>;
+  choice: string;
+  setChoice: (value: string) => void;
+  error: string | null;
+  /** What to send as `branchId`: the pick, or undefined when the server knows the branch. */
+  branchId: string | undefined;
+} {
+  const { business, branches, branchMode } = useSession();
+  const options = pairingBranchOptions({ branchId: business?.branchId ?? null }, branches);
+  const [chosen, setChosen] = useState("");
+  const mustChoose = branchMode === "choice" && options.length > 1;
+  const choice = resolveBranchChoice(options, chosen);
+  return {
+    mustChoose,
+    ownBranchName: branchMode === "bound" ? (business?.branchName ?? null) : null,
+    options,
+    choice,
+    setChoice: setChosen,
+    error: mustChoose && choice === "" ? "Choose which branch this is at." : null,
+    branchId: mustChoose ? choice : undefined,
+  };
+}
+
+function BranchPlacementField({
+  placement,
+  touched,
+  hint,
+}: {
+  placement: ReturnType<typeof useBranchPlacement>;
+  touched: boolean;
+  hint: string;
+}): ReactNode {
+  if (placement.mustChoose) {
+    return (
+      <SelectField
+        label="Branch"
+        value={placement.choice}
+        onChange={placement.setChoice}
+        options={placement.options}
+        emptyLabel="Choose a branch"
+        hint={hint}
+        error={touched ? placement.error : null}
+      />
+    );
+  }
+  if (placement.ownBranchName !== null) {
+    return (
+      <p>
+        Branch: <strong>{placement.ownBranchName}</strong>
+      </p>
+    );
+  }
+  return null;
+}
+
 /** Issues a one-time pairing code for the print agent on a shop computer. The code is only
- * issued on request (each one is audited), and shown until the dialog closes. */
+ * issued on request (each one is audited), and shown until the dialog closes. It is issued for
+ * one branch: the computer, and every printer it reports, belong to that branch. */
 function PairComputerDialog({
   shopId,
   onClose,
@@ -168,7 +235,10 @@ function PairComputerDialog({
 }): ReactNode {
   const nothingToReload = useCallback(() => {}, []);
   const runner = useActionRunner(nothingToReload);
+  const { branchMode } = useSession();
+  const placement = useBranchPlacement();
   const [issued, setIssued] = useState<PairingCode | null>(null);
+  const [touched, setTouched] = useState(false);
   return (
     <FormDialog
       title="Pair a computer"
@@ -181,11 +251,27 @@ function PairComputerDialog({
           onClose();
           return;
         }
+        setTouched(true);
+        if (placement.error !== null) return;
         void runner.run(async () => {
-          setIssued(await getApi().printers.issuePairingCode(shopId));
+          setIssued(await getApi().printers.issuePairingCode(shopId, placement.branchId));
         });
       }}
     >
+      {issued === null ? (
+        <BranchPlacementField
+          placement={placement}
+          touched={touched}
+          hint="The computer and every printer it finds belong to this branch, and only this branch's jobs print on them."
+        />
+      ) : (
+        branchMode !== "single" &&
+        issued.branchName !== undefined && (
+          <p>
+            This code pairs a computer with <strong>{issued.branchName}</strong>.
+          </p>
+        )
+      )}
       <ol className="grid list-decimal gap-1 pl-5">
         <li>Install the Print Automated agent on the computer the printers are connected to.</li>
         <li>
@@ -212,7 +298,7 @@ function PairComputerDialog({
   );
 }
 
-function PrinterCard({ row }: { row: PrinterRow }): ReactNode {
+function PrinterCard({ row, showBranch }: { row: PrinterRow; showBranch: boolean }): ReactNode {
   const { printer, live } = row;
   const status = effectiveStatus(row);
   const { standing, fraction } = usageStanding(printer);
@@ -220,12 +306,17 @@ function PrinterCard({ row }: { row: PrinterRow }): ReactNode {
   return (
     <li className="grid gap-3 rounded-lg border border-line bg-panel px-4 py-3">
       <div className="flex items-start justify-between gap-2">
-        <Link
-          href={`/printers/${encodeURIComponent(printer.id)}`}
-          className="min-w-0 truncate font-semibold underline-offset-2 hover:underline"
-        >
-          {printer.name}
-        </Link>
+        <div className="min-w-0">
+          <Link
+            href={`/printers/${encodeURIComponent(printer.id)}`}
+            className="block truncate font-semibold underline-offset-2 hover:underline"
+          >
+            {printer.name}
+          </Link>
+          {showBranch && printer.branchName !== undefined && (
+            <p className="truncate text-xs text-muted">Branch: {printer.branchName}</p>
+          )}
+        </div>
         <Pill tone={printerStatusTone(status.label, status.offline)}>
           {humanizeEnum(status.label)}
         </Pill>
@@ -292,8 +383,10 @@ function AddPrinterDialog({
   onAdded: () => void;
 }): ReactNode {
   const runner = useActionRunner(onAdded);
+  const placement = useBranchPlacement();
   const [name, setName] = useState("");
   const [caps, setCaps] = useState({ color: false, duplex: false, a4: true, a3: false });
+  const [touched, setTouched] = useState(false);
   return (
     <FormDialog
       title="Add printer"
@@ -302,11 +395,20 @@ function AddPrinterDialog({
       error={runner.error}
       disabled={name.trim() === ""}
       onCancel={onClose}
-      onSubmit={() =>
+      onSubmit={() => {
+        setTouched(true);
+        if (placement.error !== null) return;
+        // The branch goes in the body next to the rest; the client's input type does not name it yet.
+        const input: RegisterPrinterInput & { branchId?: string } = {
+          shopId,
+          name: name.trim(),
+          capabilities: caps,
+          ...(placement.branchId !== undefined ? { branchId: placement.branchId } : {}),
+        };
         void runner
-          .run(() => getApi().printers.register({ shopId, name: name.trim(), capabilities: caps }))
-          .then((outcome) => outcome === "ok" && onClose())
-      }
+          .run(() => getApi().printers.register(input))
+          .then((outcome) => outcome === "ok" && onClose());
+      }}
     >
       <label className="grid gap-1 font-medium">
         Name
@@ -317,6 +419,11 @@ function AddPrinterDialog({
           className={`${INPUT} font-normal`}
         />
       </label>
+      <BranchPlacementField
+        placement={placement}
+        touched={touched}
+        hint="Only jobs from this branch print on this printer."
+      />
       <CapabilityToggles value={caps} onChange={setCaps} />
       <p className="text-xs text-muted">
         After adding, pair a print agent on the shop computer so this printer can receive jobs.

@@ -176,6 +176,42 @@ describe("createPublicOrder against the API's own route", () => {
     expect((calls[0]!.init?.headers as Record<string, string>)["Idempotency-Key"]).toBe("key-1");
   });
 
+  it("carries the branch whose QR code was scanned in the body, and nothing when there is none", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const place = (branchId?: string) =>
+      createPublicOrder(
+        SHOP,
+        "Guest",
+        "+92 300 555 1212",
+        DOC,
+        config as never,
+        "key-1",
+        async (_input, init) => {
+          bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return json(201, { id: "order-1", publicOrderNumber: "PA-1" });
+        },
+        branchId,
+      );
+    await place("9a7d6c5b-4e3f-4a2b-8c1d-0e9f8a7b6c5d");
+    await place();
+    expect(bodies[0]!.branchId).toBe("9a7d6c5b-4e3f-4a2b-8c1d-0e9f8a7b6c5d");
+    // An old code: no branch key at all, so the server uses the oldest branch.
+    expect("branchId" in bodies[1]!).toBe(false);
+  });
+
+  it("tells a guest plainly when the branch is closed or no longer takes orders", async () => {
+    await expect(
+      createPublicOrder(SHOP, "G", "+923005551212", DOC, config as never, "k", async () =>
+        json(409, { error_code: "BRANCH_CLOSED", message: "Branch is closed." }),
+      ),
+    ).rejects.toThrow("This branch is closed right now");
+    await expect(
+      createPublicOrder(SHOP, "G", "+923005551212", DOC, config as never, "k", async () =>
+        json(409, { error_code: "BRANCH_ARCHIVED", message: "Branch is archived." }),
+      ),
+    ).rejects.toThrow("no longer takes orders");
+  });
+
   it("throws readable words for a rate limit and for no answer at all", async () => {
     await expect(
       createPublicOrder(SHOP, "G", "+923005551212", DOC, config as never, "k", async () =>

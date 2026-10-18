@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { OrderingBranchContext } from "@/components/qr/ordering-branch";
 import { Button, Card, Notice, SiteFrame } from "@/components/ui";
 import { formatMoney, summarizeConfiguration } from "@/lib/order-formatting";
 import { fetchPublicInvoice, type PublicOrderResult } from "@/lib/public-order";
@@ -32,6 +33,8 @@ export function ConfirmationScreen({
   onOrderAgain: () => void;
 }): ReactNode {
   const quote = order.pricingSnapshot.quote;
+  // The branch the code named, so the guest knows where to collect (null for a code without one).
+  const branch = useContext(OrderingBranchContext);
   const [downloading, setDownloading] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
   // The order can be placed from anywhere on the long options form (the phone
@@ -61,6 +64,12 @@ export function ConfirmationScreen({
             <p className="text-sm text-muted">Order placed</p>
             <h1 className="num text-3xl font-semibold">{order.publicOrderNumber}</h1>
             <p className="text-muted">{order.shopName}</p>
+            {branch !== null && (
+              <p className="text-sm text-muted">
+                Collect at <strong className="font-semibold text-ink">{branch.name}</strong>
+                {branch.address !== "" && `, ${branch.address}`}
+              </p>
+            )}
           </div>
 
           <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">

@@ -2,6 +2,7 @@
 
 import { useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { buttonClass, Notice, SiteFrame } from "@/components/ui";
+import { OrderingFrom } from "@/components/qr/ordering-branch";
 import { StepIndicator } from "@/components/qr/step-indicator";
 import { runPublicUploadFlow, type PublicUploadState } from "@/lib/public-upload";
 
@@ -60,6 +61,7 @@ export function UploadStep({
 
   return (
     <SiteFrame width="narrow">
+      <OrderingFrom />
       <StepIndicator current={2} />
 
       <div className="grid gap-6">

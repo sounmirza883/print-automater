@@ -104,8 +104,12 @@ const COPY: Record<string, string> = {
     "Move or remove the people who work at this branch before archiving it. Open the Staff page and change their branch.",
   LAST_BRANCH: "A business must keep at least one branch, so this one cannot be archived.",
   BRANCH_ARCHIVED: "That branch is archived, so it cannot be changed or chosen.",
-  BRANCH_REQUIRED: "Choose which branch this person works at.",
+  BRANCH_REQUIRED: "Choose which branch this is for.",
   BRANCH_NOT_FOUND: "That branch no longer exists. The list has been refreshed.",
+  BRANCH_CLOSED:
+    "That branch is closed, so it is not taking new orders. Open it on the Branches page, then try again.",
+  AGENT_HAS_ACTIVE_JOBS:
+    "A printer on this computer has a job queued or printing. Let those jobs finish, or reassign them to a printer at the same branch, then move the computer.",
   OWNER_EMAIL_IN_USE:
     "That email address already has an account, so it cannot be used for a new business's owner. Enter a different email address for the owner.",
   OWNER_ALREADY_ACTIVE:
@@ -144,6 +148,7 @@ const STALE_STATE_CODES = new Set([
   "BRANCH_ARCHIVED",
   "BRANCH_NOT_FOUND",
   "BRANCH_HAS_STAFF",
+  "AGENT_HAS_ACTIVE_JOBS",
 ]);
 
 function coded(error: unknown): CodedError {

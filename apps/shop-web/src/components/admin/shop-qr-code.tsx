@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { Button, Panel } from "@/components/ui";
 
@@ -26,8 +26,12 @@ const DEV_CUSTOMER_WEB_URL = "http://localhost:3001";
  * back to customer-web's dev port; a production build (NODE_ENV, also
  * inlined at build time) never guesses, since these codes are printed
  * and posted at real counters and a wrong one means reprinting them all.
- * A value that isn't an absolute http(s) URL is refused the same way. */
-export function shopUploadUrl(shopId: string): string | null {
+ * A value that isn't an absolute http(s) URL is refused the same way.
+ *
+ * With a branch the address carries it (`?branch=<id>`), so a customer who scans that branch's
+ * code orders from that branch. Without one it is the business-wide address every code printed
+ * before branches existed has: customer-web sends those orders to the oldest branch. */
+export function shopUploadUrl(shopId: string, branchId?: string): string | null {
   const configured = (process.env.NEXT_PUBLIC_CUSTOMER_WEB_URL ?? "").trim();
   let origin: string;
   if (configured === "") {
@@ -40,7 +44,8 @@ export function shopUploadUrl(shopId: string): string | null {
   } else {
     return null;
   }
-  return `${origin}/s/${shopId}/upload`;
+  const address = `${origin}/s/${shopId}/upload`;
+  return branchId === undefined ? address : `${address}?branch=${encodeURIComponent(branchId)}`;
 }
 
 /** A QR code for one shop's guest-ordering page, plus a way to download
@@ -58,74 +63,126 @@ export function shopUploadUrl(shopId: string): string | null {
 export function ShopQrCode({
   shopId,
   shopName,
+  branchId,
+  branchName,
   notReady,
+  framed = true,
 }: {
   shopId: string;
   shopName?: string;
+  /** A branch's own code: the address carries the branch, and the wording names it. */
+  branchId?: string;
+  branchName?: string;
   notReady?: ReactNode;
+  /** False inside a dialog that already has a title and a border of its own. */
+  framed?: boolean;
+}): ReactNode {
+  const url = shopUploadUrl(shopId, branchId);
+  const title = branchName === undefined ? "Guest ordering QR code" : `QR code for ${branchName}`;
+  const frame = (tone: "default" | "danger" | "caution", content: ReactNode): ReactNode =>
+    framed ? (
+      <Panel title={title} id="qr-code" tone={tone === "default" ? undefined : tone}>
+        {content}
+      </Panel>
+    ) : (
+      content
+    );
+
+  if (url === null) {
+    return frame(
+      "danger",
+      <p role="alert" className="text-sm text-danger-fg">
+        The guest ordering link is not configured, so no QR code is shown. This build of the back
+        office was made without NEXT_PUBLIC_CUSTOMER_WEB_URL (the customer site&apos;s public
+        address); rebuild it with that set before printing any codes.
+      </p>,
+    );
+  }
+
+  if (notReady !== undefined && notReady !== null) {
+    return frame(
+      "caution",
+      <div role="note" className="grid gap-2 text-sm">
+        <p className="font-medium">Not ready to hand out yet</p>
+        <div className="text-muted">{notReady}</div>
+      </div>,
+    );
+  }
+
+  return frame("default", <QrCodeView url={url} shopName={shopName} branchName={branchName} />);
+}
+
+/** The code itself with its link and buttons, without a panel around it, so it can sit in a
+ * panel (Settings, the admin's business page) or in a dialog (a branch on the Branches page). */
+export function QrCodeView({
+  url,
+  shopName,
+  branchName,
+}: {
+  url: string;
+  shopName?: string;
+  branchName?: string;
 }): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const url = shopUploadUrl(shopId);
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
 
   function download(): void {
     const canvas = canvasRef.current;
     if (canvas === null) return;
     const link = document.createElement("a");
-    const namePart = (shopName ?? "shop")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-");
+    const slug = (text: string): string =>
+      text
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-");
+    const namePart = [slug(shopName ?? "shop"), branchName === undefined ? "" : slug(branchName)]
+      .filter((part) => part !== "" && part !== "-")
+      .join("-");
     link.download = `${namePart || "shop"}-qr-code.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
   }
 
-  if (url === null) {
-    return (
-      <Panel title="Guest ordering QR code" id="qr-code" tone="danger">
-        <p role="alert" className="text-sm text-danger-fg">
-          The guest ordering link is not configured, so no QR code is shown. This build of the back
-          office was made without NEXT_PUBLIC_CUSTOMER_WEB_URL (the customer site&apos;s public
-          address); rebuild it with that set before printing any codes.
-        </p>
-      </Panel>
-    );
-  }
-
-  if (notReady !== undefined && notReady !== null) {
-    return (
-      <Panel title="Guest ordering QR code" id="qr-code" tone="caution">
-        <div role="note" className="grid gap-2 text-sm">
-          <p className="font-medium">Not ready to hand out yet</p>
-          <div className="text-muted">{notReady}</div>
-        </div>
-      </Panel>
-    );
+  async function copyLink(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopy("copied");
+    } catch {
+      // No clipboard permission (or an insecure page): the link above can still be selected.
+      setCopy("failed");
+    }
   }
 
   return (
-    <Panel title="Guest ordering QR code" id="qr-code">
-      <div className="grid gap-3 sm:max-w-xs">
-        <p className="text-sm text-muted">
-          Print this and post it at the counter. Scanning it opens the upload page for walk-in
-          customers ordering without an account.
-        </p>
-        {/* A QR code needs a white quiet zone to scan, in either theme. */}
-        <div className="w-fit rounded-md border border-line bg-white p-3">
-          <QRCodeCanvas
-            ref={canvasRef}
-            value={url}
-            size={192}
-            level="M"
-            marginSize={2}
-            title={`QR code for ${shopName ?? "this business"}'s guest ordering page`}
-          />
-        </div>
-        <p className="break-all font-mono text-xs text-muted">{url}</p>
-        <div>
-          <Button onClick={download}>Download PNG</Button>
-        </div>
+    <div className="grid gap-3 sm:max-w-xs">
+      <p className="text-sm text-muted">
+        {branchName === undefined
+          ? "Print this and post it at the counter. Scanning it opens the upload page for walk-in customers ordering without an account."
+          : `Print this and post it at ${branchName}. Scanning it opens the upload page for walk-in customers ordering without an account, and their order goes to ${branchName}.`}
+      </p>
+      {/* A QR code needs a white quiet zone to scan, in either theme. */}
+      <div className="w-fit rounded-md border border-line bg-white p-3">
+        <QRCodeCanvas
+          ref={canvasRef}
+          value={url}
+          size={192}
+          level="M"
+          marginSize={2}
+          title={`QR code for ${branchName ?? shopName ?? "this business"}'s guest ordering page`}
+        />
       </div>
-    </Panel>
+      <p className="font-mono text-xs break-all text-muted select-all">{url}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={download}>Download PNG</Button>
+        <Button onClick={() => void copyLink()}>Copy link</Button>
+        <span role="status" className="text-xs text-muted">
+          {copy === "copied"
+            ? "Link copied."
+            : copy === "failed"
+              ? "Could not copy. Select the link above and copy it."
+              : ""}
+        </span>
+      </div>
+    </div>
   );
 }

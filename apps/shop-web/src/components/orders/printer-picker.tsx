@@ -16,6 +16,7 @@ import { useResource } from "@/lib/use-resource";
  * ever cannot, that is said plainly rather than shown as an empty list. */
 export function PrinterPicker({
   shopId,
+  branchId,
   config,
   value,
   onChange,
@@ -23,6 +24,9 @@ export function PrinterPicker({
   label = "Printer",
 }: {
   shopId: string;
+  /** The order's branch: a job only prints at its own branch, so only that branch's printers are
+   * offered (the API refuses another's). Left out, every printer the person may see is offered. */
+  branchId?: string;
   config: ShopOrderResponse["printConfiguration"];
   value: string;
   onChange: (printerId: string) => void;
@@ -30,7 +34,10 @@ export function PrinterPicker({
   emptyLabel?: string;
   label?: string;
 }): ReactNode {
-  const printers = useResource(() => getApi().printers.listPage(shopId, { limit: 100 }), [shopId]);
+  const printers = useResource(
+    () => getApi().printers.listPage(shopId, { limit: 100, branchId }),
+    [shopId, branchId],
+  );
 
   if (printers.data === null) {
     if (printers.error !== null) {

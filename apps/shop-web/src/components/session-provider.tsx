@@ -9,9 +9,19 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { ApiClientError, type MyShopMembership } from "@print-automated/api-client";
+import {
+  ApiClientError,
+  type BranchSummary,
+  type MyShopMembership,
+} from "@print-automated/api-client";
 import { Permission, UserRole } from "@print-automated/types";
 import { getApi, isForbidden } from "@/lib/api";
+import {
+  readStoredBranch,
+  resolveBranchSelection,
+  writeStoredBranch,
+  type BranchMode,
+} from "@/lib/branch-selection";
 import { membershipPermissions } from "@/lib/permissions";
 import { useResource } from "@/lib/use-resource";
 
@@ -34,6 +44,24 @@ interface SessionValue {
   permissions: ReadonlySet<Permission>;
   can: (permission: Permission) => boolean;
   isAdmin: boolean;
+  /** The business's active branches; a branch-bound person is only given their own. Empty until
+   * loaded, and when the list could not be loaded (then nothing branch-related is offered). */
+  branches: readonly BranchSummary[];
+  /** False while the business's branches are loading; the console waits for it so that no screen
+   * fetches everything first and then again narrowed to the chosen branch. */
+  branchesReady: boolean;
+  /** The branch the console is scoped to; null means every branch. */
+  branch: BranchSummary | null;
+  /** Whether the person is fixed to a branch, has just one to work in, or chooses. */
+  branchMode: BranchMode;
+  /** What a list call passes as `branchId`; undefined when the server decides or nothing narrows. */
+  branchFilter: string | undefined;
+  /** True while looking at all of several branches: rows then say which branch they belong to. */
+  showBranchColumn: boolean;
+  /** Narrows the console to one branch, or to all of them (null); remembered per business. */
+  selectBranch: (branchId: string | null) => void;
+  /** Re-reads the branch list, after branches were added, archived or renamed. */
+  reloadBranches: () => void;
 }
 
 export const SessionContext = createContext<SessionValue | null>(null);
@@ -57,7 +85,9 @@ function readStoredBusiness(): string | null {
   }
 }
 
-function subscribeToStoredBusiness(listener: () => void): () => void {
+// One subscription serves both remembered choices (business and branch): either write tells every
+// reader to look again, and another tab's write arrives as a `storage` event.
+function subscribeToStorage(listener: () => void): () => void {
   storageListeners.add(listener);
   window.addEventListener("storage", listener);
   return () => {
@@ -120,7 +150,7 @@ export function SessionProvider({
   // Membership/role changes made elsewhere show up within five minutes
   // (and on any reload); the server enforces the real role per request.
   const session = useResource(loadSession, [], { intervalMs: 5 * 60_000 });
-  const storedId = useSyncExternalStore(subscribeToStoredBusiness, readStoredBusiness, () => null);
+  const storedId = useSyncExternalStore(subscribeToStorage, readStoredBusiness, () => null);
   const [override, setOverride] = useState<string | null>(null);
 
   const selectBusiness = useCallback((id: string) => {
@@ -128,14 +158,66 @@ export function SessionProvider({
     writeStoredBusiness(id);
   }, []);
 
+  const business = useMemo(() => {
+    if (session.data === null) {
+      return null;
+    }
+    const wanted = override ?? storedId;
+    const { memberships } = session.data;
+    return memberships.find((membership) => membership.id === wanted) ?? memberships[0] ?? null;
+  }, [session.data, override, storedId]);
+  const shopId = business?.id ?? "";
+
+  // The business's active branches (a branch-bound person is given only their own). Restarts when
+  // the business changes, so a branch id is never carried across businesses. A failed load is
+  // treated as "no branches": the console still opens, with nothing branch-related offered, and
+  // the server still limits a branch-bound person to their own branch.
+  const branchList = useResource(() => getApi().branches.list(shopId), [shopId], {
+    intervalMs: 5 * 60_000,
+    enabled: shopId !== "",
+  });
+  const branches = useMemo(() => branchList.data ?? [], [branchList.data]);
+  const storedBranch = useSyncExternalStore(
+    subscribeToStorage,
+    () => readStoredBranch(shopId),
+    () => null,
+  );
+  // Like the business, the pick is also held in state, so it holds even if storage refuses it.
+  const [branchOverrides, setBranchOverrides] = useState<Readonly<Record<string, string | null>>>(
+    {},
+  );
+  const branchOverride = branchOverrides[shopId];
+  const wantedBranch = branchOverride !== undefined ? branchOverride : storedBranch;
+
+  const selectBranch = useCallback(
+    (branchId: string | null) => {
+      if (shopId === "") {
+        return;
+      }
+      setBranchOverrides((previous) => ({ ...previous, [shopId]: branchId }));
+      writeStoredBranch(shopId, branchId);
+      storageListeners.forEach((listener) => listener());
+    },
+    [shopId],
+  );
+
+  const selection = useMemo(
+    () =>
+      resolveBranchSelection({
+        memberBranchId: business?.branchId ?? null,
+        branches,
+        stored: wantedBranch,
+      }),
+    [business, branches, wantedBranch],
+  );
+  const branchesReady = shopId === "" || !branchList.loading;
+  const reloadBranches = branchList.reload;
+
   const value = useMemo<SessionValue | null>(() => {
     if (session.data === null) {
       return null;
     }
     const { user, memberships } = session.data;
-    const wanted = override ?? storedId;
-    const business =
-      memberships.find((membership) => membership.id === wanted) ?? memberships[0] ?? null;
     const businessRole = business?.role ?? null;
     const permissions = membershipPermissions(business);
     return {
@@ -147,8 +229,25 @@ export function SessionProvider({
       permissions,
       can: (permission) => permissions.has(permission),
       isAdmin: user.role === UserRole.ADMIN,
+      branches,
+      branchesReady,
+      branch: branches.find((candidate) => candidate.id === selection.branchId) ?? null,
+      branchMode: selection.mode,
+      branchFilter: selection.filter,
+      showBranchColumn: selection.showColumn,
+      selectBranch,
+      reloadBranches,
     };
-  }, [session.data, override, storedId, selectBusiness]);
+  }, [
+    session.data,
+    business,
+    selectBusiness,
+    branches,
+    branchesReady,
+    selection,
+    selectBranch,
+    reloadBranches,
+  ]);
 
   if (value === null) {
     return session.error !== null ? errorFallback(session.reload, session.error) : fallback;

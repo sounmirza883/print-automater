@@ -187,6 +187,7 @@ function ChangePrinterDialog({ order, shopId, runner, close }: DialogProps): Rea
       <p>The failed job is sent to the printer you choose.</p>
       <PrinterPicker
         shopId={shopId}
+        branchId={order.branchId}
         config={order.printConfiguration}
         value={printerId}
         onChange={setPrinterId}
@@ -422,6 +423,7 @@ function ReassignDialog({
       </p>
       <PrinterPicker
         shopId={shopId}
+        branchId={order.branchId}
         config={order.printConfiguration}
         value={printerId}
         onChange={setPrinterId}
@@ -545,6 +547,7 @@ function ResumeDialog({
       </p>
       <PrinterPicker
         shopId={shopId}
+        branchId={order.branchId}
         config={order.printConfiguration}
         value={printerId}
         onChange={setPrinterId}
@@ -715,6 +718,7 @@ function ReprintDialog({
       </Field>
       <PrinterPicker
         shopId={shopId}
+        branchId={order.branchId}
         config={order.printConfiguration}
         value={printerId}
         onChange={setPrinterId}
