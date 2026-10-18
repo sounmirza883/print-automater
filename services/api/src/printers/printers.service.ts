@@ -291,6 +291,104 @@ export class PrintersService {
     });
   }
 
+  /** Moves a paired PC, with every printer it reports, to another branch (the route needs business
+   * settings access, so owners only); a printer no PC has claimed moves on its own. Printing never
+   * crosses branches, so the move is refused (409 AGENT_HAS_ACTIVE_JOBS) while any printer of the
+   * PC has a job in flight, and the PC and its printers move together or not at all.
+   *
+   * Race with job creation: a job being placed share-locks its printer's row and re-reads that
+   * printer's branch (`assertPrinterInBranch` in the job state machine). The move takes the same
+   * rows FOR UPDATE, in one fixed order, then looks for live jobs: whichever side commits first, the
+   * other sees it (the job makes the move refuse, or the move makes the job refuse the printer), so
+   * no job is ever left on a printer of another branch. Finished jobs keep the branch they ran at. */
+  async moveBranch(
+    printerId: string,
+    branchId: string,
+    actorId: string,
+  ): Promise<PrinterResponse[]> {
+    const target = await this.prisma.printer.findUnique({
+      where: { id: printerId },
+      select: { shopId: true, agentId: true },
+    });
+    if (!target) {
+      throw new NotFoundException("Printer not found.");
+    }
+    const access = await this.requireAccess(target.shopId, actorId);
+
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const destination = await resolveBranchForStaffOperation(tx, {
+        shopId: target.shopId,
+        actorBranchId: access.branchId,
+        requested: branchId,
+      });
+      if (target.agentId) {
+        await tx.$queryRaw`SELECT id FROM printer_agents WHERE id = ${target.agentId} FOR UPDATE`;
+      }
+      const rows = target.agentId
+        ? await tx.$queryRaw<Array<{ id: string; branchId: string }>>`
+            SELECT id, branch_id AS "branchId" FROM printers
+            WHERE agent_id = ${target.agentId} ORDER BY id FOR UPDATE`
+        : await tx.$queryRaw<Array<{ id: string; branchId: string }>>`
+            SELECT id, branch_id AS "branchId" FROM printers
+            WHERE id = ${printerId} ORDER BY id FOR UPDATE`;
+      if (rows.length === 0) {
+        throw new NotFoundException("Printer not found.");
+      }
+      const ids = rows.map((row) => row.id);
+      const fromBranchId = rows[0]!.branchId;
+      const changed = rows.some((row) => row.branchId !== destination.id);
+      if (changed) {
+        // A paused job still holds its printer and would resume onto it, so it counts too.
+        const live = await tx.printJob.count({
+          where: {
+            printerId: { in: ids },
+            status: { in: [...ACTIVE_JOB_STATUSES, PrintJobStatus.PAUSED] },
+          },
+        });
+        if (live > 0) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            "AGENT_HAS_ACTIVE_JOBS",
+            "This computer or one of its printers has a print job in progress. Move it once the jobs are finished.",
+            false,
+          );
+        }
+        if (target.agentId) {
+          await tx.printerAgent.update({
+            where: { id: target.agentId },
+            data: { branchId: destination.id },
+          });
+        }
+        await tx.printer.updateMany({
+          where: { id: { in: ids } },
+          data: { branchId: destination.id },
+        });
+      }
+      const printers = await tx.printer.findMany({
+        where: { id: { in: ids } },
+        include: PRINTER_INCLUDE,
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+      });
+      return { printers, ids, fromBranchId, toBranchId: destination.id, changed };
+    });
+
+    if (outcome.changed) {
+      await this.audit.record({
+        actorId,
+        action: AuditAction.PRINTER_BRANCH_MOVED,
+        resourceType: target.agentId ? "printer_agent" : "printer",
+        resourceId: target.agentId ?? printerId,
+        metadata: {
+          shopId: target.shopId,
+          fromBranchId: outcome.fromBranchId,
+          toBranchId: outcome.toBranchId,
+          printerIds: outcome.ids,
+        },
+      });
+    }
+    return this.withUsage(outcome.printers);
+  }
+
   /** The caller's access at this business (role, permissions, and the branch they work at). */
   private async requireAccess(shopId: string, userId: string): Promise<MemberAccess> {
     const access = await this.shopMembership.getAccess(shopId, userId);

@@ -33,8 +33,11 @@ export class AgentHeartbeatService {
     });
 
     for (const reported of input.printers) {
+      // Matched by branch AND name: two branches can each have a printer called "HP LaserJet", and
+      // an agent only ever links the printers of the branch its PC belongs to (moving the PC
+      // moves them together, so the key follows it).
       const existing = await this.prisma.printer.findFirst({
-        where: { shopId, name: reported.name },
+        where: { shopId, branchId: agent.branchId, name: reported.name },
       });
 
       if (!existing) {

@@ -110,9 +110,26 @@ export class AgentPairingCodeService {
       );
     }
 
-    const claimed = await this.prisma.agentPairingCode.updateMany({
-      where: { id: record.id, consumedAt: null },
-      data: { consumedAt: new Date() },
+    // A code is for one branch. If that branch was archived since the code was issued, refuse
+    // BEFORE consuming it (the branch row is share-locked until the claim commits, so it cannot be
+    // archived in between), leaving the code unused: an owner can reuse nothing, but nothing is
+    // burned either, and no agent ever registers into an archived branch.
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const branch = await tx.$queryRaw<Array<{ archivedAt: Date | null }>>`
+        SELECT archived_at AS "archivedAt" FROM branches WHERE id = ${record.branchId} FOR SHARE
+      `;
+      if (branch[0]?.archivedAt) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "BRANCH_ARCHIVED",
+          "The branch this code was issued for has been archived. Ask for a new code.",
+          false,
+        );
+      }
+      return tx.agentPairingCode.updateMany({
+        where: { id: record.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
     });
     if (claimed.count === 0) {
       throw new AppException(

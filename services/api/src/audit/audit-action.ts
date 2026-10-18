@@ -27,6 +27,8 @@ export const AuditAction = {
   BRANCH_OPEN_STATE_CHANGED: "BRANCH_OPEN_STATE_CHANGED",
   BRANCH_ARCHIVED: "BRANCH_ARCHIVED",
   SHOP_STAFF_BRANCH_CHANGED: "SHOP_STAFF_BRANCH_CHANGED",
+  // A paired PC (and every printer on it) moved to another branch.
+  PRINTER_BRANCH_MOVED: "PRINTER_BRANCH_MOVED",
   SHOP_STAFF_REMOVED: "SHOP_STAFF_REMOVED",
   // 23.15: add-by-email (an invitation, or a direct add of an existing account).
   SHOP_STAFF_INVITED: "SHOP_STAFF_INVITED",

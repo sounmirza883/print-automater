@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Patch,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -22,6 +23,7 @@ import { RequirePermission } from "../auth/require-permission.decorator.js";
 import { ShopScopeGuard } from "../auth/shop-scope.guard.js";
 import { ShopScoped, ShopScopedField } from "../auth/shop-scoped.decorator.js";
 import { ListPrintersQueryDto } from "./dto/list-printers-query.dto.js";
+import { MovePrinterBranchDto } from "./dto/move-printer-branch.dto.js";
 import { RegisterPrinterDto } from "./dto/register-printer.dto.js";
 import { UpdatePrinterDto } from "./dto/update-printer.dto.js";
 import { PrinterShopResolver } from "./printer-shop.resolver.js";
@@ -95,6 +97,20 @@ export class PrintersController {
   @ShopScopedField("body", "shopId")
   register(@Req() req: RequestWithUser, @Body() dto: RegisterPrinterDto): Promise<PrinterResponse> {
     return this.printersService.register(req.user!.id, dto);
+  }
+
+  /** Owners only (business settings access): moves the printer's paired PC, with every printer on
+   * it, to another branch. Refused while any of them has a job in flight. */
+  @Put(":id/branch")
+  @RequirePermission(Permission.MANAGE_SETTINGS)
+  @UseGuards(ShopScopeGuard)
+  @ShopScoped("id", PrinterShopResolver)
+  moveBranch(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: MovePrinterBranchDto,
+  ): Promise<PrinterResponse[]> {
+    return this.printersService.moveBranch(id, dto.branchId, req.user!.id);
   }
 
   @Patch(":id")
