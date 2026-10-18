@@ -60,14 +60,21 @@ export function toAllocationRule(row: {
  * a different period key, effectively resetting the allowance. Lives in
  * backend-shared so the worker's offline sweep (19.5) can reuse it. `now` is
  * passed in. Queued-but-unprinted pages are deliberately NOT subtracted from
- * the allowance: usage counts completed pages only (accrual is on PRINTED). */
+ * the allowance: usage counts completed pages only (accrual is on PRINTED).
+ *
+ * Step 3: candidates are the printers of ONE branch (the job's own). A job never considers a
+ * printer at another branch, even when its own branch's printers are all offline or full: it
+ * blocks with the usual explicit reason instead of printing in the wrong city. `branchId` is a
+ * required argument on purpose, so no caller can forget it. Paper and the automation rules stay
+ * business-wide for now (step 4 splits stock). */
 export async function buildPrinterCandidates(
   tx: Prisma.TransactionClient,
   shopId: string,
+  branchId: string,
   now: Date,
 ): Promise<PrinterCandidateSet> {
   const printers = await tx.printer.findMany({
-    where: { shopId },
+    where: { shopId, branchId },
     include: { agent: { select: { deviceId: true } } },
   });
   const deviceIdsByPrinterId = new Map(

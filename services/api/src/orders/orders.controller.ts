@@ -45,7 +45,7 @@ export class OrdersController {
   @Post()
   @UseInterceptors(IdempotencyInterceptor)
   createOrder(@Req() req: RequestWithUser, @Body() dto: CreateOrderDto): Promise<OrderResponse> {
-    return this.ordersService.createOrder(req.user!.id, dto);
+    return this.ordersService.createOrder(req.user!.id, dto, { branchId: dto.branchId });
   }
 
   @Get()

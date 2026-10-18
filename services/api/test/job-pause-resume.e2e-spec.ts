@@ -4,6 +4,7 @@ import request from "supertest";
 import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type JobStatus = "QUEUED" | "WAITING" | "PAUSED" | "CLAIMED" | "PRINTING" | "PRINTED";
 
@@ -64,6 +65,7 @@ describe("Job pause / resume (21.1, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId: status === "WAITING" || status === "PAUSED" ? null : printerId,
         status,
@@ -196,6 +198,7 @@ describe("Job pause / resume (21.1, e2e)", () => {
         data: {
           orderId: s.orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: s.itemId,
           printerId: printerA,
           status: "REASSIGNED",
@@ -243,6 +246,7 @@ describe("Job pause / resume (21.1, e2e)", () => {
         data: {
           orderId: s.orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: s.itemId,
           printerId: printerA,
           status: "REASSIGNED",
@@ -264,6 +268,7 @@ describe("Job pause / resume (21.1, e2e)", () => {
         data: {
           orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: itemId,
           printerId: printerA,
           status: "REASSIGNED",
@@ -405,6 +410,7 @@ describe("Job resume with no usable printer (21.1, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         status: "PAUSED",
         blockedReason: "MANUAL_APPROVAL_REQUIRED",

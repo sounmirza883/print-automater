@@ -12,6 +12,7 @@ import {
   type Printer,
 } from "@prisma/client";
 import type { PrismaService } from "@print-automated/backend-shared";
+import { branchIdOf } from "./branches.js";
 
 const CONFIG = {
   pages: { mode: "all" },
@@ -75,6 +76,7 @@ export async function createSweepFixture(
       data: {
         deviceId,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         publicKey: "irrelevant-test-public-key",
         lastSeenAt: lastSeenAgoMs === null ? null : new Date(Date.now() - lastSeenAgoMs),
       },
@@ -84,6 +86,7 @@ export async function createSweepFixture(
     const printer = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agent.id,
         name,
         status: o.status ?? PrinterStatus.ONLINE,
@@ -104,6 +107,7 @@ export async function createSweepFixture(
         publicOrderNumber: `TEST-${label}-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId: document.id,
         printConfiguration: CONFIG,
         pricingSnapshot: { quote: { totalMinor: 3000, currency: "PKR" } },
@@ -126,6 +130,7 @@ export async function createSweepFixture(
       data: {
         orderId: order.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         orderItemId: item.id,
         printerId,
         status,

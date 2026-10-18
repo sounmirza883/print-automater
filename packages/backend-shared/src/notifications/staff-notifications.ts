@@ -24,6 +24,10 @@ const logger = new Logger("StaffNotifications");
 
 export interface StaffAlert {
   shopId: string;
+  /** The branch the alert is about. Only people who work at that branch, and people who work at
+   * all branches, receive it. Omit (or null) for a business-wide alert that reaches everyone who
+   * holds the permission (stock is business-wide until step 4). */
+  branchId?: string | null;
   permission: Permission;
   type: StaffNotificationType;
   title: string;
@@ -91,6 +95,7 @@ export async function notifyShopStaff(
     data: userIds.map((userId) => ({
       userId,
       shopId: alert.shopId,
+      branchId: alert.branchId ?? null,
       type: alert.type,
       title: alert.title,
       body: alert.body,

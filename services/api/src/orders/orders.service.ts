@@ -34,6 +34,7 @@ import {
   type PrinterCapabilities,
 } from "@print-automated/types";
 import type { CreateQuoteInput, ListOrdersQueryInput } from "@print-automated/validation";
+import { lockUsableBranch, resolveBranchForCustomerOrder } from "../branches/branch-resolution.js";
 import { listResult, resolvePagination } from "../common/pagination.js";
 import { ilike } from "../common/search.js";
 import { API_ENV } from "../config/config.module.js";
@@ -58,6 +59,9 @@ export interface PricingSnapshot {
 
 export interface OrderResponse {
   id: string;
+  // Step 3: the branch the order was placed at (and is produced at).
+  branchId: string;
+  branchName: string;
   publicOrderNumber: string;
   documentId: string;
   documentFilename: string;
@@ -81,6 +85,11 @@ export interface OrderResponse {
 export interface CreateOrderExtra {
   customerRecordId?: string;
   creationSource?: OrderCreationSource;
+  /** The branch the order goes to. A COUNTER order's has already been decided by the staff rules
+   * (ShopOrdersService); for a customer's (web or QR) it is the branch on the code they scanned,
+   * and omitting it means the business's oldest branch, so codes printed before branches existed
+   * keep working. */
+  branchId?: string;
 }
 
 /** §28's history list needs the shop's name and the document's
@@ -92,6 +101,7 @@ export interface CreateOrderExtra {
  * been deleted" -- holds). */
 const ORDER_INCLUDE = {
   shop: { select: { name: true } },
+  branch: { select: { name: true } },
   document: { select: { filename: true } },
 } satisfies Prisma.OrderInclude;
 
@@ -143,22 +153,36 @@ export class OrdersService {
       quote,
     };
 
-    const order = await this.prisma.order.create({
-      data: {
-        publicOrderNumber,
-        customerId: requestingUserId,
-        // 17.5: undefined (never null) for a self-service order --
-        // Prisma treats an undefined field as "not provided," so this
-        // stays out of the INSERT entirely rather than writing an
-        // explicit NULL, identical to every pre-17.5 createOrder() call.
-        customerRecordId: extra?.customerRecordId,
-        creationSource: extra?.creationSource ?? OrderCreationSource.CUSTOMER_WEB,
-        shopId: input.shopId,
-        documentId: input.documentId,
-        printConfiguration: input.printConfiguration as unknown as Prisma.InputJsonValue,
-        pricingSnapshot: pricingSnapshot as unknown as Prisma.InputJsonValue,
-      },
-      include: ORDER_INCLUDE,
+    // Step 3: the branch is decided and share-locked in the same transaction that writes the
+    // order, so a branch archived a moment ago cannot receive it. A counter order's branch was
+    // already chosen by the staff rules (it may be a closed branch: the counter is staffed); a
+    // customer's is the one on the code they scanned (closed or archived refuses the order).
+    const order = await this.prisma.$transaction(async (tx) => {
+      const branch =
+        extra?.creationSource === OrderCreationSource.COUNTER && extra.branchId !== undefined
+          ? await lockUsableBranch(tx, input.shopId, extra.branchId)
+          : await resolveBranchForCustomerOrder(tx, {
+              shopId: input.shopId,
+              requested: extra?.branchId,
+            });
+      return tx.order.create({
+        data: {
+          publicOrderNumber,
+          customerId: requestingUserId,
+          // 17.5: undefined (never null) for a self-service order --
+          // Prisma treats an undefined field as "not provided," so this
+          // stays out of the INSERT entirely rather than writing an
+          // explicit NULL, identical to every pre-17.5 createOrder() call.
+          customerRecordId: extra?.customerRecordId,
+          creationSource: extra?.creationSource ?? OrderCreationSource.CUSTOMER_WEB,
+          shopId: input.shopId,
+          branchId: branch.id,
+          documentId: input.documentId,
+          printConfiguration: input.printConfiguration as unknown as Prisma.InputJsonValue,
+          pricingSnapshot: pricingSnapshot as unknown as Prisma.InputJsonValue,
+        },
+        include: ORDER_INCLUDE,
+      });
     });
 
     await this.orderStateMachine.transition(order.id, OrderEvent.CONFIRM_UPLOAD, {
@@ -274,6 +298,8 @@ export class OrdersService {
   private toOrderResponse(order: OrderWithRelations): OrderResponse {
     return {
       id: order.id,
+      branchId: order.branchId,
+      branchName: order.branch.name,
       publicOrderNumber: order.publicOrderNumber,
       documentId: order.documentId,
       documentFilename: order.document.filename,

@@ -5,6 +5,7 @@ import {
 } from "@print-automated/backend-shared";
 import { OrderStatus } from "@prisma/client";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 19.19 (PRD 122). Queue recovery reads the shop's opt-in flag once to pick
  * shops, but the shop can turn the toggle off while a tick is mid-flight. The
@@ -28,6 +29,7 @@ describe("Queue recovery re-checks the opt-in under the locks (19.19, e2e)", () 
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId: null,
         status: "WAITING",

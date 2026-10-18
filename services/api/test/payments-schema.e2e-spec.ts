@@ -4,6 +4,7 @@ import { Test } from "@nestjs/testing";
 import { DocumentStatus, PaymentStatus, ShopStatus, UserRole } from "@prisma/client";
 import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §6.1's own Done-when: "Inserting a duplicate event id raises a
  * constraint violation" -- the database is the idempotency backstop
@@ -61,6 +62,7 @@ describe("Payments schema (6.1, e2e)", () => {
         publicOrderNumber: `PA-PAYSCHEMA-${randomUUID()}`,
         customerId: userId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

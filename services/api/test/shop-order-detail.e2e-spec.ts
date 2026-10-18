@@ -21,6 +21,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.13/23.16: the enriched shop order detail (items, contact, payment, per-job
  * timestamps, pricing-rule version) and the non-admin order history timeline. */
@@ -129,6 +130,7 @@ describe("Shop order detail and history (23.13, e2e)", () => {
         publicOrderNumber: `TEST-DETAIL-${randomUUID()}`,
         customerId: customer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId: doc.id,
         printConfiguration: config,
         pricingSnapshot: {
@@ -167,13 +169,19 @@ describe("Shop order detail and history (23.13, e2e)", () => {
 
     printerName = `Detail Printer ${randomUUID()}`;
     const printer = await prisma.printer.create({
-      data: { shopId: shopA.id, name: printerName, status: PrinterStatus.ONLINE },
+      data: {
+        shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
+        name: printerName,
+        status: PrinterStatus.ONLINE,
+      },
     });
     const old = await prisma.printJob.create({
       data: {
         orderId: order.id,
         printerId: printer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         orderItemId: item1.id,
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.CANCELLED,
@@ -187,6 +195,7 @@ describe("Shop order detail and history (23.13, e2e)", () => {
         orderId: order.id,
         printerId: printer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         orderItemId: item1.id,
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.QUEUED,
@@ -235,6 +244,7 @@ describe("Shop order detail and history (23.13, e2e)", () => {
         customerRecordId: walkIn.id,
         creationSource: OrderCreationSource.COUNTER,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId: doc.id,
         printConfiguration: config,
         pricingSnapshot: { quote: { totalMinor: 500, currency: "PKR" } },
@@ -249,6 +259,7 @@ describe("Shop order detail and history (23.13, e2e)", () => {
         publicOrderNumber: `TEST-DETAIL-${randomUUID()}`,
         customerId: customer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId: doc.id,
         printConfiguration: config,
         pricingSnapshot: { quote: { totalMinor: 100, currency: "PKR" } },

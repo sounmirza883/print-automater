@@ -5,6 +5,7 @@ import {
   applyStockMovement,
 } from "@print-automated/backend-shared";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 20.4: paper is consumed inside the job machine's own PRINTED transaction. */
 describe("Inventory consumption on job completion (20.4, e2e)", () => {
@@ -76,6 +77,7 @@ describe("Inventory consumption on job completion (20.4, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status,
@@ -304,6 +306,7 @@ describe("Consumption failure containment (20.9, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status: "PRINTING",

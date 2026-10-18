@@ -10,6 +10,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §32/§34/8.2's own Done-when: "Shop A staff receive zero shop B
  * orders, verified at the query layer rather than by filtering after
@@ -40,6 +41,7 @@ describe("Shop orders API (8.2, e2e)", () => {
         publicOrderNumber: `TEST-SHOPORD-${randomUUID()}`,
         customerId: customer.id,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -259,6 +261,7 @@ describe("Shop orders API (8.2, e2e)", () => {
       data: {
         orderId,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         printerId: null,
         idempotencyToken: randomUUID(),
         status: "WAITING",

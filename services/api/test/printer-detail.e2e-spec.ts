@@ -17,6 +17,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.14: printer detail, and who may READ the printer list/detail (VIEW_PRINTERS, as data)
  * while MANAGE_PRINTERS stays write-only. */
@@ -80,6 +81,7 @@ describe("Printer detail and read access (23.14, e2e)", () => {
       data: {
         deviceId: `printer-detail-${randomUUID()}`,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         publicKey: "x",
         lastSeenAt: new Date("2026-09-01T10:00:00Z"),
       },
@@ -87,6 +89,7 @@ describe("Printer detail and read access (23.14, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         agentId: agent.id,
         name: `Detail Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,

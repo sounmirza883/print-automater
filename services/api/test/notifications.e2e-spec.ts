@@ -12,6 +12,7 @@ import {
 } from "@print-automated/backend-shared";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.7 (PRD 37/111): the notification centre API and the staff alerts feeding it. */
 describe("Notification centre (23.7, e2e)", () => {
@@ -34,6 +35,7 @@ describe("Notification centre (23.7, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId: status === "QUEUED" ? printerId : null,
         status,

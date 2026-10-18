@@ -10,6 +10,7 @@ import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** jest.setup.cjs pins every e2e file's API_PUBLIC_BASE_URL to this
  * exact address -- MockCheckoutController's resolve/replay handlers
@@ -110,6 +111,7 @@ describe("MockPaymentProvider + dev checkout page (6.3, e2e)", () => {
         publicOrderNumber: `TEST-MOCK-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

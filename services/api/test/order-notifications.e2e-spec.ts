@@ -19,6 +19,7 @@ import {
   type SendEmailJob,
 } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §78/7.3's own Done-when: every one of the seven domain events
  * produces exactly one notification per recipient, with no duplicates
@@ -98,6 +99,7 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
         publicOrderNumber: `TEST-NOTIF-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -154,6 +156,7 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
           data: {
             orderId,
             shopId,
+            branchId: await branchIdOf(prisma, shopId),
             status: seedJobStatus,
             idempotencyToken: randomUUID(),
           },
@@ -266,6 +269,7 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
             publicOrderNumber: `TEST-NOTIF-QR-${randomUUID()}`,
             customerId: systemUserId,
             shopId,
+            branchId: await branchIdOf(prisma, shopId),
             documentId: systemDocumentId,
             printConfiguration: {},
             pricingSnapshot: {},
@@ -278,6 +282,7 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
             data: {
               orderId: order.id,
               shopId,
+              branchId: await branchIdOf(prisma, shopId),
               status: seedJobStatus,
               idempotencyToken: randomUUID(),
             },
@@ -302,6 +307,7 @@ describe("Order event -> notification mapping (7.3, e2e)", () => {
           publicOrderNumber: `TEST-NOTIF-QR-${randomUUID()}`,
           customerId: systemUserId,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           documentId: systemDocumentId,
           printConfiguration: {},
           pricingSnapshot: {},

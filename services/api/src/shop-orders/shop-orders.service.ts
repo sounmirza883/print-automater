@@ -56,6 +56,8 @@ import { resolvePagination } from "../common/pagination.js";
 import { ilike } from "../common/search.js";
 import { sanitizeHistoryMetadata } from "./order-history.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { resolveBranchForStaffOperation } from "../branches/branch-resolution.js";
+import { resolveBranchScope } from "../shop-staff/branch-scope.js";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
 import { toDeliveryResponse, type DeliveryResponse } from "../deliveries/deliveries.service.js";
@@ -64,6 +66,8 @@ import { RefundService } from "../payments/refund.service.js";
 import { ShopPlanService } from "../shop-plan/shop-plan.service.js";
 
 const SHOP_ORDER_INCLUDE = {
+  // Step 3: which branch the order belongs to (staff of an all-branches business see this column).
+  branch: { select: { name: true } },
   customer: { select: { name: true } },
   // 17.5: for a COUNTER order, `customer` is the STAFF member who
   // placed it (Order.customerId's own schema comment) -- the shop's
@@ -279,6 +283,9 @@ const REPRINT_BLOCKING_JOB_STATUSES: PrintJobStatus[] = [
 
 export interface ShopOrderResponse {
   id: string;
+  // Step 3: where the order was placed, and so where it is produced.
+  branchId: string;
+  branchName: string;
   publicOrderNumber: string;
   customerName: string;
   documentFilename: string;
@@ -517,11 +524,16 @@ export class ShopOrdersService {
     query: SearchShopOrdersQueryInput,
   ): Promise<Page<ShopOrderResponse>> {
     const { shopId } = query;
-    if (!(await this.shopMembership.isActiveStaff(shopId, requestingUserId))) {
+    const actor = await this.shopMembership.getAccess(shopId, requestingUserId);
+    if (!actor) {
       throw new ForbiddenException("You do not have access to this shop's orders.");
     }
+    // Step 3: a branch-bound person only searches their own branch (naming another is 403); an
+    // all-branches person searches everything unless they narrow it to one branch.
+    const branchId = resolveBranchScope(actor.branchId, query.branchId);
 
     const and: Prisma.OrderWhereInput[] = [shopVisibleWhere(query.status)];
+    if (branchId) and.push({ branchId });
     if (query.paymentStatus) and.push({ paymentStatus: query.paymentStatus });
     if (query.from || query.to) {
       and.push({
@@ -598,17 +610,21 @@ export class ShopOrdersService {
     query: ListShopOrdersQueryInput,
   ): Promise<ShopOrdersGrouped | Page<ShopOrderResponse>> {
     const { shopId } = query;
-    const isMember = await this.shopMembership.isActiveStaff(shopId, requestingUserId);
-    if (!isMember) {
+    const actor = await this.shopMembership.getAccess(shopId, requestingUserId);
+    if (!actor) {
       throw new ForbiddenException("You do not have access to this shop's orders.");
     }
+    // Step 3: same branch rule as search (a branch-bound person is pinned to their own branch).
+    const branchId = resolveBranchScope(actor.branchId, query.branchId);
+    const inBranch = (where: Prisma.OrderWhereInput): Prisma.OrderWhereInput =>
+      branchId ? { ...where, branchId } : where;
 
     const pagination = resolvePagination(query);
     if (query.group || pagination.paged) {
       // 23.6: one flat page, newest first, of one group (or of every visible order).
-      const where: Prisma.OrderWhereInput = query.group
-        ? whereInGroup(query.group)
-        : shopVisibleWhere();
+      const where: Prisma.OrderWhereInput = inBranch(
+        query.group ? whereInGroup(query.group) : shopVisibleWhere(),
+      );
       const [orders, total] = await Promise.all([
         this.repository.findMany(shopId, where, { take: pagination.take, skip: pagination.skip }),
         this.repository.count(shopId, where),
@@ -627,23 +643,23 @@ export class ShopOrdersService {
     const [live, completed, failed] = await Promise.all([
       this.repository.findMany(
         shopId,
-        {
+        inBranch({
           OR: [
             { orderStatus: { in: statusesInGroup("needsAttention", "printing", "ready") } },
             // 24.1: groupForOrder puts these in needsAttention (rule 4).
             QR_AWAITING_PAYMENT,
           ],
-        },
+        }),
         { take: LIVE_QUEUE_CAP },
       ),
       this.repository.findMany(
         shopId,
-        { orderStatus: { in: statusesInGroup("completed") } },
+        inBranch({ orderStatus: { in: statusesInGroup("completed") } }),
         { take: HISTORY_GROUP_CAP },
       ),
       this.repository.findMany(
         shopId,
-        { orderStatus: { in: statusesInGroup("failed") } },
+        inBranch({ orderStatus: { in: statusesInGroup("failed") } }),
         { take: HISTORY_GROUP_CAP },
       ),
     ]);
@@ -687,8 +703,8 @@ export class ShopOrdersService {
     staffUserId: string,
     input: CreateCounterOrderInput,
   ): Promise<OrderResponse> {
-    const isMember = await this.shopMembership.isActiveStaff(input.shopId, staffUserId);
-    if (!isMember) {
+    const actor = await this.shopMembership.getAccess(input.shopId, staffUserId);
+    if (!actor) {
       throw new ForbiddenException("You do not have access to this shop's orders.");
     }
 
@@ -700,6 +716,14 @@ export class ShopOrdersService {
       throw new ForbiddenException("That customer record does not belong to this shop.");
     }
 
+    // Step 3: where the order is placed (and so produced). A branch-bound person's own branch
+    // (naming another is 403); otherwise the named branch, or the business's only one.
+    const branch = await resolveBranchForStaffOperation(this.prisma, {
+      shopId: input.shopId,
+      actorBranchId: actor.branchId,
+      requested: input.branchId,
+    });
+
     return this.ordersService.createOrder(
       staffUserId,
       {
@@ -707,7 +731,11 @@ export class ShopOrdersService {
         documentId: input.documentId,
         printConfiguration: input.printConfiguration,
       },
-      { customerRecordId: input.customerRecordId, creationSource: OrderCreationSource.COUNTER },
+      {
+        customerRecordId: input.customerRecordId,
+        creationSource: OrderCreationSource.COUNTER,
+        branchId: branch.id,
+      },
     );
   }
 
@@ -898,6 +926,7 @@ export class ShopOrdersService {
       where: { id: orderId },
       select: {
         shopId: true,
+        branchId: true,
         paymentStatus: true,
         documentId: true,
         printConfiguration: true,
@@ -984,11 +1013,37 @@ export class ShopOrdersService {
       })),
     );
 
+    // Step 3: only the printers of the ORDER's branch are ever candidates. Paper below stays
+    // business-wide (stock is split in step 4), so it keeps taking the shop id.
     const { candidates, deviceIdsByPrinterId, automation, rules } = await buildPrinterCandidates(
       tx,
       freshOrder.shopId,
+      freshOrder.branchId,
       new Date(),
     );
+    // Naming a printer is a manual choice, but it still cannot cross branches: a printer of
+    // another branch is refused with its own code rather than reading as "unavailable".
+    if (
+      requestedPrinterId !== undefined &&
+      !candidates.some((candidate) => candidate.id === requestedPrinterId)
+    ) {
+      const elsewhere = await tx.printer.findFirst({
+        where: {
+          id: requestedPrinterId,
+          shopId: freshOrder.shopId,
+          NOT: { branchId: freshOrder.branchId },
+        },
+        select: { id: true },
+      });
+      if (elsewhere) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "PRINTER_WRONG_BRANCH",
+          "That printer belongs to another branch, so it cannot print this order.",
+          false,
+        );
+      }
+    }
     // 22.2 (PRD 76/122): naming a printer is manual and always honoured; picking
     // one automatically only happens while automatic assignment is on. Off: the job
     // is created WAITING (AUTOMATION_DISABLED) for staff to assign, in EVERY mode
@@ -1038,7 +1093,7 @@ export class ShopOrdersService {
       };
       const allocation: AllocationResult = assignmentOff
         ? { outcome: "BLOCKED", blockedReason: BlockedReason.AUTOMATION_DISABLED }
-        : await this.allocateLocked(tx, request, allocationCandidates);
+        : await this.allocateLocked(tx, request, allocationCandidates, freshOrder.branchId);
 
       if (allocation.outcome === "ALLOCATED") {
         const printer = candidates.find((c) => c.id === allocation.printerId);
@@ -1046,6 +1101,7 @@ export class ShopOrdersService {
           data: {
             orderId,
             shopId: freshOrder.shopId,
+            branchId: freshOrder.branchId,
             orderItemId: draft.orderItemId,
             printerId: allocation.printerId,
             attempt: attempt + 1,
@@ -1070,6 +1126,7 @@ export class ShopOrdersService {
           data: {
             orderId,
             shopId: freshOrder.shopId,
+            branchId: freshOrder.branchId,
             orderItemId: draft.orderItemId,
             printerId: null,
             attempt: attempt + 1,
@@ -1106,6 +1163,7 @@ export class ShopOrdersService {
     tx: Prisma.TransactionClient,
     request: AllocationRequest,
     candidates: PrinterCandidate[],
+    branchId: string,
   ): Promise<AllocationResult> {
     // Each pass either returns or rules a printer out (or updates its status), so this ends;
     // the bound only guards against a status that flips on every read.
@@ -1119,11 +1177,13 @@ export class ShopOrdersService {
       await tx.$queryRaw`SELECT id FROM printers WHERE id = ${allocation.printerId} FOR SHARE`;
       const current = await tx.printer.findUnique({
         where: { id: allocation.printerId },
-        select: { status: true },
+        select: { status: true, branchId: true },
       });
       const chosen = candidates.find((candidate) => candidate.id === allocation.printerId);
-      if (current === null || chosen === undefined) {
-        // Deleted meanwhile: never a candidate again in this dispatch.
+      // Deleted meanwhile, or its PC was moved to another branch since the candidates were read
+      // (the move takes this same row FOR UPDATE, so it is settled now): never a candidate again
+      // in this dispatch.
+      if (current === null || chosen === undefined || current.branchId !== branchId) {
         const index = candidates.findIndex((candidate) => candidate.id === allocation.printerId);
         if (index >= 0) candidates.splice(index, 1);
         continue;
@@ -2067,6 +2127,8 @@ export class ShopOrdersService {
   private toResponse(order: ShopOrderWithRelations): ShopOrderResponse {
     return {
       id: order.id,
+      branchId: order.branchId,
+      branchName: order.branch.name,
       publicOrderNumber: order.publicOrderNumber,
       customerName: order.customerRecord?.name ?? order.customer.name,
       documentFilename: order.document.filename,

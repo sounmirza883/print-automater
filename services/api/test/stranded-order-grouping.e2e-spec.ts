@@ -1,6 +1,7 @@
 import { OrderStatus } from "@prisma/client";
 import request from "supertest";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type Grouped = Record<string, Array<{ id: string; printJobs: Array<Record<string, unknown>> }>>;
 
@@ -34,6 +35,7 @@ describe("A stranded order stands out to staff (19.12, e2e)", () => {
       data: {
         orderId: healthy.orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: healthy.itemIds[0]!,
         printerId: a.printer.id,
         status: "PRINTING",
@@ -47,6 +49,7 @@ describe("A stranded order stands out to staff (19.12, e2e)", () => {
       data: {
         orderId: stranded.orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: stranded.itemIds[0]!,
         printerId: a.printer.id,
         status: "QUEUED",

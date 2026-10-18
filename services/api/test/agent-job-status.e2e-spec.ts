@@ -18,6 +18,7 @@ import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -75,6 +76,7 @@ describe("Agent job status reporting (9.12, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agent.id,
         name: `Agent Status E2E Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
@@ -94,6 +96,7 @@ describe("Agent job status reporting (9.12, e2e)", () => {
         publicOrderNumber: `TEST-AGENTSTATUS-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -114,6 +117,7 @@ describe("Agent job status reporting (9.12, e2e)", () => {
         orderId: order.id,
         printerId,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         idempotencyToken: randomUUID(),
         status: jobStatus,
         claimedAt: new Date(),

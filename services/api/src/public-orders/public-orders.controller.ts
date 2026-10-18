@@ -19,7 +19,7 @@ import { CreateDocumentDto } from "../documents/dto/create-document.dto.js";
 import type { CreateDocumentResult, DocumentStatusView } from "../documents/documents.service.js";
 import type { OrderResponse } from "../orders/orders.service.js";
 import { CreatePublicOrderDto } from "./dto/create-public-order.dto.js";
-import { PublicOrdersService } from "./public-orders.service.js";
+import { PublicOrdersService, type PublicBranchResponse } from "./public-orders.service.js";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -38,6 +38,8 @@ export const PUBLIC_RATE_LIMITS = {
   createOrder: { perIpAndShop: 20, perIp: 60, windowMs: HOUR_MS },
   // A PDF render per call, but the guest taps it once or twice per order.
   getInvoice: { perIpAndShop: 30, perIp: 90, windowMs: HOUR_MS },
+  // One small read when the QR page opens (and again if the guest refreshes it).
+  getBranch: { perIpAndShop: 60, perIp: 180, windowMs: MINUTE_MS },
 } as const;
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -124,6 +126,18 @@ export class PublicOrdersController {
     @Param("documentId", ParseUUIDPipe) documentId: string,
   ): Promise<DocumentStatusView> {
     return this.publicOrdersService.getDocumentStatus(shopId, documentId);
+  }
+
+  /** The branch a QR code points at, for the page the guest lands on ("Ordering from ...", or
+   * "this branch is closed right now"). Only public fields; 404 for a branch that does not exist,
+   * is archived, or belongs to another business. */
+  @Get("branches/:branchId")
+  @RateLimit(ipAndShopBuckets(PUBLIC_RATE_LIMITS.getBranch))
+  getBranch(
+    @Param("shopId", ParseUUIDPipe) shopId: string,
+    @Param("branchId", ParseUUIDPipe) branchId: string,
+  ): Promise<PublicBranchResponse> {
+    return this.publicOrdersService.getBranch(shopId, branchId);
   }
 
   /** §92: idempotent under an `Idempotency-Key` header, like `POST /orders`

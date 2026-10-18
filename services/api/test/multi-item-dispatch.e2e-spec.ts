@@ -19,6 +19,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.5's own Done-when: "a NEW test with multiItemEnabled: true and a
  * 2-item order proves two real PrintJob rows are created and correctly
@@ -85,12 +86,18 @@ describe("Multi-item dispatch (18.3/18.4/18.5, e2e)", () => {
     });
 
     const agentMono = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     printerAgentIds.push(agentMono.id);
     printerMono = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agentMono.id,
         name: "Multi Item Mono Printer",
         status: PrinterStatus.ONLINE,
@@ -100,12 +107,18 @@ describe("Multi-item dispatch (18.3/18.4/18.5, e2e)", () => {
     printerIds.push(printerMono.id);
 
     const agentColor = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     printerAgentIds.push(agentColor.id);
     printerColor = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agentColor.id,
         name: "Multi Item Color Printer",
         status: PrinterStatus.ONLINE,
@@ -153,6 +166,7 @@ describe("Multi-item dispatch (18.3/18.4/18.5, e2e)", () => {
         publicOrderNumber: `TEST-MULTI-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -242,6 +256,7 @@ describe("Multi-item dispatch (18.3/18.4/18.5, e2e)", () => {
         publicOrderNumber: `TEST-MULTI-BLOCKED-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },

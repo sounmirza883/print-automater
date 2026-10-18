@@ -14,6 +14,7 @@ import {
 } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { SendEmailProcessor } from "../src/notifications/send-email.processor.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 const MAILHOG_HTTP_URL = "http://localhost:8025";
 
@@ -100,6 +101,7 @@ describe("Notifications queue + SendEmailProcessor (7.2, e2e)", () => {
         publicOrderNumber: `TEST-EMAIL-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

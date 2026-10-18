@@ -9,6 +9,7 @@ import {
   PrismaService,
 } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 5.4's own Done-when: an exhaustive matrix over every (state, event)
  * pair. `EXPECTED` is an independently hand-written mirror of the
@@ -131,6 +132,7 @@ describe("OrderStateMachine (5.4/18.2, e2e)", () => {
         publicOrderNumber: `TEST-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -200,6 +202,7 @@ describe("OrderStateMachine (5.4/18.2, e2e)", () => {
         data: {
           orderId,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           status: PrintJobStatus.PRINTING,
           idempotencyToken: randomUUID(),
         },
@@ -215,6 +218,7 @@ describe("OrderStateMachine (5.4/18.2, e2e)", () => {
         data: {
           orderId,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           status: PrintJobStatus.PRINTING,
           idempotencyToken: randomUUID(),
         },
@@ -251,6 +255,7 @@ describe("OrderStateMachine (5.4/18.2, e2e)", () => {
       data: {
         orderId: printingOrderId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         status: PrintJobStatus.PRINTED,
         idempotencyToken: randomUUID(),
       },

@@ -1,6 +1,7 @@
 import { PrinterStatus, type InventoryItem } from "@prisma/client";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 20.3 (§28): before AUTOMATIC allocation, check the required paper is in
  * stock -- but only for shops that switched inventory tracking on. */
@@ -159,6 +160,7 @@ describe("Paper availability gate (20.3, e2e)", () => {
         data: {
           orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: itemIds[0]!,
           printerId: a.printer.id,
           status: "QUEUED",

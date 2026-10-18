@@ -18,6 +18,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 describe("Printers CRUD API (8.4, e2e)", () => {
   let app: NestExpressApplication;
@@ -175,7 +176,9 @@ describe("Printers CRUD API (8.4, e2e)", () => {
       .send({ shopId: shopA.id, name: "Should not register" });
     expect(registered.status).toBe(403);
 
-    const printer = await prisma.printer.create({ data: { shopId: shopA.id, name: "Guarded 2" } });
+    const printer = await prisma.printer.create({
+      data: { shopId: shopA.id, branchId: await branchIdOf(prisma, shopA.id), name: "Guarded 2" },
+    });
     printerIds.push(printer.id);
 
     const updated = await request(app.getHttpServer())
@@ -208,7 +211,11 @@ describe("Printers CRUD API (8.4, e2e)", () => {
 
   it("lists only the requesting shop's own printers", async () => {
     const shopBPrinter = await prisma.printer.create({
-      data: { shopId: shopB.id, name: "Shop B Printer" },
+      data: {
+        shopId: shopB.id,
+        branchId: await branchIdOf(prisma, shopB.id),
+        name: "Shop B Printer",
+      },
     });
     printerIds.push(shopBPrinter.id);
 
@@ -230,7 +237,12 @@ describe("Printers CRUD API (8.4, e2e)", () => {
 
   it("renames a printer without touching its status", async () => {
     const printer = await prisma.printer.create({
-      data: { shopId: shopA.id, name: "Old Name", status: PrinterStatus.ONLINE },
+      data: {
+        shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
+        name: "Old Name",
+        status: PrinterStatus.ONLINE,
+      },
     });
     printerIds.push(printer.id);
 
@@ -245,7 +257,12 @@ describe("Printers CRUD API (8.4, e2e)", () => {
 
   it("disable always forces DISABLED; re-enable restores OFFLINE, never clobbering an agent-reported status", async () => {
     const printer = await prisma.printer.create({
-      data: { shopId: shopA.id, name: "Toggle Printer", status: PrinterStatus.ONLINE },
+      data: {
+        shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
+        name: "Toggle Printer",
+        status: PrinterStatus.ONLINE,
+      },
     });
     printerIds.push(printer.id);
 
@@ -278,7 +295,9 @@ describe("Printers CRUD API (8.4, e2e)", () => {
   });
 
   it("update rejects an empty body and a cross-shop target", async () => {
-    const printer = await prisma.printer.create({ data: { shopId: shopA.id, name: "P" } });
+    const printer = await prisma.printer.create({
+      data: { shopId: shopA.id, branchId: await branchIdOf(prisma, shopA.id), name: "P" },
+    });
     printerIds.push(printer.id);
 
     const empty = await request(app.getHttpServer())
@@ -295,7 +314,9 @@ describe("Printers CRUD API (8.4, e2e)", () => {
   });
 
   it("removes a printer with no active job", async () => {
-    const printer = await prisma.printer.create({ data: { shopId: shopA.id, name: "Removable" } });
+    const printer = await prisma.printer.create({
+      data: { shopId: shopA.id, branchId: await branchIdOf(prisma, shopA.id), name: "Removable" },
+    });
 
     const res = await request(app.getHttpServer())
       .delete(`/v1/shop/printers/${printer.id}`)
@@ -330,6 +351,7 @@ describe("Printers CRUD API (8.4, e2e)", () => {
         publicOrderNumber: `TEST-PRINTERS-${randomUUID()}`,
         customerId: customer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId: document.id,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -337,7 +359,11 @@ describe("Printers CRUD API (8.4, e2e)", () => {
       },
     });
     const printer = await prisma.printer.create({
-      data: { shopId: shopA.id, name: "Busy Printer" },
+      data: {
+        shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
+        name: "Busy Printer",
+      },
     });
     printerIds.push(printer.id);
     await prisma.printJob.create({
@@ -345,6 +371,7 @@ describe("Printers CRUD API (8.4, e2e)", () => {
         orderId: order.id,
         printerId: printer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         status: PrintJobStatus.PRINTING,
         idempotencyToken: randomUUID(),
       },
@@ -366,7 +393,9 @@ describe("Printers CRUD API (8.4, e2e)", () => {
   });
 
   it("remove returns 403 for a cross-shop target", async () => {
-    const printer = await prisma.printer.create({ data: { shopId: shopA.id, name: "Guarded" } });
+    const printer = await prisma.printer.create({
+      data: { shopId: shopA.id, branchId: await branchIdOf(prisma, shopA.id), name: "Guarded" },
+    });
     printerIds.push(printer.id);
 
     const res = await request(app.getHttpServer())

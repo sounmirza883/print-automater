@@ -10,6 +10,7 @@ import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §76/§92/6.5's own Done-when: "the same webhook delivered 5 times
  * produces exactly one financial operation," and "an invalid signature
@@ -87,6 +88,7 @@ describe("POST /webhooks/payment/:provider (6.5, e2e)", () => {
         publicOrderNumber: `TEST-WEBHOOK-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

@@ -24,6 +24,8 @@ export const listShopOrdersQuerySchema = z
   .object({
     shopId: z.string().uuid(),
     group: z.enum(SHOP_ORDER_GROUPS).optional(),
+    // Narrow to one branch. A branch-bound caller is pinned to their own (naming another is 403).
+    branchId: z.string().uuid().optional(),
   })
   .merge(optionalPaginationQuerySchema);
 

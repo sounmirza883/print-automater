@@ -8,6 +8,7 @@ import {
 } from "@prisma/client";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.6 (PRD 43/44): order search and filters, plus the search-term hygiene every list
  * search shares (a literal % or _ never matches everything). */
@@ -46,6 +47,7 @@ describe("Search and filters (23.6, e2e)", () => {
         customerId: fx.customer.id,
         customerRecordId: over.customerRecordId ?? undefined,
         shopId: over.shopId ?? fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, over.shopId ?? fx.shop.id),
         documentId: over.documentId ?? mine.documentId,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -113,6 +115,7 @@ describe("Search and filters (23.6, e2e)", () => {
         orderId: printed.id,
         printerId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.QUEUED,
         operatorId: fx.operator.user.id,

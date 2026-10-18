@@ -21,6 +21,7 @@ import { configureApp } from "../src/bootstrap.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -96,6 +97,7 @@ describe("Edge case suite (13.2, e2e)", () => {
         publicOrderNumber: `TEST-EDGECASE-${randomUUID()}`,
         customerId: customer.id,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -298,6 +300,7 @@ describe("Edge case suite (13.2, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         agentId: agent.id,
         name: `Edge Case Offline Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
@@ -336,6 +339,7 @@ describe("Edge case suite (13.2, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         agentId: agent.id,
         name: printerName,
         status: PrinterStatus.ONLINE,
@@ -349,6 +353,7 @@ describe("Edge case suite (13.2, e2e)", () => {
         orderId,
         printerId: printer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.QUEUED,
       },
@@ -428,6 +433,7 @@ describe("Edge case suite (13.2, e2e)", () => {
     const printerA = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         agentId: agentA.id,
         name: `Edge Case Printer A ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
@@ -441,6 +447,7 @@ describe("Edge case suite (13.2, e2e)", () => {
         orderId,
         printerId: printerA.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.CLAIMED,
       },
@@ -460,6 +467,7 @@ describe("Edge case suite (13.2, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         agentId: agent.id,
         name: `Edge Case Unknown Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
@@ -477,6 +485,7 @@ describe("Edge case suite (13.2, e2e)", () => {
         orderId,
         printerId: printer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.PRINTING,
       },

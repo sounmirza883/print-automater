@@ -35,6 +35,6 @@ export class ShopAgentsController {
     @Req() req: RequestWithUser,
     @Body() dto: IssuePairingCodeDto,
   ): Promise<PairingCodeIssueResult> {
-    return this.pairingCodeService.issue(dto.shopId, req.user!.id);
+    return this.pairingCodeService.issue(dto.shopId, req.user!.id, dto.branchId);
   }
 }

@@ -212,9 +212,16 @@ model Branch {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  shop         Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  staff        ShopStaff[]
-  staffInvites ShopStaffInvite[]
+  shop               Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  staff              ShopStaff[]
+  staffInvites       ShopStaffInvite[]
+  // Step 3: where orders, jobs, printers and paired PCs live.
+  orders             Order[]
+  printJobs          PrintJob[]
+  printers           Printer[]
+  printerAgents      PrinterAgent[]
+  agentPairingCodes  AgentPairingCode[]
+  staffNotifications StaffNotification[]
 
   @@unique([shopId, name])
   @@unique([id, shopId])
@@ -549,6 +556,10 @@ model Order {
   // which is what 17.4's Customer record (not this field) is for.
   customerRecordId   String?       @map("customer_record_id")
   shopId             String        @map("shop_id")
+  // Step 3: the branch the order was placed at (a QR scan, or the counter that rang it up). Always
+  // set explicitly by code; a BEFORE INSERT trigger only fills it for older code that does not know
+  // about branches. Its print jobs carry the same branch, and only that branch's printers print it.
+  branchId           String        @map("branch_id")
   documentId         String        @map("document_id")
   printConfiguration Json          @map("print_configuration")
   pricingSnapshot    Json          @map("pricing_snapshot")
@@ -577,6 +588,7 @@ model Order {
   // PrintJob.orderItemId's own onDelete: SetNull already established.
   customerRecord Customer?      @relation(fields: [customerRecordId], references: [id], onDelete: SetNull)
   shop           Shop           @relation(fields: [shopId], references: [id])
+  branch         Branch         @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "orders_branch_shop_fkey")
   document       Document       @relation(fields: [documentId], references: [id])
   // 21.5: the optional delivery record.
   delivery       OrderDelivery?
@@ -593,6 +605,9 @@ model Order {
   // 23.2: per-shop aggregates (dashboards, reports, search).
   @@index([shopId, orderStatus])
   @@index([shopId, createdAt])
+  // Step 3: the same lists narrowed to one branch.
+  @@index([shopId, branchId, orderStatus])
+  @@index([shopId, branchId, createdAt])
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([publicOrderNumber(ops: raw("gin_trgm_ops"))], type: Gin, map: "orders_public_order_number_trgm_idx")
   @@map("orders")
@@ -749,6 +764,9 @@ model StaffNotification {
   id         String                  @id @default(uuid())
   userId     String                  @map("user_id")
   shopId     String                  @map("shop_id")
+  // Step 3: the branch the alert is about. NULL = business-wide (what every older alert means);
+  // a set one reaches only people who work at that branch or at all branches.
+  branchId   String?                 @map("branch_id")
   type       StaffNotificationType
   title      String
   body       String
@@ -764,13 +782,15 @@ model StaffNotification {
   readAt     DateTime?               @map("read_at")
   createdAt  DateTime                @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "staff_notifications_branch_shop_fkey")
 
   @@unique([userId, dedupeKey])
   @@index([userId, createdAt])
   @@index([userId, readAt])
   @@index([shopId])
+  @@index([shopId, branchId])
   @@map("staff_notifications")
 }
 
@@ -937,6 +957,10 @@ enum PrinterStatus {
 model Printer {
   id                  String        @id @default(uuid())
   shopId              String        @map("shop_id")
+  // Step 3: which branch this printer is at. A printer with an agent is always where that agent
+  // (the paired PC) is; moving a PC moves its printers with it. Jobs only ever print on printers of
+  // their own branch.
+  branchId            String        @map("branch_id")
   // §41/9.4. Nullable -- a printer registered by staff (8.4) before
   // any agent is ever installed has no agent yet. Set the first time
   // a heartbeat reports a printer this shop's agent knows about
@@ -995,11 +1019,13 @@ model Printer {
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
   shop      Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  branch    Branch        @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "printers_branch_shop_fkey")
   agent     PrinterAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   printJobs PrintJob[]
   pageUsage PrinterPageUsage[]
 
   @@index([shopId])
+  @@index([shopId, branchId])
   @@index([agentId])
   // 23.6: trigram index so ILIKE %term% search is indexed (phase23_search_indexes migration).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "printers_name_trgm_idx")
@@ -1029,6 +1055,9 @@ model PrintJob {
   // job.
   printerId        String?        @map("printer_id")
   shopId           String         @map("shop_id")
+  // Step 3: copied from the order, as shopId is. The job only ever prints on a printer of this
+  // branch (allocation, manual reassignment and failover all stay inside it).
+  branchId         String         @map("branch_id")
   // 18.1: CREATED is the new default -- a freshly-exploded job starts
   // unallocated; dispatch (18.5) moves it to QUEUED (allocated) or
   // WAITING (blocked) via the job state machine, never by construction.
@@ -1063,6 +1092,7 @@ model PrintJob {
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   order     Order      @relation(fields: [orderId], references: [id])
+  branch    Branch     @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "print_jobs_branch_shop_fkey")
   // 18.23: explicit Restrict, matching what the database has always enforced. Phase 18
   // made printer_id nullable (a blocked job has no printer yet), and Prisma's default
   // for an OPTIONAL relation is SetNull -- so with no explicit onDelete the schema
@@ -1084,6 +1114,8 @@ model PrintJob {
   // 23.2: per-shop job aggregates by status and completion time; the operator's own queue.
   @@index([shopId, status, updatedAt])
   @@index([operatorId, status])
+  // Step 3: the same lists narrowed to one branch.
+  @@index([shopId, branchId, status])
   @@map("print_jobs")
 }
 
@@ -1257,15 +1289,21 @@ model PrinterAgent {
   id         String             @id @default(uuid())
   deviceId   String             @unique @map("device_id")
   shopId     String             @map("shop_id")
+  // Step 3: the branch this PC is at, fixed when it paired (the pairing code names it) and changed
+  // only by an owner moving the PC, which moves every printer on it too. The agent protocol does not
+  // need to know: the branch is read from this row.
+  branchId   String             @map("branch_id")
   publicKey  String             @map("public_key")
   status     PrinterAgentStatus @default(ACTIVE)
   lastSeenAt DateTime?          @map("last_seen_at")
   createdAt  DateTime           @default(now()) @map("created_at")
 
   shop     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  branch   Branch    @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "printer_agents_branch_shop_fkey")
   printers Printer[]
 
   @@index([shopId])
+  @@index([shopId, branchId])
   @@map("printer_agents")
 }
 
@@ -1280,15 +1318,19 @@ model AgentPairingCode {
   id         String    @id @default(uuid())
   codeHash   String    @unique @map("code_hash")
   shopId     String    @map("shop_id")
+  // Step 3: the branch the paired PC (and every printer it reports) will belong to.
+  branchId   String    @map("branch_id")
   createdBy  String    @map("created_by")
   expiresAt  DateTime  @map("expires_at")
   consumedAt DateTime? @map("consumed_at")
   createdAt  DateTime  @default(now()) @map("created_at")
 
-  shop    Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  creator User @relation(fields: [createdBy], references: [id])
+  shop    Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  branch  Branch @relation(fields: [branchId, shopId], references: [id, shopId], onDelete: NoAction, onUpdate: NoAction, map: "agent_pairing_codes_branch_shop_fkey")
+  creator User   @relation(fields: [createdBy], references: [id])
 
   @@index([shopId])
+  @@index([shopId, branchId])
   @@map("agent_pairing_codes")
 }
 

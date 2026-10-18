@@ -8,6 +8,7 @@ import {
   reevaluatePrinterJobs,
 } from "@print-automated/backend-shared";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 19.16. The risk list always required these and Phase 18 did not write them:
  * each background sweep RACING a staff retry on the same order, fired with
@@ -41,6 +42,7 @@ describe("Sweeps racing a staff retry (19.16, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status: "TIMEOUT",
@@ -51,6 +53,7 @@ describe("Sweeps racing a staff retry (19.16, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[1]!,
         printerId: secondStatus === "QUEUED" ? printerId : null,
         status: secondStatus,

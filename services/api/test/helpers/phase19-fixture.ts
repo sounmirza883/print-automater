@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import {
+  type Branch,
   DocumentStatus,
   OrderItemType,
   OrderStatus,
@@ -223,20 +224,68 @@ export async function createPhase19Fixture(
     });
     const token = tokens.issueAccessToken(owner);
 
+    /** The business's first branch (every business has one): where everything lives unless a test
+     * names another. Branch tests add a second with `addBranch` and name it explicitly. */
+    const branch: Branch = await prisma.branch.findFirstOrThrow({
+      where: { shopId: shop.id },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+
+    /** A further branch of this business (created after the first, so it is never the default). */
+    async function addBranch(name: string): Promise<Branch> {
+      return prisma.branch.create({
+        data: { shopId: shop.id, name: `${label} ${name}`, address: "2 Other Road" },
+      });
+    }
+
+    /** A staff member of this business at a branch (null = all branches), with a token. Cleaned up
+     * with the fixture's users and memberships. */
+    async function makeMember(
+      role: UserRole,
+      branchId: string | null,
+    ): Promise<{ user: { id: string }; token: string; membershipId: string }> {
+      const user = await prisma.user.create({
+        data: {
+          role,
+          name: `${label} ${role}`,
+          email: `${label}-${role.toLowerCase()}-${randomUUID()}@print-automated.dev`,
+          passwordHash: "irrelevant",
+        },
+      });
+      reg.userIds.push(user.id);
+      const membership = await prisma.shopStaff.create({
+        data: {
+          shopId: shop.id,
+          userId: user.id,
+          role,
+          status: ShopStaffStatus.ACTIVE,
+          branchId,
+        },
+      });
+      return { user, token: tokens.issueAccessToken(user), membershipId: membership.id };
+    }
+
     async function makePrinter(
       name: string,
       data: Partial<
         Pick<Printer, "pageLimit" | "pageLimitEnabled" | "pageLimitPeriod" | "status">
       > = {},
+      branchId: string = branch.id,
     ): Promise<{ printer: Printer; deviceId: string }> {
       const deviceId = randomUUID();
       const agent = await prisma.printerAgent.create({
-        data: { deviceId, shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+        data: {
+          deviceId,
+          shopId: shop.id,
+          branchId,
+          publicKey: "irrelevant-test-public-key",
+        },
       });
       reg.agentIds.push(agent.id);
       const printer = await prisma.printer.create({
         data: {
           shopId: shop.id,
+          branchId,
           agentId: agent.id,
           name,
           status: PrinterStatus.ONLINE,
@@ -253,12 +302,14 @@ export async function createPhase19Fixture(
       quantity = 1,
       orderStatus: OrderStatus = OrderStatus.WAITING_FOR_SHOP,
       config: Record<string, unknown> = CONFIG,
+      branchId: string = branch.id,
     ): Promise<{ orderId: string; itemIds: string[] }> {
       const order = await prisma.order.create({
         data: {
           publicOrderNumber: `TEST-${label}-${randomUUID()}`,
           customerId: customer.id,
           shopId: shop.id,
+          branchId,
           documentId: document.id,
           printConfiguration: config as object,
           pricingSnapshot: { quote: { totalMinor: 3000, currency: "PKR" } },
@@ -297,6 +348,9 @@ export async function createPhase19Fixture(
       owner,
       customer,
       token,
+      branch,
+      addBranch,
+      makeMember,
       makePrinter,
       makeOrder,
       trackDocument,

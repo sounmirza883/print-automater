@@ -14,6 +14,7 @@ import {
 import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { OrderExpirationProcessor } from "../src/order-expiration/order-expiration.processor.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 5.6's own Done-when is about the sweep's *logic* -- stale orders
  * expire, non-stale/other-status orders don't, and a race never
@@ -89,6 +90,7 @@ describe("Order expiration sweep (5.6, e2e)", () => {
         publicOrderNumber: `TEST-EXPIRE-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

@@ -9,6 +9,9 @@ import { printConfigurationSchema } from "../print-configuration.schema.js";
  * flow describes, rather than this endpoint silently creating one. */
 export const createCounterOrderSchema = z.object({
   shopId: z.string().uuid(),
+  // The branch the order is placed at, resolved like a pairing code's: a branch-bound person's own,
+  // else the named one, else the business's only branch.
+  branchId: z.string().uuid().optional(),
   documentId: z.string().uuid(),
   customerRecordId: z.string().uuid(),
   printConfiguration: printConfigurationSchema,

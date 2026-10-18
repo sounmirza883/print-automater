@@ -13,6 +13,8 @@ import { paginationQuerySchema } from "../common/pagination.schema.js";
 export const searchShopOrdersQuerySchema = z
   .object({
     shopId: z.string().uuid(),
+    // Narrow to one branch. A branch-bound caller is pinned to their own (naming another is 403).
+    branchId: z.string().uuid().optional(),
     q: z.string().trim().min(1).max(100).optional(),
     status: z.nativeEnum(OrderStatus).optional(),
     paymentStatus: z.nativeEnum(PaymentStatus).optional(),

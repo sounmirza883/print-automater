@@ -7,6 +7,7 @@ import {
   createPhase19Fixture,
   type Phase19Fixture as Fx,
 } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type JobStatus = "QUEUED" | "CLAIMED" | "PRINTING";
 
@@ -22,6 +23,7 @@ async function seedJobs(
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status,

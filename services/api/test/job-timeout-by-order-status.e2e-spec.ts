@@ -21,6 +21,7 @@ import type { ApiEnv } from "@print-automated/config";
 import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.27: API-level mirror of the print-timeout sweep's per-order-status
  * behaviour (the worker e2e cannot be run in this environment): the sweep
@@ -77,12 +78,18 @@ describe("Timeout of a stale job under each order status (18.27 mirror, e2e)", (
     });
     shopId = shop.id;
     const agent = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     agentId = agent.id;
     const printer = await prisma.printer.create({
       data: {
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         agentId,
         name: "Atomic Sync Printer",
         status: PrinterStatus.ONLINE,
@@ -135,6 +142,7 @@ describe("Timeout of a stale job under each order status (18.27 mirror, e2e)", (
         publicOrderNumber: `TEST-TOSTATUS-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -154,6 +162,7 @@ describe("Timeout of a stale job under each order status (18.27 mirror, e2e)", (
       data: {
         orderId: order.id,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         printerId,
         idempotencyToken: randomUUID(),
         status: jobStatus,

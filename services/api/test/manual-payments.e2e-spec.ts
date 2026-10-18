@@ -17,6 +17,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 describe("Manual payment recording (§35/17.6, e2e)", () => {
   let app: NestExpressApplication;
@@ -56,6 +57,7 @@ describe("Manual payment recording (§35/17.6, e2e)", () => {
         publicOrderNumber: `PA-MANUALPAY-${randomUUID()}`,
         customerId: counterAtShopA.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {

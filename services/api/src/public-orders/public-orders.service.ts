@@ -18,11 +18,22 @@ import {
   type DocumentStatusView,
 } from "../documents/documents.service.js";
 import { OrdersService, type OrderResponse } from "../orders/orders.service.js";
+import { resolveBranchForCustomerOrder } from "../branches/branch-resolution.js";
 
 /** The `.invalid` TLD is reserved (RFC 2606) and never resolves, so mail
  * addressed to a SYSTEM account -- order-lifecycle emails, a password
  * reset -- can never reach anyone. */
 const SYSTEM_EMAIL_DOMAIN = "system.print-automated.invalid";
+
+/** What a visitor may know about a branch: where it is, and whether it takes orders right now
+ * (the branch's own switch; the business-level status is a separate gate at order time). */
+export interface PublicBranchResponse {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string;
+  isOpen: boolean;
+}
 
 interface ShopForQr {
   id: string;
@@ -96,6 +107,13 @@ export class PublicOrdersService {
       documentId: input.documentId,
       printConfiguration: input.printConfiguration,
     };
+    // The branch whose QR code was scanned (none: the oldest branch). Refused here, before the
+    // guest's Customer row exists, when it is closed, archived or not this business's; createOrder
+    // checks it again under a lock when the order is written.
+    const branch = await resolveBranchForCustomerOrder(this.prisma, {
+      shopId: shop.id,
+      requested: input.branchId,
+    });
     await this.ordersService.createQuote(systemUserId, orderInput);
 
     const customer = await this.prisma.customer.create({
@@ -108,6 +126,7 @@ export class PublicOrdersService {
       order = await this.ordersService.createOrder(systemUserId, orderInput, {
         customerRecordId: customer.id,
         creationSource: OrderCreationSource.QR,
+        branchId: branch.id,
       });
     } catch (error) {
       // Lost a race with the pre-check (the shop closed, pricing changed):
@@ -123,6 +142,7 @@ export class PublicOrdersService {
       resourceId: order.id,
       metadata: {
         shopId: shop.id,
+        branchId: branch.id,
         customerRecordId: customer.id,
         documentId: input.documentId,
         nameMasked: maskName(input.name),
@@ -131,6 +151,20 @@ export class PublicOrdersService {
     });
 
     return order;
+  }
+
+  /** `GET /public/shops/:shopId/branches/:branchId`: the page behind a branch's QR code. A branch
+   * that is unknown, archived or another business's is the same 404, so the route confirms nothing
+   * about branches of other businesses. */
+  async getBranch(shopId: string, branchId: string): Promise<PublicBranchResponse> {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, shopId, archivedAt: null },
+      select: { id: true, name: true, city: true, address: true, isOpen: true },
+    });
+    if (!branch) {
+      throw new NotFoundException("Branch not found.");
+    }
+    return branch;
   }
 
   /** `GET /public/shops/:shopId/orders/:orderId/invoice`: the guest's PDF

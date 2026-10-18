@@ -3,6 +3,7 @@ import { OrderStatus, ShopStaffStatus, UserRole } from "@prisma/client";
 import request from "supertest";
 import { TokenService } from "../src/auth/token.service.js";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type JobStatus = "FAILED" | "TIMEOUT" | "UNKNOWN" | "QUEUED" | "PRINTED";
 
@@ -54,6 +55,7 @@ describe("Job failure reasons (21.2, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status,

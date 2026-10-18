@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { OrderStatus, PaymentStatus, PrinterStatus, UserRole } from "@prisma/client";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.6: every list endpoint is bounded. Legacy callers (no limit/offset) still get the
  * bare array they always got, now capped; `?limit=&offset=` opts into
@@ -265,11 +266,13 @@ describe("Pagination on every list endpoint (23.6, e2e)", () => {
       const doc = await fx.prisma.document.findFirstOrThrow({
         where: { ownerUserId: fx.customer.id },
       });
+      const branchId = await branchIdOf(fx.prisma, fx.shop.id);
       await fx.prisma.order.createMany({
         data: Array.from({ length: 205 }, (_, i) => ({
           publicOrderNumber: `TEST-pagorders-${randomUUID()}-${i}`,
           customerId: fx.customer.id,
           shopId: fx.shop.id,
+          branchId,
           documentId: doc.id,
           printConfiguration: {},
           pricingSnapshot: {},

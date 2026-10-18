@@ -21,6 +21,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.7/18.9, e2e: manual reassignment and manual operator assignment,
  * both against real Postgres rows through the real HTTP surface. */
@@ -90,12 +91,18 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
     });
 
     const agentA = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     printerAgentIds.push(agentA.id);
     printerA = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agentA.id,
         name: "Print Jobs Printer A",
         status: PrinterStatus.ONLINE,
@@ -105,12 +112,18 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
     printerIds.push(printerA.id);
 
     const agentB = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     printerAgentIds.push(agentB.id);
     printerB = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agentB.id,
         name: "Print Jobs Printer B",
         status: PrinterStatus.ONLINE,
@@ -220,6 +233,7 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
         publicOrderNumber: `TEST-PJ-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -250,6 +264,7 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
       data: {
         orderId: order.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         orderItemId: item.id,
         printerId: printerA.id,
         idempotencyToken: `${item.id}:1`,
@@ -329,7 +344,12 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
     let agentId: string | null = null;
     if (overrides.agent) {
       const agent = await prisma.printerAgent.create({
-        data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+        data: {
+          deviceId: randomUUID(),
+          shopId: shop.id,
+          branchId: await branchIdOf(prisma, shop.id),
+          publicKey: "irrelevant-test-public-key",
+        },
       });
       printerAgentIds.push(agent.id);
       agentId = agent.id;
@@ -337,6 +357,7 @@ describe("Print jobs API (18.7/18.9, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId,
         name: `Print Jobs Target ${randomUUID()}`,
         status: overrides.status,

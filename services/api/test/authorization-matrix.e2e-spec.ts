@@ -20,6 +20,7 @@ import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -137,7 +138,13 @@ describe("Authorization matrix (12.1, e2e)", () => {
   ): Promise<{ id: string }> {
     const agent = await prisma.printerAgent.findUniqueOrThrow({ where: { deviceId } });
     const printer = await prisma.printer.create({
-      data: { shopId, agentId: agent.id, name, status: PrinterStatus.ONLINE },
+      data: {
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        agentId: agent.id,
+        name,
+        status: PrinterStatus.ONLINE,
+      },
     });
     printerIds.push(printer.id);
     return printer;
@@ -154,6 +161,7 @@ describe("Authorization matrix (12.1, e2e)", () => {
         publicOrderNumber: `TEST-AUTHZ-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -179,7 +187,14 @@ describe("Authorization matrix (12.1, e2e)", () => {
     status: PrintJobStatus,
   ): Promise<string> {
     const job = await prisma.printJob.create({
-      data: { orderId, printerId, shopId, idempotencyToken: randomUUID(), status },
+      data: {
+        orderId,
+        printerId,
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        idempotencyToken: randomUUID(),
+        status,
+      },
     });
     printJobIds.push(job.id);
     return job.id;

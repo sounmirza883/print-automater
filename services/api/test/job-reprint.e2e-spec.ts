@@ -4,6 +4,7 @@ import request from "supertest";
 import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type JobStatus = "PRINTED" | "QUEUED" | "FAILED" | "UNKNOWN" | "PAUSED" | "WAITING";
 
@@ -72,6 +73,7 @@ describe("Job reprint (21.4, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId: status === "WAITING" || status === "PAUSED" ? null : printerId,
         status,
@@ -202,6 +204,7 @@ describe("Job reprint (21.4, e2e)", () => {
       data: {
         orderId: s.orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: s.itemId,
         printerId,
         status: "QUEUED",
@@ -299,6 +302,7 @@ describe("Job reprint with no usable printer (21.4, e2e)", () => {
       data: {
         orderId,
         shopId: f.shop.id,
+        branchId: await branchIdOf(f.prisma, f.shop.id),
         orderItemId: itemIds[0]!,
         status: "PRINTED",
         idempotencyToken: `${itemIds[0]}:1`,

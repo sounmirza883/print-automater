@@ -9,6 +9,7 @@ import {
 import { OPERATOR_WORKLOAD_NOTICE } from "@print-automated/types";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 const DAY = 86_400_000;
 const ago = (days: number, extraMs = 0): Date => new Date(Date.now() - days * DAY - extraMs);
@@ -43,7 +44,7 @@ describe("Reports (23.5, e2e)", () => {
     fx.prisma.payment.create({
       data: { orderId, provider: "test", amountMinor, currency: "PKR", status, paidAt: at },
     });
-  const job = (
+  const job = async (
     orderId: string,
     itemId: string | undefined,
     printerId: string | null,
@@ -56,6 +57,7 @@ describe("Reports (23.5, e2e)", () => {
         orderItemId: itemId,
         printerId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         idempotencyToken: randomUUID(),
         status,
         operatorId: opsId,

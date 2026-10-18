@@ -12,6 +12,9 @@ export interface RegisteredAgent {
   shopId: string;
 }
 
+// The agent protocol needs no branch: it is stored on the agent row (from the pairing code) and
+// every printer the agent reports takes it from there.
+
 @Injectable()
 export class AgentsService {
   private readonly logger = new Logger(AgentsService.name);
@@ -31,9 +34,9 @@ export class AgentsService {
    * the agent registered itself, using a code staff issued, but staff
    * didn't perform this specific action. */
   async register(input: RegisterAgentInput): Promise<RegisteredAgent> {
-    const { shopId } = await this.pairingCodeService.redeem(input.pairingCode);
+    const { shopId, branchId } = await this.pairingCodeService.redeem(input.pairingCode);
     const agent = await this.prisma.printerAgent.create({
-      data: { deviceId: input.deviceId, shopId, publicKey: input.publicKey },
+      data: { deviceId: input.deviceId, shopId, branchId, publicKey: input.publicKey },
     });
 
     await this.auditService.record({
@@ -41,7 +44,7 @@ export class AgentsService {
       action: "PRINTER_REGISTERED",
       resourceType: "printer_agent",
       resourceId: agent.id,
-      metadata: { deviceId: agent.deviceId, shopId },
+      metadata: { deviceId: agent.deviceId, shopId, branchId },
     });
 
     return { deviceId: agent.deviceId, shopId: agent.shopId };

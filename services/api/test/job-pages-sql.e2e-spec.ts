@@ -3,6 +3,7 @@ import { OrderStatus, PaymentStatus, Prisma, PrintJobStatus } from "@prisma/clie
 import { jobPages } from "@print-automated/backend-shared";
 import { JOB_PAGES_JOINS, JOB_TOTAL_PAGES } from "../src/analytics/job-pages-sql.js";
 import { createPhase19Fixture, type Phase19Fixture } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.2/23.5: the aggregate SQL page measure must equal the ONE TypeScript definition
  * (`jobPages`) that allocation, queue load and usage accrual use. */
@@ -101,6 +102,7 @@ describe("JOB_TOTAL_PAGES SQL == jobPages() (23.2, e2e)", () => {
         publicOrderNumber: `TEST-jobpages-${randomUUID()}`,
         customerId: fx.customer.id,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         documentId: doc.id,
         printConfiguration: fullConfig as unknown as Prisma.InputJsonValue,
         pricingSnapshot: {},
@@ -127,6 +129,7 @@ describe("JOB_TOTAL_PAGES SQL == jobPages() (23.2, e2e)", () => {
       data: {
         orderId: order.id,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         idempotencyToken: randomUUID(),
         status: PrintJobStatus.QUEUED,
         orderItemId: itemId,

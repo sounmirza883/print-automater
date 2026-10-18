@@ -11,6 +11,7 @@ import {
   createPhase19Fixture,
   type Phase19Fixture as Fx,
 } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type Machine = PrintJobStateMachine;
 
@@ -24,6 +25,7 @@ async function seed(
     data: {
       orderId,
       shopId: fx.shop.id,
+      branchId: await branchIdOf(fx.prisma, fx.shop.id),
       orderItemId: itemIds[0]!,
       printerId,
       status,
@@ -223,6 +225,7 @@ describe("Failover hardening (19.11, e2e)", () => {
         data: {
           orderId,
           shopId: unknown.shop.id,
+          branchId: await branchIdOf(unknown.prisma, unknown.shop.id),
           orderItemId: itemIds[0]!,
           printerId: p.printer.id,
           status: "PRINTING",
@@ -262,6 +265,7 @@ describe("Failover hardening (19.11, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId: p2.printer.id,
         status: "PRINTING",

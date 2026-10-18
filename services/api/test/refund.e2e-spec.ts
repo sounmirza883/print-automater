@@ -10,6 +10,7 @@ import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
 import { RefundService } from "../src/payments/refund.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §80/11.2, e2e: the refund state machine (REFUND_PENDING -> REFUNDED,
  * failure REFUND_FAILED) against real Postgres and Redis (OrderLockService's
@@ -83,6 +84,7 @@ describe("RefundService (11.2, e2e)", () => {
         publicOrderNumber: `TEST-REFUND-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -210,6 +212,7 @@ describe("RefundService (11.2, e2e)", () => {
         publicOrderNumber: `TEST-REFUND-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

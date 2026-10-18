@@ -4,6 +4,7 @@ import { Test } from "@nestjs/testing";
 import { DocumentStatus, OrderStatus, PaymentStatus, ShopStatus, UserRole } from "@prisma/client";
 import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §5.1's own Done-when: the migration applies, and payment_status and
  * order_status are each independently indexed -- verified two ways:
@@ -88,6 +89,7 @@ describe("Orders schema (5.1, e2e)", () => {
         publicOrderNumber: `PA-SCHEMATEST-${randomUUID()}`,
         customerId: userId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration,
         pricingSnapshot,
@@ -140,6 +142,7 @@ describe("Orders schema (5.1, e2e)", () => {
         publicOrderNumber: duplicateNumber,
         customerId: userId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -152,6 +155,7 @@ describe("Orders schema (5.1, e2e)", () => {
           publicOrderNumber: duplicateNumber,
           customerId: userId,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           documentId,
           printConfiguration: {},
           pricingSnapshot: {},

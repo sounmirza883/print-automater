@@ -11,6 +11,7 @@ import {
   createPhase19Fixture,
   type Phase19Fixture as Fx,
 } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 describe("Printer page usage accrual (19.3, e2e)", () => {
   let fx: Fx;
@@ -37,6 +38,7 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status,
@@ -139,6 +141,7 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
       data: {
         orderId: item.orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: item.orderItemId,
         printerId: printer.id,
         status: "PRINTING",
@@ -204,6 +207,7 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
         data: {
           orderId,
           shopId: big.shop.id,
+          branchId: await branchIdOf(big.prisma, big.shop.id),
           orderItemId: itemIds[0]!,
           printerId: printer.id,
           status: "PRINTING",
@@ -235,6 +239,7 @@ describe("Printer page usage accrual (19.3, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: null,
         printerId: printer.id,
         status: "PRINTING",

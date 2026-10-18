@@ -16,6 +16,9 @@ const PHONE_CHARACTERS = /^[0-9+\-().\s]+$/;
  * can reach the guest -- and must look like a phone number (7-15 digits,
  * E.164's maximum), since nobody at a counter is checking it. */
 export const createPublicOrderSchema = z.object({
+  // The branch whose QR code was scanned. Omitted (a code printed before branches existed) means
+  // the business's oldest branch.
+  branchId: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(200),
   phone: z
     .string()

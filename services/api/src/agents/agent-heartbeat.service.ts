@@ -41,6 +41,8 @@ export class AgentHeartbeatService {
         await this.prisma.printer.create({
           data: {
             shopId,
+            // The agent's own branch: its printers are wherever the paired PC is.
+            branchId: agent.branchId,
             agentId: agent.id,
             name: reported.name,
             status: reported.status,

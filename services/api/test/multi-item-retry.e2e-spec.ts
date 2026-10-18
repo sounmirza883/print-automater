@@ -20,6 +20,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.17: retry / change-printer / resolve-unknown(RETRY) act ONLY on the
  * items whose current job is FAILED/TIMEOUT (UNKNOWN for resolve-unknown).
@@ -51,12 +52,18 @@ describe("Multi-item retry only touches the failed items (18.17, e2e)", () => {
 
   async function makePrinter(name: string): Promise<{ id: string }> {
     const agent = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     agentIds.push(agent.id);
     const printer = await prisma.printer.create({
       data: {
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         agentId: agent.id,
         name,
         status: PrinterStatus.ONLINE,
@@ -153,6 +160,7 @@ describe("Multi-item retry only touches the failed items (18.17, e2e)", () => {
         publicOrderNumber: `TEST-MIRETRY-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: config,
         pricingSnapshot: { quote: { totalMinor: 3000, currency: "PKR" } },
@@ -180,6 +188,7 @@ describe("Multi-item retry only touches the failed items (18.17, e2e)", () => {
         data: {
           orderId: order.id,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           orderItemId: item.id,
           printerId: printerA.id,
           idempotencyToken: `${item.id}:1`,

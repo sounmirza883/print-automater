@@ -13,6 +13,7 @@ import {
   createPhase19Fixture,
   type Phase19Fixture as Fx,
 } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type Toggles = Partial<{
   autoPrinterAssignmentEnabled: boolean;
@@ -60,6 +61,7 @@ async function seedWaiting(fx: Fx, blockedReason: string) {
     data: {
       orderId,
       shopId: fx.shop.id,
+      branchId: await branchIdOf(fx.prisma, fx.shop.id),
       orderItemId: itemIds[0]!,
       printerId: null,
       status: "WAITING",
@@ -176,6 +178,7 @@ describe("Automation toggles (22.2, e2e)", () => {
         data: {
           orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: itemIds[0]!,
           printerId: a.printer.id,
           status: "QUEUED",

@@ -19,6 +19,7 @@ import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
 import { TokenService } from "../src/auth/token.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -140,6 +141,7 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agent.id,
         name,
         status: PrinterStatus.ONLINE,
@@ -176,6 +178,7 @@ describe("Single-job equivalence (18.10 phase-gate, e2e)", () => {
         publicOrderNumber: `TEST-EQUIV-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },

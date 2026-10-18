@@ -11,6 +11,7 @@ import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { TokenService } from "../src/auth/token.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 describe("Rate limiting (e2e)", () => {
   let app: NestExpressApplication;
@@ -167,6 +168,7 @@ describe("Rate limiting (e2e)", () => {
         publicOrderNumber: `TEST-RATELIMIT-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId: document.id,
         printConfiguration: {},
         pricingSnapshot: { quote: { totalMinor: 1000, currency: "PKR" } },

@@ -8,6 +8,7 @@ import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
 import { PaymentReconciliationProcessor } from "../src/payment-reconciliation/payment-reconciliation.processor.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 11.4's own Done-when: "an artificially desynchronized payment is
  * flagged, not silently rewritten." Drives the processor directly
@@ -80,6 +81,7 @@ describe("Payment reconciliation sweep (11.4, e2e)", () => {
         publicOrderNumber: `TEST-RECON-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

@@ -15,6 +15,7 @@ import {
   DocumentRetentionProcessor,
   ORPHANED_QR_DOCUMENT_GRACE_HOURS,
 } from "../src/document-retention/document-retention.processor.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §66/§67/11.5, e2e: "a completed order past its window has its
  * document securely deleted while the order record remains fully
@@ -157,6 +158,7 @@ describe("Document retention sweep (11.5, e2e)", () => {
         publicOrderNumber: `TEST-RETENTION-${randomUUID()}`,
         customerId: options.customerId ?? customerId,
         shopId: (await ensureShop()).id,
+        branchId: await branchIdOf(prisma, (await ensureShop()).id),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

@@ -20,6 +20,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.26: resolve-unknown on a multi-item order. With 2+ UNKNOWN jobs an explicit
  * jobId is required (each may have a different real-world outcome), the
@@ -49,12 +50,18 @@ describe("Resolve-unknown on multi-item orders (18.26, e2e)", () => {
 
   async function makePrinter(name: string): Promise<{ id: string }> {
     const agent = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     agentIds.push(agent.id);
     const printer = await prisma.printer.create({
       data: {
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         agentId: agent.id,
         name,
         status: PrinterStatus.ONLINE,
@@ -151,6 +158,7 @@ describe("Resolve-unknown on multi-item orders (18.26, e2e)", () => {
         publicOrderNumber: `TEST-RESUNK-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: config,
         pricingSnapshot: { quote: { totalMinor: 3000, currency: "PKR" } },
@@ -178,6 +186,7 @@ describe("Resolve-unknown on multi-item orders (18.26, e2e)", () => {
         data: {
           orderId: order.id,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           orderItemId: item.id,
           printerId: printerA.id,
           idempotencyToken: `${item.id}:1`,

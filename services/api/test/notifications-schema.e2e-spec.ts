@@ -10,6 +10,7 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §7.1's own Done-when: the migration applies, and there is an index
  * on (user_id, created_at) -- verified directly against pg_indexes,
@@ -66,6 +67,7 @@ describe("Notifications schema (7.1, e2e)", () => {
         publicOrderNumber: `PA-NOTIFSCHEMA-${randomUUID()}`,
         customerId: userId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},

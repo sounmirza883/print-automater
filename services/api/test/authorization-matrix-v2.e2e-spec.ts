@@ -7,6 +7,7 @@ import {
   createInventoryFixture,
   type InventoryFixture as Fx,
 } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 25.4: authorization matrix v2 -- every shop role of the new PRD (including OPERATOR and
  * PRINTER_MANAGER) against every shop resource added since 12.1's matrix, plus the
@@ -115,6 +116,7 @@ describe("Authorization matrix v2 (25.4, e2e)", () => {
         data: {
           orderId: printed.orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(prisma, fx.shop.id),
           orderItemId: printed.itemIds[0]!,
           printerId: ids.printer,
           status: "PRINTED",

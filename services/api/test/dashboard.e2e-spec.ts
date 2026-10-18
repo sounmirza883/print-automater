@@ -8,6 +8,7 @@ import {
 } from "@prisma/client";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 23.2 (PRD 39-42): the dashboard aggregate endpoints. Everything is seeded in an
  * isolated shop; assertions are exact because no other suite writes to it. */
@@ -49,6 +50,7 @@ describe("Dashboards (23.2, e2e)", () => {
         orderId,
         printerId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         idempotencyToken: randomUUID(),
         status,
         orderItemId: itemId,
@@ -122,6 +124,7 @@ describe("Dashboards (23.2, e2e)", () => {
         publicOrderNumber: `TEST-dashB-${randomUUID()}`,
         customerId: fx.customer.id,
         shopId: fx.shopB.id,
+        branchId: await branchIdOf(fx.prisma, fx.shopB.id),
         documentId: (
           await fx.prisma.document.findFirstOrThrow({ where: { ownerUserId: fx.customer.id } })
         ).id,

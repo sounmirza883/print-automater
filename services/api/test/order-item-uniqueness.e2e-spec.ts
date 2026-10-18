@@ -16,6 +16,7 @@ import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { ShopOrdersService } from "../src/shop-orders/shop-orders.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.19: the synthetic OrderItem is created lazily by dispatchToPrinter,
  * safe today only because every caller holds the order lock. This drives
@@ -71,12 +72,18 @@ describe("OrderItem uniqueness (18.19, e2e)", () => {
     });
     shopId = shop.id;
     const agent = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     agentId = agent.id;
     const printer = await prisma.printer.create({
       data: {
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         agentId,
         name: "Item Uniqueness Printer",
         status: PrinterStatus.ONLINE,
@@ -89,6 +96,7 @@ describe("OrderItem uniqueness (18.19, e2e)", () => {
         publicOrderNumber: `TEST-ITEMUNIQ-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },

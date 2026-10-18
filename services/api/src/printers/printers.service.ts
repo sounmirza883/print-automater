@@ -1,11 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import {
-  type PageLimitPeriod,
-  type Prisma,
-  type Printer,
-  PrinterStatus,
-  PrintJobStatus,
-} from "@prisma/client";
+import { type PageLimitPeriod, type Prisma, PrinterStatus, PrintJobStatus } from "@prisma/client";
 import type { Page, PrinterCapabilities } from "@print-automated/types";
 import {
   AppException,
@@ -15,7 +9,9 @@ import {
 } from "@print-automated/backend-shared";
 import { AgentJobsService } from "../agents/agent-jobs.service.js";
 import { AuditAction } from "../audit/audit-action.js";
-import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { ShopMembershipService, type MemberAccess } from "../auth/shop-membership.service.js";
+import { resolveBranchForStaffOperation } from "../branches/branch-resolution.js";
+import { resolveBranchScope } from "../shop-staff/branch-scope.js";
 import { ilike } from "../common/search.js";
 import type {
   ListPrintersQueryInput,
@@ -24,9 +20,16 @@ import type {
 } from "@print-automated/validation";
 import { listResult, resolvePagination } from "../common/pagination.js";
 
+/** A printer row with its branch's name joined in (every printer response shows where it is). */
+const PRINTER_INCLUDE = { branch: { select: { name: true } } } satisfies Prisma.PrinterInclude;
+type Printer = Prisma.PrinterGetPayload<{ include: typeof PRINTER_INCLUDE }>;
+
 export interface PrinterResponse {
   id: string;
   shopId: string;
+  // Step 3: where the printer is. A printer with a paired PC is where that PC is.
+  branchId: string;
+  branchName: string;
   name: string;
   capabilities: PrinterCapabilities | null;
   status: PrinterStatus;
@@ -89,10 +92,14 @@ export class PrintersService {
     requestingUserId: string,
     query: ListPrintersQueryInput,
   ): Promise<PrinterResponse[] | Page<PrinterResponse>> {
-    await this.assertMember(query.shopId, requestingUserId);
+    const actor = await this.requireAccess(query.shopId, requestingUserId);
+    // Step 3: a branch-bound person only gets their own branch's printers (naming another is
+    // 403); an all-branches person gets every branch's unless they narrow it to one.
+    const branchId = resolveBranchScope(actor.branchId, query.branchId);
     const pagination = resolvePagination(query);
     const where: Prisma.PrinterWhereInput = {
       shopId: query.shopId,
+      ...(branchId ? { branchId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.q
         ? {
@@ -103,6 +110,7 @@ export class PrintersService {
     const [printers, total] = await Promise.all([
       this.prisma.printer.findMany({
         where,
+        include: PRINTER_INCLUDE,
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: pagination.take,
         skip: pagination.skip,
@@ -117,7 +125,7 @@ export class PrintersService {
   async getDetail(printerId: string): Promise<PrinterDetailResponse> {
     const printer = await this.prisma.printer.findUnique({
       where: { id: printerId },
-      include: { agent: { select: { lastSeenAt: true } } },
+      include: { ...PRINTER_INCLUDE, agent: { select: { lastSeenAt: true } } },
     });
     if (!printer) {
       throw new NotFoundException("Printer not found.");
@@ -148,13 +156,24 @@ export class PrintersService {
   }
 
   async register(requestingUserId: string, input: RegisterPrinterInput): Promise<PrinterResponse> {
-    await this.assertMember(input.shopId, requestingUserId);
-    const printer = await this.prisma.printer.create({
-      data: {
+    const actor = await this.requireAccess(input.shopId, requestingUserId);
+    // Step 3: the branch the printer is at, decided like a pairing code's (a branch-bound person's
+    // own, else the named one, else the business's only branch) and share-locked with the insert.
+    const printer = await this.prisma.$transaction(async (tx) => {
+      const branch = await resolveBranchForStaffOperation(tx, {
         shopId: input.shopId,
-        name: input.name,
-        capabilities: input.capabilities as unknown as Prisma.InputJsonValue | undefined,
-      },
+        actorBranchId: actor.branchId,
+        requested: input.branchId,
+      });
+      return tx.printer.create({
+        data: {
+          shopId: input.shopId,
+          branchId: branch.id,
+          name: input.name,
+          capabilities: input.capabilities as unknown as Prisma.InputJsonValue | undefined,
+        },
+        include: PRINTER_INCLUDE,
+      });
     });
 
     // §45/16.6: printer create/update/delete previously wrote no audit
@@ -164,7 +183,7 @@ export class PrintersService {
       action: AuditAction.PRINTER_CREATED,
       resourceType: "printer",
       resourceId: printer.id,
-      metadata: { shopId: printer.shopId, name: printer.name },
+      metadata: { shopId: printer.shopId, branchId: printer.branchId, name: printer.name },
     });
 
     return this.toResponseWithUsage(printer);
@@ -183,7 +202,10 @@ export class PrintersService {
     input: UpdatePrinterInput,
     actorId: string | null,
   ): Promise<PrinterResponse> {
-    const existing = await this.prisma.printer.findUnique({ where: { id: printerId } });
+    const existing = await this.prisma.printer.findUnique({
+      where: { id: printerId },
+      include: PRINTER_INCLUDE,
+    });
     if (!existing) {
       throw new NotFoundException("Printer not found.");
     }
@@ -205,6 +227,7 @@ export class PrintersService {
         pageLimitEnabled: input.pageLimitEnabled,
         pageLimitPeriod: input.pageLimitPeriod,
       },
+      include: PRINTER_INCLUDE,
     });
 
     await this.audit.record({
@@ -268,11 +291,13 @@ export class PrintersService {
     });
   }
 
-  private async assertMember(shopId: string, userId: string): Promise<void> {
-    const isMember = await this.shopMembership.isActiveStaff(shopId, userId);
-    if (!isMember) {
+  /** The caller's access at this business (role, permissions, and the branch they work at). */
+  private async requireAccess(shopId: string, userId: string): Promise<MemberAccess> {
+    const access = await this.shopMembership.getAccess(shopId, userId);
+    if (!access) {
       throw new ForbiddenException("You do not have access to this shop's printers.");
     }
+    return access;
   }
 
   /** Semantics (documented): the period is part of the usage key, so changing
@@ -323,6 +348,8 @@ export class PrintersService {
     return {
       id: printer.id,
       shopId: printer.shopId,
+      branchId: printer.branchId,
+      branchName: printer.branch.name,
       name: printer.name,
       capabilities: printer.capabilities as unknown as PrinterCapabilities | null,
       status: printer.status,

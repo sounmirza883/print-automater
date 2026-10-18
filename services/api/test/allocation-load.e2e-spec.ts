@@ -20,6 +20,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.25c: the queue-load figures that break allocation ties must count only
  * LIVE jobs (supersededAt null) and must use ONE page measure everywhere:
@@ -123,12 +124,18 @@ describe("Allocation queue load (18.25c, e2e)", () => {
     const printers: string[] = [];
     for (let i = 0; i < 2; i += 1) {
       const agent = await prisma.printerAgent.create({
-        data: { deviceId: randomUUID(), shopId: shop.id, publicKey: "irrelevant-test-public-key" },
+        data: {
+          deviceId: randomUUID(),
+          shopId: shop.id,
+          branchId: await branchIdOf(prisma, shop.id),
+          publicKey: "irrelevant-test-public-key",
+        },
       });
       agentIds.push(agent.id);
       const printer = await prisma.printer.create({
         data: {
           shopId: shop.id,
+          branchId: await branchIdOf(prisma, shop.id),
           agentId: agent.id,
           name: `Alloc Load Printer ${i}`,
           status: PrinterStatus.ONLINE,
@@ -158,6 +165,7 @@ describe("Allocation queue load (18.25c, e2e)", () => {
         publicOrderNumber: `TEST-ALLOC-${randomUUID()}`,
         customerId,
         shopId: ctx.shopId,
+        branchId: await branchIdOf(prisma, ctx.shopId),
         documentId: ctx.documentId,
         printConfiguration: config,
         pricingSnapshot: { quote: { totalMinor: 1000, currency: "PKR" } },
@@ -195,6 +203,7 @@ describe("Allocation queue load (18.25c, e2e)", () => {
       data: {
         orderId,
         shopId: ctx.shopId,
+        branchId: await branchIdOf(prisma, ctx.shopId),
         orderItemId: itemId,
         printerId,
         idempotencyToken: `${itemId}:1`,

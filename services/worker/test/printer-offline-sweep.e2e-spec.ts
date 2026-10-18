@@ -8,6 +8,7 @@ import { PrinterAgentStatus, PrinterStatus, ShopStatus } from "@prisma/client";
 import { PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { PrinterOfflineSweepProcessor } from "../src/printer-offline-sweep/printer-offline-sweep.processor.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 9.4's other half: "killing the agent flips its printers to Offline
  * within the threshold, not silently." Drives the processor directly,
@@ -49,6 +50,7 @@ describe("Printer offline sweep (9.4, e2e)", () => {
       data: {
         deviceId: randomUUID(),
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         publicKey: "irrelevant-for-this-test",
         status: PrinterAgentStatus.ACTIVE,
         lastSeenAt: lastSeenAgoMs === null ? null : new Date(Date.now() - lastSeenAgoMs),
@@ -60,7 +62,13 @@ describe("Printer offline sweep (9.4, e2e)", () => {
 
   async function createPrinter(agentId: string | null, status: PrinterStatus): Promise<string> {
     const printer = await prisma.printer.create({
-      data: { shopId, agentId, name: `Sweep Test Printer ${randomUUID()}`, status },
+      data: {
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        agentId,
+        name: `Sweep Test Printer ${randomUUID()}`,
+        status,
+      },
     });
     printerIds.push(printer.id);
     return printer.id;

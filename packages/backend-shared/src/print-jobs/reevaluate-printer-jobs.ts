@@ -99,6 +99,7 @@ export async function reevaluatePrinterJobs(
     select: {
       id: true,
       orderId: true,
+      branchId: true,
       orderItem: {
         select: {
           documentId: true,
@@ -126,7 +127,8 @@ export async function reevaluatePrinterJobs(
         }),
       );
       const pages = jp.total;
-      const built = await buildPrinterCandidates(prisma, input.shopId, now);
+      // The failed printer's jobs are in its branch; their replacement printer must be too.
+      const built = await buildPrinterCandidates(prisma, input.shopId, job.branchId, now);
       const { deviceIdsByPrinterId } = built;
       // 20.3: the paper gate applies to failover's automatic re-allocation too
       // (a no-op unless the shop enabled inventory tracking).
@@ -238,7 +240,7 @@ export async function reevaluatePrinterJobs(
               );
             }
             await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
-            const fresh = await buildPrinterCandidates(tx, input.shopId, now);
+            const fresh = await buildPrinterCandidates(tx, input.shopId, job.branchId, now);
             const freshCandidates = await withPaperAvailability(
               tx,
               input.shopId,

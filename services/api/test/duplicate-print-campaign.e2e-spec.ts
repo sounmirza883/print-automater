@@ -27,6 +27,7 @@ import { configureApp } from "../src/bootstrap.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -105,6 +106,7 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         agentId: agent.id,
         name: `Duplicate Campaign E2E Printer ${randomUUID()}`,
         status: PrinterStatus.ONLINE,
@@ -125,6 +127,7 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
         publicOrderNumber: `TEST-DUPCAMP-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -149,7 +152,14 @@ describe("Duplicate-print campaign (10.6, e2e)", () => {
     status: PrintJobStatus,
   ): Promise<string> {
     const job = await prisma.printJob.create({
-      data: { orderId, printerId, shopId: shop.id, idempotencyToken: randomUUID(), status },
+      data: {
+        orderId,
+        printerId,
+        shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
+        idempotencyToken: randomUUID(),
+        status,
+      },
     });
     return job.id;
   }

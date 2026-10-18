@@ -30,6 +30,9 @@ import { AuditAction } from "../audit/audit-action.js";
 export interface PrintJobResponse {
   id: string;
   orderId: string;
+  // Step 3: the job's branch (its order's); it only ever prints on a printer there.
+  branchId: string;
+  branchName: string;
   status: string;
   printerId: string | null;
   printerName: string | null;
@@ -67,6 +70,12 @@ type ResumePlan =
     }
   | { kind: "BLOCK"; blockedReason: string };
 
+/** What a job response needs joined in: its printer's name and its branch's. */
+const JOB_RESPONSE_INCLUDE = {
+  printer: { select: { name: true } },
+  branch: { select: { name: true } },
+} satisfies Prisma.PrintJobInclude;
+
 /** 18.7/18.9. Every reassignment and manual operator assignment reuses
  * 16.6's own `AuditService` pattern (a plain post-write `record()` call,
  * the same convention printers.service.ts/refund.service.ts already
@@ -101,7 +110,7 @@ export class PrintJobsService {
   ): Promise<PrintJobResponse> {
     const job = await this.prisma.printJob.findUnique({
       where: { id: jobId },
-      select: { orderId: true, shopId: true, printerId: true, orderItemId: true },
+      select: { orderId: true, shopId: true, branchId: true, printerId: true, orderItemId: true },
     });
     if (!job) {
       throw new NotFoundException("Print job not found.");
@@ -115,7 +124,12 @@ export class PrintJobsService {
       );
     }
 
-    const deviceId = await this.validateTargetPrinter(job.shopId, job.orderItemId, newPrinterId);
+    const deviceId = await this.validateTargetPrinter(
+      job.shopId,
+      job.branchId,
+      job.orderItemId,
+      newPrinterId,
+    );
 
     // 18.18: supersede + successor creation + order sync are ONE
     // transaction inside the job machine, under the orders-row lock it
@@ -168,7 +182,7 @@ export class PrintJobsService {
 
     const replacement = await this.prisma.printJob.findUniqueOrThrow({
       where: { id: replacementId },
-      include: { printer: { select: { name: true } } },
+      include: JOB_RESPONSE_INCLUDE,
     });
 
     // 18.7's own Done-when: who (actorId), when (createdAt, implicit in
@@ -198,6 +212,7 @@ export class PrintJobsService {
    * `allowUnknownCapabilities: true`). Returns the agent's deviceId. */
   private async validateTargetPrinter(
     shopId: string,
+    branchId: string,
     orderItemId: string,
     printerId: string,
   ): Promise<string> {
@@ -211,6 +226,15 @@ export class PrintJobsService {
         "PRINTER_NOT_AVAILABLE",
         "That printer is not available for this shop.",
         true,
+      );
+    }
+    // Printing never crosses branches, not even when staff name the printer themselves.
+    if (printer.branchId !== branchId) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PRINTER_WRONG_BRANCH",
+        "That printer belongs to another branch, so it cannot print this job.",
+        false,
       );
     }
     if (!printer.agent) {
@@ -291,7 +315,7 @@ export class PrintJobsService {
   ): Promise<PrintJobResponse> {
     const job = await this.prisma.printJob.findUnique({
       where: { id: jobId },
-      select: { shopId: true },
+      select: { shopId: true, branchId: true },
     });
     if (!job) {
       throw new NotFoundException("Print job not found.");
@@ -303,7 +327,7 @@ export class PrintJobsService {
       // account says OPERATOR may be counter staff here.
       const staff = await this.prisma.shopStaff.findFirst({
         where: { shopId: job.shopId, userId: operatorId, status: ShopStaffStatus.ACTIVE },
-        select: { role: true },
+        select: { role: true, branchId: true },
       });
       if (!staff || staff.role !== UserRole.OPERATOR) {
         throw new AppException(
@@ -313,12 +337,21 @@ export class PrintJobsService {
           false,
         );
       }
+      // An operator works at one branch (or at all of them): they cannot run another branch's jobs.
+      if (staff.branchId !== null && staff.branchId !== job.branchId) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "INVALID_OPERATOR",
+          "That operator works at another branch.",
+          false,
+        );
+      }
     }
 
     const updated = await this.prisma.printJob.update({
       where: { id: jobId },
       data: { operatorId },
-      include: { printer: { select: { name: true } } },
+      include: JOB_RESPONSE_INCLUDE,
     });
 
     await this.audit.record({
@@ -373,6 +406,7 @@ export class PrintJobsService {
         status: true,
         orderId: true,
         shopId: true,
+        branchId: true,
         orderItemId: true,
         orderItem: {
           select: {
@@ -404,7 +438,7 @@ export class PrintJobsService {
       );
     }
 
-    const plan = await this.planResume(job.shopId, job.orderItem, opts.printerId);
+    const plan = await this.planResume(job.shopId, job.branchId, job.orderItem, opts.printerId);
 
     const guard = async (
       tx: Prisma.TransactionClient,
@@ -464,7 +498,7 @@ export class PrintJobsService {
         // Same re-validation the recovery sweep does: the chosen printer must
         // still be suitable now that the job/order locks are held.
         await tx.$queryRaw`SELECT id FROM printers WHERE id = ${plan.printerId} FOR SHARE`;
-        const fresh = await buildPrinterCandidates(tx, job.shopId, new Date());
+        const fresh = await buildPrinterCandidates(tx, job.shopId, job.branchId, new Date());
         const freshCandidates = plan.explicit
           ? fresh.candidates
           : await withPaperAvailability(tx, job.shopId, fresh.candidates, plan.need);
@@ -518,6 +552,7 @@ export class PrintJobsService {
 
   private async planResume(
     shopId: string,
+    branchId: string,
     item: {
       documentId: string;
       quantity: number;
@@ -534,7 +569,25 @@ export class PrintJobsService {
       logJobPagesFallback({ documentId: item.documentId }),
     );
     const need = paperNeedFor(config, jp);
-    const built = await buildPrinterCandidates(this.prisma, shopId, new Date());
+    const built = await buildPrinterCandidates(this.prisma, shopId, branchId, new Date());
+    if (
+      requestedPrinterId !== undefined &&
+      !built.candidates.some((candidate) => candidate.id === requestedPrinterId)
+    ) {
+      // Named by hand, but not at this job's branch: refuse it for what it is.
+      const elsewhere = await this.prisma.printer.findFirst({
+        where: { id: requestedPrinterId, shopId, NOT: { branchId } },
+        select: { id: true },
+      });
+      if (elsewhere) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "PRINTER_WRONG_BRANCH",
+          "That printer belongs to another branch, so it cannot print this job.",
+          false,
+        );
+      }
+    }
     const request: AllocationRequest = {
       printConfiguration: config,
       pageCount: jp.total,
@@ -646,7 +699,7 @@ export class PrintJobsService {
   private async loadResponse(jobId: string): Promise<PrintJobResponse> {
     const job = await this.prisma.printJob.findUniqueOrThrow({
       where: { id: jobId },
-      include: { printer: { select: { name: true } } },
+      include: JOB_RESPONSE_INCLUDE,
     });
     return this.toResponse(job);
   }
@@ -654,6 +707,8 @@ export class PrintJobsService {
   private toResponse(job: {
     id: string;
     orderId: string;
+    branchId: string;
+    branch: { name: string };
     status: PrintJobStatus;
     printerId: string | null;
     operatorId: string | null;
@@ -667,6 +722,8 @@ export class PrintJobsService {
     return {
       id: job.id,
       orderId: job.orderId,
+      branchId: job.branchId,
+      branchName: job.branch.name,
       status: job.status,
       printerId: job.printerId,
       printerName: job.printer?.name ?? null,

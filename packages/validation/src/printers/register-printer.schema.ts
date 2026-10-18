@@ -8,6 +8,9 @@ import { printerCapabilitiesSchema } from "./printer-capabilities.schema.js";
  * capability matching (10.4) will do the same once it exists. */
 export const registerPrinterSchema = z.object({
   shopId: z.string().uuid(),
+  // The branch the printer is at: a branch-bound person's own; otherwise the named one, or the
+  // business's only branch (several branches and none named is 400 BRANCH_REQUIRED).
+  branchId: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
   capabilities: printerCapabilitiesSchema.optional(),
 });

@@ -19,6 +19,7 @@ import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §36/8.3, e2e: accept/reject/ready/complete, each validated through
  * the real OrderStateMachine (5.4), against real Postgres rows. */
@@ -56,6 +57,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
         publicOrderNumber: `TEST-SHOPACT-${randomUUID()}`,
         customerId: customer.id,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -87,11 +89,23 @@ describe("Shop order actions API (8.3, e2e)", () => {
     name: string,
   ): Promise<{ id: string }> {
     const agent = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     printerAgentIds.push(agent.id);
     const printer = await prisma.printer.create({
-      data: { shopId, agentId: agent.id, name, status: PrinterStatus.ONLINE, capabilities },
+      data: {
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        agentId: agent.id,
+        name,
+        status: PrinterStatus.ONLINE,
+        capabilities,
+      },
     });
     printerIds.push(printer.id);
     return printer;
@@ -164,6 +178,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
       data: {
         deviceId: randomUUID(),
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         publicKey: "irrelevant-test-public-key",
       },
     });
@@ -171,6 +186,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
     const printer = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         agentId: agentForPrinterA.id,
         name: "Shop A Printer 1",
         status: PrinterStatus.ONLINE,
@@ -306,7 +322,12 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
   it("accept ignores a DISABLED printer -- same 409 as having none at all", async () => {
     const disabledPrinter = await prisma.printer.create({
-      data: { shopId: shopB.id, name: "Shop B Disabled Printer", status: PrinterStatus.DISABLED },
+      data: {
+        shopId: shopB.id,
+        branchId: await branchIdOf(prisma, shopB.id),
+        name: "Shop B Disabled Printer",
+        status: PrinterStatus.DISABLED,
+      },
     });
     printerIds.push(disabledPrinter.id);
     const orderId = await seedOrder(shopB.id, OrderStatus.WAITING_FOR_SHOP);
@@ -379,12 +400,18 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
     it("an ONLINE printer with unprobed (null) capabilities is excluded on the auto path, even though a BW/A4 order needs nothing exotic", async () => {
       const agent = await prisma.printerAgent.create({
-        data: { deviceId: randomUUID(), shopId: shopC.id, publicKey: "irrelevant-test-public-key" },
+        data: {
+          deviceId: randomUUID(),
+          shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
+          publicKey: "irrelevant-test-public-key",
+        },
       });
       printerAgentIds.push(agent.id);
       const printer = await prisma.printer.create({
         data: {
           shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
           agentId: agent.id,
           name: `Shop C Unprobed Printer ${randomUUID()}`,
           status: PrinterStatus.ONLINE,
@@ -405,6 +432,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
       const printer = await prisma.printer.create({
         data: {
           shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
           name: `Shop C Agentless Printer ${randomUUID()}`,
           status: PrinterStatus.ONLINE,
           capabilities: { color: true, duplex: true, a4: true, a3: false },
@@ -422,12 +450,18 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
     it("a capable, agent-attached printer that's merely OFFLINE (not DISABLED) is excluded on the auto path", async () => {
       const agent = await prisma.printerAgent.create({
-        data: { deviceId: randomUUID(), shopId: shopC.id, publicKey: "irrelevant-test-public-key" },
+        data: {
+          deviceId: randomUUID(),
+          shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
+          publicKey: "irrelevant-test-public-key",
+        },
       });
       printerAgentIds.push(agent.id);
       const printer = await prisma.printer.create({
         data: {
           shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
           agentId: agent.id,
           name: `Shop C Offline Printer ${randomUUID()}`,
           status: PrinterStatus.OFFLINE,
@@ -450,12 +484,18 @@ describe("Shop order actions API (8.3, e2e)", () => {
       // file, re-proven here at the dedicated shop to make the
       // "manual path untouched" claim explicit for this describe block.
       const agent = await prisma.printerAgent.create({
-        data: { deviceId: randomUUID(), shopId: shopC.id, publicKey: "irrelevant-test-public-key" },
+        data: {
+          deviceId: randomUUID(),
+          shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
+          publicKey: "irrelevant-test-public-key",
+        },
       });
       printerAgentIds.push(agent.id);
       const unprobedPrinter = await prisma.printer.create({
         data: {
           shopId: shopC.id,
+          branchId: await branchIdOf(prisma, shopC.id),
           agentId: agent.id,
           name: `Shop C Manual Unprobed Printer ${randomUUID()}`,
           status: PrinterStatus.ONLINE,
@@ -483,6 +523,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
         publicOrderNumber: `TEST-SHOPACT-${randomUUID()}`,
         customerId: customer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -529,6 +570,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
         publicOrderNumber: `TEST-SHOPACT-${randomUUID()}`,
         customerId: customer.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         documentId: notReadyDocument.id,
         printConfiguration: {
           pages: { mode: "all" },
@@ -695,6 +737,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
         orderId,
         printerId: printerA.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         idempotencyToken: randomUUID(),
         status: "FAILED",
       },
@@ -740,6 +783,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
         orderId,
         printerId: printerA.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         idempotencyToken: randomUUID(),
         status: "UNKNOWN",
       },
@@ -792,6 +836,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
         orderId,
         printerId: printerA.id,
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         idempotencyToken: randomUUID(),
         status: "UNKNOWN",
       },
@@ -821,7 +866,12 @@ describe("Shop order actions API (8.3, e2e)", () => {
 
   it("§49/10.4: change-printer reassigns a PRINT_FAILED order to a staff-named printer, moving it to QUEUED_FOR_PRINT", async () => {
     const targetPrinter = await prisma.printer.create({
-      data: { shopId: shopA.id, name: "Shop A Printer 2 (unprobed)", status: PrinterStatus.ONLINE },
+      data: {
+        shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
+        name: "Shop A Printer 2 (unprobed)",
+        status: PrinterStatus.ONLINE,
+      },
     });
     printerIds.push(targetPrinter.id);
     const orderId = await seedOrder(shopA.id, OrderStatus.PRINT_FAILED);
@@ -843,6 +893,7 @@ describe("Shop order actions API (8.3, e2e)", () => {
     const incapablePrinter = await prisma.printer.create({
       data: {
         shopId: shopA.id,
+        branchId: await branchIdOf(prisma, shopA.id),
         name: "Shop A Printer (no A4)",
         status: PrinterStatus.ONLINE,
         capabilities: { color: true, duplex: true, a4: false, a3: false },

@@ -18,6 +18,7 @@ import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { RefundService } from "../src/payments/refund.service.js";
 import { MockPaymentProvider } from "../src/payments/mock-payment-provider.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §45/16.6: a refund, a printer create/update/delete, a pairing-code
  * issue, and a shop-staff role change each produce a real audit row --
@@ -146,6 +147,7 @@ describe("Audit expansion (§45, 16.6, e2e)", () => {
         publicOrderNumber: `TEST-AUDIT-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {},
         pricingSnapshot: { quote: { totalMinor: 1500, currency: "PKR" } },

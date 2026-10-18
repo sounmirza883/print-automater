@@ -2,6 +2,7 @@ import { OrderStatus } from "@prisma/client";
 import request from "supertest";
 import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 21.7: a reprint on an order that is already READY_FOR_COLLECTION (where the
  * order machine no longer re-derives from jobs) must not let the order be
@@ -43,6 +44,7 @@ describe("Reprint / quality-check / completion consistency (21.7, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status: "PRINTED",

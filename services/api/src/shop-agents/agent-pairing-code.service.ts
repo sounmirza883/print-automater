@@ -2,6 +2,7 @@ import { ForbiddenException, HttpStatus, Injectable } from "@nestjs/common";
 import { AppException, AuditService, PrismaService } from "@print-automated/backend-shared";
 import { AuditAction } from "../audit/audit-action.js";
 import { ShopMembershipService } from "../auth/shop-membership.service.js";
+import { resolveBranchForStaffOperation } from "../branches/branch-resolution.js";
 import { hashToken } from "../common/crypto.util.js";
 import { generatePairingCode } from "./pairing-code.util.js";
 
@@ -10,6 +11,9 @@ const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 export interface PairingCodeIssueResult {
   code: string;
   expiresAt: Date;
+  /** The branch the paired PC, and every printer it reports, will belong to. */
+  branchId: string;
+  branchName: string;
 }
 
 /** §41/9.2. `redeem()` is also called by 9.3's agent-registration
@@ -24,16 +28,37 @@ export class AgentPairingCodeService {
     private readonly audit: AuditService,
   ) {}
 
-  async issue(shopId: string, actorId: string): Promise<PairingCodeIssueResult> {
-    const isMember = await this.shopMembership.isActiveStaff(shopId, actorId);
-    if (!isMember) {
+  /** A pairing code is for ONE branch: the paired PC and every printer it reports land there.
+   * A branch-bound person's code is for their own branch (naming another is 403); otherwise the
+   * named branch, or the business's only one (several and none named: 400 BRANCH_REQUIRED). */
+  async issue(
+    shopId: string,
+    actorId: string,
+    requestedBranchId?: string,
+  ): Promise<PairingCodeIssueResult> {
+    const actor = await this.shopMembership.getAccess(shopId, actorId);
+    if (!actor) {
       throw new ForbiddenException("You do not have access to this shop.");
     }
 
     const code = generatePairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_CODE_TTL_MS);
-    const record = await this.prisma.agentPairingCode.create({
-      data: { codeHash: hashToken(code), shopId, createdBy: actorId, expiresAt },
+    const { record, branch } = await this.prisma.$transaction(async (tx) => {
+      const resolved = await resolveBranchForStaffOperation(tx, {
+        shopId,
+        actorBranchId: actor.branchId,
+        requested: requestedBranchId,
+      });
+      const created = await tx.agentPairingCode.create({
+        data: {
+          codeHash: hashToken(code),
+          shopId,
+          branchId: resolved.id,
+          createdBy: actorId,
+          expiresAt,
+        },
+      });
+      return { record: created, branch: resolved };
     });
 
     // §45/16.6: pairing-code issue/redemption previously wrote no audit
@@ -43,10 +68,10 @@ export class AgentPairingCodeService {
       action: AuditAction.PAIRING_CODE_ISSUED,
       resourceType: "agent_pairing_code",
       resourceId: record.id,
-      metadata: { shopId, expiresAt },
+      metadata: { shopId, branchId: branch.id, expiresAt },
     });
 
-    return { code, expiresAt };
+    return { code, expiresAt, branchId: branch.id, branchName: branch.name };
   }
 
   /** §9.2's own Done-when: single-use (410 on a second redemption),
@@ -54,10 +79,10 @@ export class AgentPairingCodeService {
    * plain `update`) is what makes two concurrent redemption attempts
    * of the same code resolve to exactly one winner -- a plain
    * read-then-write would let both readers see `consumedAt: null` and
-   * both "succeed." Returns the shopId the code was issued for -- 9.3's
-   * registration endpoint needs it to know which shop the new device
+   * both "succeed." Returns the shopId and branchId the code was issued for -- 9.3's
+   * registration endpoint needs them to know which shop and branch the new device
    * belongs to. */
-  async redeem(rawCode: string): Promise<{ shopId: string }> {
+  async redeem(rawCode: string): Promise<{ shopId: string; branchId: string }> {
     const codeHash = hashToken(rawCode);
     const record = await this.prisma.agentPairingCode.findUnique({ where: { codeHash } });
     if (!record) {
@@ -107,9 +132,9 @@ export class AgentPairingCodeService {
       action: AuditAction.PAIRING_CODE_REDEEMED,
       resourceType: "agent_pairing_code",
       resourceId: record.id,
-      metadata: { shopId: record.shopId },
+      metadata: { shopId: record.shopId, branchId: record.branchId },
     });
 
-    return { shopId: record.shopId };
+    return { shopId: record.shopId, branchId: record.branchId };
   }
 }

@@ -16,6 +16,7 @@ import {
 import { AppException, OrderStateMachine, PrismaService } from "@print-automated/backend-shared";
 import { AppModule } from "../src/app.module.js";
 import { PrintTimeoutProcessor } from "../src/print-timeout/print-timeout.processor.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** §109/10.5's own Done-when: "shutting the agent down leaves the job
  * timed out and visible, never stuck in QUEUED forever." Same style as
@@ -72,7 +73,12 @@ describe("Print timeout sweep (10.5, e2e)", () => {
     documentId = document.id;
 
     const printer = await prisma.printer.create({
-      data: { shopId, name: `Timeout Test Printer ${randomUUID()}`, status: PrinterStatus.ONLINE },
+      data: {
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        name: `Timeout Test Printer ${randomUUID()}`,
+        status: PrinterStatus.ONLINE,
+      },
     });
     printerId = printer.id;
   });
@@ -108,6 +114,7 @@ describe("Print timeout sweep (10.5, e2e)", () => {
         publicOrderNumber: `TEST-TIMEOUT-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {},
         pricingSnapshot: {},
@@ -122,6 +129,7 @@ describe("Print timeout sweep (10.5, e2e)", () => {
           orderId: order.id,
           printerId,
           shopId,
+          branchId: await branchIdOf(prisma, shopId),
           status: jobStatus,
           idempotencyToken: randomUUID(),
         },

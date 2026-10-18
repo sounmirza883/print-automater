@@ -20,6 +20,7 @@ import { AppModule } from "../src/app.module.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -137,6 +138,7 @@ describe("Multi-job order status does not flap (18.15, e2e)", () => {
       const printer = await prisma.printer.create({
         data: {
           shopId: shop.id,
+          branchId: await branchIdOf(prisma, shop.id),
           agentId: agent.id,
           name: `Concurrent Reports Printer ${i + 1}`,
           status: PrinterStatus.ONLINE,
@@ -172,6 +174,7 @@ describe("Multi-job order status does not flap (18.15, e2e)", () => {
         publicOrderNumber: `TEST-FLAP-${randomUUID()}`,
         customerId: customer.id,
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -208,6 +211,7 @@ describe("Multi-job order status does not flap (18.15, e2e)", () => {
         data: {
           orderId: order.id,
           shopId: shop.id,
+          branchId: await branchIdOf(prisma, shop.id),
           orderItemId: item.id,
           printerId: printerIds[i]!,
           idempotencyToken: `${item.id}:1`,

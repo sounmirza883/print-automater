@@ -2,6 +2,7 @@ import { OrderStatus } from "@prisma/client";
 import request from "supertest";
 import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 19.8/19.10: what a customer actually experiences when failover's
  * UNALLOCATE lowers an order from QUEUED_FOR_PRINT to PREPARING, WITH a
@@ -25,6 +26,7 @@ describe("UNALLOCATE and the customer (19.8/19.10, e2e)", () => {
       data: {
         orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: itemIds[0]!,
         printerId,
         status: "QUEUED",

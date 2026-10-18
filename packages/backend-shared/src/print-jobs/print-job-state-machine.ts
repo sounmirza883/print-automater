@@ -183,6 +183,8 @@ export interface JobTransitionActor {
 export interface LockedPrintJobRow {
   id: string;
   orderId: string;
+  /** The branch the job (and its order) belongs to; a job only ever prints on a printer there. */
+  branchId: string;
   printerId: string | null;
   status: PrintJobStatus;
   blockedReason: string | null;
@@ -331,6 +333,28 @@ export class PrintJobStateMachine {
     return this.applyTransaction(jobIds, event, actor, ctx);
   }
 
+  /** A job prints only on a printer of its own branch, whoever asks and whichever path got here
+   * (staff reassignment, allocation, failover, recovery, resume). The printer row is share-locked
+   * until commit, so the owner moving its PC to another branch (which takes the row FOR UPDATE and
+   * refuses while a job is queued on it) cannot slip in between this check and the commit. */
+  private async assertPrinterInBranch(
+    tx: Prisma.TransactionClient,
+    printerId: string,
+    branchId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ branchId: string }>>`
+      SELECT branch_id AS "branchId" FROM printers WHERE id = ${printerId} FOR SHARE
+    `;
+    if (rows[0] && rows[0].branchId !== branchId) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        "PRINTER_WRONG_BRANCH",
+        "That printer belongs to another branch, so it cannot print this job.",
+        false,
+      );
+    }
+  }
+
   /** 23.7 (PRD 37/111): the staff-facing signals of a job transition, written in the SAME
    * transaction as the transition (so they exist exactly when the change does) but
    * contained in a savepoint (so a notification problem can never roll back a print).
@@ -423,6 +447,7 @@ export class PrintJobStateMachine {
       where: { id: job.id },
       select: {
         shopId: true,
+        branchId: true,
         printerId: true,
         order: { select: { publicOrderNumber: true } },
         printer: { select: { name: true } },
@@ -433,6 +458,8 @@ export class PrintJobStateMachine {
     }
     await notifyShopStaffContained(tx, {
       shopId: context.shopId,
+      // The job's branch: only people who work there (or at all branches) hear about it.
+      branchId: context.branchId,
       permission: STAFF_ALERT_PERMISSION[signal.type],
       type: signal.type,
       title: signal.title,
@@ -560,18 +587,9 @@ export class PrintJobStateMachine {
         }
 
         // Step 2: lock the job rows themselves, in ascending id order.
-        const lockedRows = await tx.$queryRaw<
-          Array<{
-            id: string;
-            orderId: string;
-            printerId: string | null;
-            status: PrintJobStatus;
-            blockedReason: string | null;
-            attempt: number;
-          }>
-        >`
-          SELECT id, order_id AS "orderId", printer_id AS "printerId", status,
-                 blocked_reason AS "blockedReason", attempt
+        const lockedRows = await tx.$queryRaw<LockedPrintJobRow[]>`
+          SELECT id, order_id AS "orderId", branch_id AS "branchId", printer_id AS "printerId",
+                 status, blocked_reason AS "blockedReason", attempt
           FROM print_jobs
           WHERE id = ANY(${sortedIds}::text[])
           ORDER BY id ASC
@@ -592,6 +610,12 @@ export class PrintJobStateMachine {
               `Cannot apply ${event} to a print job in ${job.status}.`,
               false,
             );
+          }
+
+          // Printing never crosses branches: wherever a transition hands the job a printer
+          // (allocate, resume onto a printer, ...) that printer must be at the job's own branch.
+          if (typeof ctx.printerId === "string") {
+            await this.assertPrinterInBranch(tx, ctx.printerId, job.branchId);
           }
 
           await tx.printJob.update({
@@ -649,7 +673,7 @@ export class PrintJobStateMachine {
             }
             const original = await tx.printJob.findUniqueOrThrow({
               where: { id: job.id },
-              select: { shopId: true, orderItemId: true },
+              select: { shopId: true, branchId: true, orderItemId: true },
             });
             if (!original.orderItemId) {
               throw new AppException(
@@ -659,12 +683,15 @@ export class PrintJobStateMachine {
                 false,
               );
             }
+            // The replacement stays in the original's branch, on a printer of that branch.
+            await this.assertPrinterInBranch(tx, ctx.successor.printerId, original.branchId);
             const attempt =
               (await tx.printJob.count({ where: { orderItemId: original.orderItemId } })) + 1;
             const created = await tx.printJob.create({
               data: {
                 orderId: job.orderId,
                 shopId: original.shopId,
+                branchId: original.branchId,
                 orderItemId: original.orderItemId,
                 printerId: ctx.successor.printerId,
                 attempt,

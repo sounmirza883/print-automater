@@ -6,6 +6,7 @@ import {
 } from "@print-automated/backend-shared";
 import request from "supertest";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 22.4 (PRD 81/82): configuration changes must not silently affect existing work.
  * Operating hours (PRD 75) are configuration only: nothing in the PRD refuses orders
@@ -83,6 +84,7 @@ describe("Settings safety (22.4, e2e)", () => {
         data: {
           orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: itemIds[0]!,
           printerId: a.printer.id,
           status,

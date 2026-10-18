@@ -1,6 +1,7 @@
 import { PrinterStatus } from "@prisma/client";
 import request from "supertest";
 import { createInventoryFixture, type InventoryFixture } from "./helpers/inventory-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 22.3 (PRD 77): ordered printer-automation rules as data. */
 describe("Printer automation rules (22.3, e2e)", () => {
@@ -104,7 +105,12 @@ describe("Printer automation rules (22.3, e2e)", () => {
 
     it("a rule may only name printers of THIS shop", async () => {
       const foreign = await fx.prisma.printer.create({
-        data: { shopId: fx.shopB.id, name: "foreign", status: PrinterStatus.ONLINE },
+        data: {
+          shopId: fx.shopB.id,
+          branchId: await branchIdOf(fx.prisma, fx.shopB.id),
+          name: "foreign",
+          status: PrinterStatus.ONLINE,
+        },
       });
       const res = await create({ printerIds: [foreign.id] }).expect(400);
       expect(res.body.error_code).toBe("RULE_PRINTER_INVALID");

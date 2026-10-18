@@ -6,6 +6,7 @@ import {
   createPhase19Fixture,
   type Phase19Fixture as Fx,
 } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 async function seedUsage(fx: Fx, printerId: string, pages: number): Promise<void> {
   await fx.prisma.printerPageUsage.create({
@@ -112,6 +113,7 @@ describe("Printer page limits in allocation (19.2, e2e)", () => {
         data: {
           orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: itemIds[0]!,
           printerId: source.printer.id,
           status: "QUEUED",

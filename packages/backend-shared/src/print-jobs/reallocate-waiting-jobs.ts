@@ -121,6 +121,7 @@ export async function reallocateWaitingJobs(
       id: true,
       orderId: true,
       shopId: true,
+      branchId: true,
       blockedReason: true,
       orderItem: {
         select: {
@@ -155,8 +156,9 @@ export async function reallocateWaitingJobs(
           documentId: job.orderItem.documentId,
         }),
       );
-      // Rebuilt per job: each allocation changes queue load for the next one.
-      const built = await buildPrinterCandidates(prisma, job.shopId, now);
+      // Rebuilt per job: each allocation changes queue load for the next one. Only the job's own
+      // branch's printers are ever considered, so recovery never carries a job across branches.
+      const built = await buildPrinterCandidates(prisma, job.shopId, job.branchId, now);
       const request = {
         printConfiguration: config,
         pageCount: jp.total,
@@ -212,7 +214,7 @@ export async function reallocateWaitingJobs(
           );
         }
         await tx.$queryRaw`SELECT id FROM printers WHERE id = ${targetId} FOR SHARE`;
-        const fresh = await buildPrinterCandidates(tx, job.shopId, now);
+        const fresh = await buildPrinterCandidates(tx, job.shopId, job.branchId, now);
         const freshCandidates = await withPaperAvailability(tx, job.shopId, fresh.candidates, need);
         const recheck = allocatePrinter(
           request,

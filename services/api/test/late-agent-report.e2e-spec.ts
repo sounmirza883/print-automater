@@ -3,6 +3,7 @@ import { OrderStatus } from "@prisma/client";
 import request from "supertest";
 import { AgentJobsService } from "../src/agents/agent-jobs.service.js";
 import { createPhase19Fixture, type Phase19Fixture as Fx } from "./helpers/phase19-fixture.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 type JobStatus = "TIMEOUT" | "FAILED" | "PRINTED" | "QUEUED" | "REASSIGNED";
 
@@ -18,6 +19,7 @@ async function seed(
     data: {
       orderId,
       shopId: fx.shop.id,
+      branchId: await branchIdOf(fx.prisma, fx.shop.id),
       orderItemId: itemIds[0]!,
       printerId,
       status,
@@ -92,6 +94,7 @@ describe("Late agent reports are never dropped (19.13, e2e)", () => {
       data: {
         orderId: s.orderId,
         shopId: fx.shop.id,
+        branchId: await branchIdOf(fx.prisma, fx.shop.id),
         orderItemId: s.itemId,
         printerId,
         status: "QUEUED",
@@ -119,6 +122,7 @@ describe("Late agent reports are never dropped (19.13, e2e)", () => {
         data: {
           orderId: s.orderId,
           shopId: fx.shop.id,
+          branchId: await branchIdOf(fx.prisma, fx.shop.id),
           orderItemId: s.itemId,
           printerId: successorStatus === "WAITING" ? null : printerId,
           status: successorStatus,

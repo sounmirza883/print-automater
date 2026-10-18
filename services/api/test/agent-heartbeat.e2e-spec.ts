@@ -11,6 +11,7 @@ import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
 import { AgentPairingCodeService } from "../src/shop-agents/agent-pairing-code.service.js";
 import { TokenService } from "../src/auth/token.service.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 function generateAgentKeypair(): { publicKeyBase64Url: string; privateKey: KeyObject } {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -128,6 +129,7 @@ describe("POST /agents/heartbeat (9.4, e2e)", () => {
     const existing = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         name: `Existing Printer ${randomUUID()}`,
         status: PrinterStatus.OFFLINE,
       },
@@ -149,6 +151,7 @@ describe("POST /agents/heartbeat (9.4, e2e)", () => {
     const disabled = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         name: `Disabled Printer ${randomUUID()}`,
         status: PrinterStatus.DISABLED,
       },
@@ -218,6 +221,7 @@ describe("POST /agents/heartbeat (9.4, e2e)", () => {
     const existing = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         name: `Legacy-Beat Printer ${randomUUID()}`,
         status: PrinterStatus.OFFLINE,
         model: "HP LaserJet Pro M404-M405 PCL-6",
@@ -243,6 +247,7 @@ describe("POST /agents/heartbeat (9.4, e2e)", () => {
     const existing = await prisma.printer.create({
       data: {
         shopId: shop.id,
+        branchId: await branchIdOf(prisma, shop.id),
         name: `Located Printer ${randomUUID()}`,
         status: PrinterStatus.OFFLINE,
         location: "Front counter, staff-set",

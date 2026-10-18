@@ -25,6 +25,7 @@ import { AppModule } from "../src/app.module.js";
 import { TokenService } from "../src/auth/token.service.js";
 import { API_ENV } from "../src/config/config.module.js";
 import { configureApp } from "../src/bootstrap.js";
+import { branchIdOf } from "./helpers/branches.js";
 
 /** 18.16: a job write and the order sync it triggers are ONE transaction.
  * The order side is made to fail once (SYNC_JOBS through the private
@@ -81,12 +82,18 @@ describe("Job write and order sync are atomic (18.16, e2e)", () => {
     });
     shopId = shop.id;
     const agent = await prisma.printerAgent.create({
-      data: { deviceId: randomUUID(), shopId, publicKey: "irrelevant-test-public-key" },
+      data: {
+        deviceId: randomUUID(),
+        shopId,
+        branchId: await branchIdOf(prisma, shopId),
+        publicKey: "irrelevant-test-public-key",
+      },
     });
     agentId = agent.id;
     const printer = await prisma.printer.create({
       data: {
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         agentId,
         name: "Atomic Sync Printer",
         status: PrinterStatus.ONLINE,
@@ -140,6 +147,7 @@ describe("Job write and order sync are atomic (18.16, e2e)", () => {
         publicOrderNumber: `TEST-ATOMIC-${randomUUID()}`,
         customerId,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         documentId,
         printConfiguration: {
           pages: { mode: "all" },
@@ -159,6 +167,7 @@ describe("Job write and order sync are atomic (18.16, e2e)", () => {
       data: {
         orderId: order.id,
         shopId,
+        branchId: await branchIdOf(prisma, shopId),
         printerId,
         idempotencyToken: randomUUID(),
         status: jobStatus,
