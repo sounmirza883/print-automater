@@ -334,6 +334,20 @@ export class PrintersService {
       if (rows.length === 0) {
         throw new NotFoundException("Printer not found.");
       }
+      // Which PC this printer belongs to was read before the locks; a heartbeat may have linked
+      // (or moved) it since. Now that its row is held, confirm it still belongs to the same PC,
+      // or the move would act on a stale picture and split the printer from its computer.
+      const current = await tx.$queryRaw<Array<{ agentId: string | null }>>`
+        SELECT agent_id AS "agentId" FROM printers WHERE id = ${printerId}
+      `;
+      if ((current[0]?.agentId ?? null) !== (target.agentId ?? null)) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          "PRINTER_CHANGED",
+          "This printer was just updated by its computer. Try the move again.",
+          true,
+        );
+      }
       const ids = rows.map((row) => row.id);
       const fromBranchId = rows[0]!.branchId;
       const changed = rows.some((row) => row.branchId !== destination.id);

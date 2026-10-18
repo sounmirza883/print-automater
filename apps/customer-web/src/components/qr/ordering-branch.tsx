@@ -33,6 +33,24 @@ export function BranchChecking(): ReactNode {
   );
 }
 
+/** An archived branch's printed QR code is still out there. The guest is told it no longer takes
+ * orders, instead of being quietly sent to a different branch they may be nowhere near. */
+export function BranchGoneScreen(): ReactNode {
+  return (
+    <SiteFrame width="narrow">
+      <div role="status" className="grid gap-2">
+        <h1 className="text-2xl font-semibold tracking-[-0.02em]">
+          This branch is no longer taking orders
+        </h1>
+        <p className="text-sm text-muted">
+          The code you scanned belongs to a branch that has closed for good. Please ask at the
+          counter for the shop&apos;s current QR code.
+        </p>
+      </div>
+    </SiteFrame>
+  );
+}
+
 /** A closed branch takes no orders, so the guest is told so before uploading anything. They can
  * check again without scanning the code once more. */
 export function BranchClosedScreen({

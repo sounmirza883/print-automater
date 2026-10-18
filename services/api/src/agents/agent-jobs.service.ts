@@ -229,10 +229,23 @@ export class AgentJobsService implements OnModuleDestroy {
             const printer = job.printerId
               ? await tx.printer.findFirst({
                   where: { id: job.printerId, agent: { deviceId } },
-                  select: { id: true, shopId: true },
+                  select: {
+                    id: true,
+                    shopId: true,
+                    branchId: true,
+                    agent: { select: { branchId: true } },
+                  },
                 })
               : null;
-            if (!printer) {
+            // Printing never crosses branches: the job, the printer and the PC claiming it must
+            // all be at one branch. Every path that queues a job already checks this; this is the
+            // last line of defence, so a mismatch (a bug, a race, a hand-edited row) is refused
+            // like a job that is not this agent's, and nothing prints at the wrong location.
+            if (
+              !printer ||
+              printer.branchId !== job.branchId ||
+              printer.agent?.branchId !== job.branchId
+            ) {
               throw new AppException(
                 HttpStatus.NOT_FOUND,
                 "JOB_NOT_FOUND",

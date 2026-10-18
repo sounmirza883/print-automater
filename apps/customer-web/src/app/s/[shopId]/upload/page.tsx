@@ -7,6 +7,7 @@ import { GuestDetailsStep } from "@/components/qr/details-step";
 import {
   BranchChecking,
   BranchClosedScreen,
+  BranchGoneScreen,
   OrderingBranchContext,
 } from "@/components/qr/ordering-branch";
 import { UploadStep } from "@/components/qr/upload-step";
@@ -76,6 +77,9 @@ function QrOrderWizard({
   const stage = branchStage(lookup);
   if (stage === "loading") {
     return <BranchChecking />;
+  }
+  if (stage === "gone") {
+    return <BranchGoneScreen />;
   }
   if (lookup.kind === "found" && stage === "closed") {
     return (

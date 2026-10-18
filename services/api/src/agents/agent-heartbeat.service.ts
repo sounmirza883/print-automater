@@ -23,7 +23,15 @@ export class AgentHeartbeatService {
    * appear in the Shop app" intent. `status` never overwrites
    * DISABLED: that's staff's own operator override (8.4), and a
    * heartbeat -- an agent-reported signal -- has no authority to
-   * clobber it. */
+   * clobber it.
+   *
+   * Branches: printers are matched by branch AND name (two branches can each have a printer
+   * called "HP LaserJet"), where the branch is the one the agent's PC belongs to. That branch is
+   * read UNDER a share lock on the agent row, inside the same short transaction that finds,
+   * creates or updates the printer: an owner moving the PC takes that row FOR UPDATE, so the move
+   * either commits first (and this heartbeat then sees the new branch) or waits for this
+   * transaction (and then moves the printer this heartbeat just wrote). Either way no printer is
+   * ever left at the old branch for a PC that is now at the new one. */
   async processHeartbeat(deviceId: string, shopId: string, input: HeartbeatInput): Promise<void> {
     const agent = await this.prisma.printerAgent.findUniqueOrThrow({ where: { deviceId } });
 
@@ -33,84 +41,93 @@ export class AgentHeartbeatService {
     });
 
     for (const reported of input.printers) {
-      // Matched by branch AND name: two branches can each have a printer called "HP LaserJet", and
-      // an agent only ever links the printers of the branch its PC belongs to (moving the PC
-      // moves them together, so the key follows it).
-      const existing = await this.prisma.printer.findFirst({
-        where: { shopId, branchId: agent.branchId, name: reported.name },
-      });
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<Array<{ branchId: string }>>`
+          SELECT branch_id AS "branchId" FROM printer_agents WHERE id = ${agent.id} FOR SHARE
+        `;
+        const branchId = locked[0]?.branchId ?? agent.branchId;
 
-      if (!existing) {
-        await this.prisma.printer.create({
+        const existing = await tx.printer.findFirst({
+          where: { shopId, branchId, name: reported.name },
+        });
+
+        if (!existing) {
+          await tx.printer.create({
+            data: {
+              shopId,
+              // The agent's own branch: its printers are wherever the paired PC is.
+              branchId,
+              agentId: agent.id,
+              name: reported.name,
+              status: reported.status,
+              capabilities: reported.capabilities as unknown as Prisma.InputJsonValue | undefined,
+              // 15.6: `driverName`/`portName` map onto the 15.3 printer
+              // profile's `model`/`connectionType` -- both plain free
+              // text with no other writer yet (updatePrinterSchema
+              // doesn't expose either), so there's nothing for a fresh
+              // heartbeat to clobber here. `location` is deliberately
+              // never set from a heartbeat at all (15.3's own schema
+              // comment: staff-set only, forever) -- the wire schema
+              // doesn't even carry it.
+              model: reported.driverName,
+              connectionType: reported.portName,
+            },
+          });
+          return { kind: "created" as const };
+        }
+
+        if (existing.status === PrinterStatus.DISABLED) {
+          // Still worth linking the agent (so a later re-enable/sweep
+          // has something to act on), just not the status.
+          await tx.printer.update({
+            where: { id: existing.id },
+            data: { agentId: agent.id },
+          });
+          return { kind: "disabled" as const };
+        }
+
+        if (existing.status === PrinterStatus.OFFLINE) {
+          // §103/12.5: "agent connectivity" metric, the reconnect half of
+          // printer-offline-sweep.processor.ts's own "marked N printer(s)
+          // OFFLINE" -- only fires on the OFFLINE -> heartbeat-received
+          // state change, not every 30s heartbeat, for the same low-noise
+          // reason authenticate()'s own "agent.connected" log fires on
+          // session start rather than every request. A heartbeat's
+          // reported status can only ever be ONLINE or ERROR (an agent
+          // that's actually offline sends nothing) -- receiving one at
+          // all while the printer was OFFLINE is what "reconnected"
+          // means here.
+          this.logger.log(
+            { metric: "agent.reconnected", deviceId, printerId: existing.id },
+            "Printer reconnected.",
+          );
+        }
+
+        await tx.printer.update({
+          where: { id: existing.id },
           data: {
-            shopId,
-            // The agent's own branch: its printers are wherever the paired PC is.
-            branchId: agent.branchId,
             agentId: agent.id,
-            name: reported.name,
             status: reported.status,
-            capabilities: reported.capabilities as unknown as Prisma.InputJsonValue | undefined,
-            // 15.6: `driverName`/`portName` map onto the 15.3 printer
-            // profile's `model`/`connectionType` -- both plain free
-            // text with no other writer yet (updatePrinterSchema
-            // doesn't expose either), so there's nothing for a fresh
-            // heartbeat to clobber here. `location` is deliberately
-            // never set from a heartbeat at all (15.3's own schema
-            // comment: staff-set only, forever) -- the wire schema
-            // doesn't even carry it.
-            model: reported.driverName,
-            connectionType: reported.portName,
+            capabilities: (reported.capabilities ?? existing.capabilities) as unknown as
+              Prisma.InputJsonValue | undefined,
+            // 15.6: same "reported field, or keep whatever's already
+            // there" fallback as capabilities just above -- an agent
+            // that omits driverName/portName (an old/unupdated agent
+            // that's never sent them, or this run's own "unchanged
+            // since last beat" omission, discovery.ts's
+            // toHeartbeatPrinters) must never null out a previously
+            // reported (or, once a future PATCH endpoint exposes these
+            // for editing, staff-set) value. `location` is never part
+            // of this update at all -- staff-set only, per 15.3.
+            model: reported.driverName ?? existing.model,
+            connectionType: reported.portName ?? existing.connectionType,
           },
         });
-        continue;
-      }
-
-      if (existing.status === PrinterStatus.DISABLED) {
-        // Still worth linking the agent (so a later re-enable/sweep
-        // has something to act on), just not the status.
-        await this.prisma.printer.update({
-          where: { id: existing.id },
-          data: { agentId: agent.id },
-        });
-        continue;
-      }
-
-      if (existing.status === PrinterStatus.OFFLINE) {
-        // §103/12.5: "agent connectivity" metric, the reconnect half of
-        // printer-offline-sweep.processor.ts's own "marked N printer(s)
-        // OFFLINE" -- only fires on the OFFLINE -> heartbeat-received
-        // state change, not every 30s heartbeat, for the same low-noise
-        // reason authenticate()'s own "agent.connected" log fires on
-        // session start rather than every request. A heartbeat's
-        // reported status can only ever be ONLINE or ERROR (an agent
-        // that's actually offline sends nothing) -- receiving one at
-        // all while the printer was OFFLINE is what "reconnected"
-        // means here.
-        this.logger.log(
-          { metric: "agent.reconnected", deviceId, printerId: existing.id },
-          "Printer reconnected.",
-        );
-      }
-
-      await this.prisma.printer.update({
-        where: { id: existing.id },
-        data: {
-          agentId: agent.id,
-          status: reported.status,
-          capabilities: (reported.capabilities ?? existing.capabilities) as unknown as
-            Prisma.InputJsonValue | undefined,
-          // 15.6: same "reported field, or keep whatever's already
-          // there" fallback as capabilities just above -- an agent
-          // that omits driverName/portName (an old/unupdated agent
-          // that's never sent them, or this run's own "unchanged
-          // since last beat" omission, discovery.ts's
-          // toHeartbeatPrinters) must never null out a previously
-          // reported (or, once a future PATCH endpoint exposes these
-          // for editing, staff-set) value. `location` is never part
-          // of this update at all -- staff-set only, per 15.3.
-          model: reported.driverName ?? existing.model,
-          connectionType: reported.portName ?? existing.connectionType,
-        },
+        return {
+          kind: "updated" as const,
+          printerId: existing.id,
+          previousStatus: existing.status,
+        };
       });
 
       // Awaited inside the heartbeat request on purpose (the agent's next
@@ -121,8 +138,12 @@ export class AgentHeartbeatService {
       // 19.4 trigger (c): the printer just BECAME unsuitable (a state
       // change, not every 30s beat that repeats ERROR). After commit; a no-op
       // unless the shop opted in.
-      if (reported.status === PrinterStatus.ERROR && existing.status !== PrinterStatus.ERROR) {
-        await this.agentJobs.reevaluatePrinter(shopId, existing.id, "PRINTER_ERROR");
+      if (
+        outcome.kind === "updated" &&
+        reported.status === PrinterStatus.ERROR &&
+        outcome.previousStatus !== PrinterStatus.ERROR
+      ) {
+        await this.agentJobs.reevaluatePrinter(shopId, outcome.printerId, "PRINTER_ERROR");
       }
     }
   }

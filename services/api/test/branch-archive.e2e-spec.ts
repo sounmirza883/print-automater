@@ -70,8 +70,6 @@ describe("Archiving a branch with printers or orders (step 3, e2e)", () => {
       OrderStatus.SHOP_REJECTED,
       OrderStatus.PAYMENT_FAILED,
       OrderStatus.DRAFT,
-      OrderStatus.UPLOADED,
-      OrderStatus.PAYMENT_PENDING,
     ]) {
       await fx.makeOrder(1, 1, status, undefined, branch.id);
     }
@@ -80,6 +78,9 @@ describe("Archiving a branch with printers or orders (step 3, e2e)", () => {
 
   it("counts every state that still needs the shop", async () => {
     for (const status of [
+      // Waiting for payment at the counter or online: it can still be paid after the archive.
+      OrderStatus.UPLOADED,
+      OrderStatus.PAYMENT_PENDING,
       OrderStatus.PAID,
       OrderStatus.SHOP_ACCEPTED,
       OrderStatus.QUEUED_FOR_PRINT,
@@ -100,5 +101,36 @@ describe("Archiving a branch with printers or orders (step 3, e2e)", () => {
         "BRANCH_HAS_ORDERS",
       ]);
     }
+  });
+
+  it("does not let an old computer with no printers hold a branch forever, and revokes it", async () => {
+    // A PC that re-paired leaves its old agent row behind with nothing on it. It is not a reason
+    // to keep the branch, but it must never be able to report printers into an archived branch.
+    const branch = await fx.addBranch("Old agent");
+    const stale = await fx.prisma.printerAgent.create({
+      data: {
+        deviceId: `stale-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        shopId: fx.shop.id,
+        branchId: branch.id,
+        publicKey: "irrelevant-test-public-key",
+      },
+    });
+
+    expect((await archive(branch.id)).status).toBe(200);
+    const after = await fx.prisma.printerAgent.findUniqueOrThrow({ where: { id: stale.id } });
+    expect(after.status).toBe("REVOKED");
+    await fx.prisma.printerAgent.delete({ where: { id: stale.id } });
+  });
+
+  it("still keeps a branch while a computer with printers is there", async () => {
+    const branch = await fx.addBranch("Live agent");
+    const { printer } = await fx.makePrinter("live-pc-printer", {}, branch.id);
+    const refused = await archive(branch.id);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error_code).toBe("BRANCH_HAS_PRINTERS");
+    const agent = await fx.prisma.printerAgent.findFirstOrThrow({
+      where: { id: printer.agentId! },
+    });
+    expect(agent.status).toBe("ACTIVE");
   });
 });

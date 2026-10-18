@@ -73,9 +73,17 @@ export async function notifyShopStaff(
       shopId: alert.shopId,
       status: ShopStaffStatus.ACTIVE,
       role: { not: "ADMIN" },
-      OR: [
-        { role: { in: rolesWithPermission(alert.permission) } },
-        { extraPermissions: { has: alert.permission } },
+      AND: [
+        {
+          OR: [
+            { role: { in: rolesWithPermission(alert.permission) } },
+            { extraPermissions: { has: alert.permission } },
+          ],
+        },
+        // An alert about a branch reaches the people who work there and the people who work at all
+        // branches (no branch on the member), never another branch's staff. An alert with no
+        // branch is business-wide and reaches everyone who holds the permission.
+        ...(alert.branchId ? [{ OR: [{ branchId: null }, { branchId: alert.branchId }] }] : []),
       ],
       user: { status: UserStatus.ACTIVE },
     },

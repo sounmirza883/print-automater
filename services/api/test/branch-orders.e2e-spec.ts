@@ -277,13 +277,18 @@ describe("Orders are created at a branch (step 3 / B3, e2e)", () => {
       }
     });
 
-    it("is a 404 for an unknown branch, an archived one, and another business's", async () => {
+    it("is a 404 for an unknown branch and for another business's, so it confirms nothing about them", async () => {
       expect((await http().get(qrPath(`/branches/${randomUUID()}`))).status).toBe(404);
       expect((await http().get(qrPath(`/branches/${otherShopBranchId}`))).status).toBe(404);
+      expect((await http().get(qrPath("/branches/not-a-uuid"))).status).toBe(400);
+    });
+
+    it("says an archived branch of this business is gone (410), so a guest is not silently sent elsewhere", async () => {
       const spare = await fx.addBranch("Gone");
       await fx.prisma.branch.update({ where: { id: spare.id }, data: { archivedAt: new Date() } });
-      expect((await http().get(qrPath(`/branches/${spare.id}`))).status).toBe(404);
-      expect((await http().get(qrPath("/branches/not-a-uuid"))).status).toBe(400);
+      const res = await http().get(qrPath(`/branches/${spare.id}`));
+      expect(res.status).toBe(410);
+      expect(res.body.error_code).toBe("BRANCH_ARCHIVED");
     });
 
     it("is rate limited like the other public routes", async () => {

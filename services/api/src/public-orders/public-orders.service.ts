@@ -154,17 +154,28 @@ export class PublicOrdersService {
   }
 
   /** `GET /public/shops/:shopId/branches/:branchId`: the page behind a branch's QR code. A branch
-   * that is unknown, archived or another business's is the same 404, so the route confirms nothing
-   * about branches of other businesses. */
+   * that is unknown or another business's is the same 404, so the route confirms nothing about
+   * branches of other businesses. A branch of THIS business that was archived is 410 Gone: its
+   * printed QR code is still out there, and the guest must be told it no longer takes orders
+   * rather than being quietly sent to a different branch. */
   async getBranch(shopId: string, branchId: string): Promise<PublicBranchResponse> {
     const branch = await this.prisma.branch.findFirst({
-      where: { id: branchId, shopId, archivedAt: null },
-      select: { id: true, name: true, city: true, address: true, isOpen: true },
+      where: { id: branchId, shopId },
+      select: { id: true, name: true, city: true, address: true, isOpen: true, archivedAt: true },
     });
     if (!branch) {
       throw new NotFoundException("Branch not found.");
     }
-    return branch;
+    if (branch.archivedAt) {
+      throw new AppException(
+        HttpStatus.GONE,
+        "BRANCH_ARCHIVED",
+        "This branch no longer takes orders.",
+        false,
+      );
+    }
+    const { archivedAt: _archivedAt, ...open } = branch;
+    return open;
   }
 
   /** `GET /public/shops/:shopId/orders/:orderId/invoice`: the guest's PDF

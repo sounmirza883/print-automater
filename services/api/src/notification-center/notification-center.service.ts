@@ -117,14 +117,22 @@ export class NotificationCenterService {
           status: ShopStaffStatus.ACTIVE,
           ...(filter.shopId ? { shopId: filter.shopId } : {}),
         },
-        select: { shopId: true, role: true, extraPermissions: true, removedPermissions: true },
+        select: {
+          shopId: true,
+          role: true,
+          extraPermissions: true,
+          removedPermissions: true,
+          branchId: true,
+        },
       });
       // Only alerts the member may STILL see: their current access (role defaults plus their
       // own overrides) must hold the permission that entitles them to that kind of alert
       // (same rule as the list).
+      // ...and only about their own branch (or business-wide), like the list.
       const visible = memberships.map((m) => ({
         shopId: m.shopId,
         type: { in: allowedTypes(m) },
+        ...(m.branchId ? { OR: [{ branchId: null }, { branchId: m.branchId }] } : {}),
       }));
       const staff = await this.prisma.staffNotification.updateMany({
         where: { userId, readAt: null, ...(visible.length > 0 ? { OR: visible } : { id: "none" }) },
@@ -165,6 +173,9 @@ export class NotificationCenterService {
             WHERE ss.shop_id = s.shop_id AND ss.user_id = s.user_id
               AND ss.status = 'ACTIVE'::"ShopStaffStatus"
               AND (${this.permissionClause()})
+              -- An alert about a branch is only for the people who work there (or at all
+              -- branches); one with no branch is business-wide.
+              AND (s.branch_id IS NULL OR ss.branch_id IS NULL OR ss.branch_id = s.branch_id)
           )
       )
     `;

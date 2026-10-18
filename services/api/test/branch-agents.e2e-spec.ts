@@ -266,6 +266,83 @@ describe("Agents, pairing and moving a PC (step 3 / B5, e2e)", () => {
       expect(await printersNamed(name)).toHaveLength(2);
     });
 
+    it("a heartbeat that arrives while its PC is being moved leaves nothing behind at the old branch", async () => {
+      const { agent } = await pair(fx.branch.id);
+      const names = [unique("race-1"), unique("race-2")];
+      expect((await heartbeat(agent, names)).status).toBe(200);
+      const fresh = unique("race-new");
+
+      // The owner's move, frozen half way: it holds the PC's locks, has moved everything to B, and
+      // only commits after the heartbeat has had time to arrive and start waiting on them.
+      const holdingTheMove = fx.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM printer_agents WHERE id = ${agent.agentId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM printers WHERE agent_id = ${agent.agentId} ORDER BY id FOR UPDATE`;
+          await tx.printerAgent.update({
+            where: { id: agent.agentId },
+            data: { branchId: branchB.id },
+          });
+          await tx.printer.updateMany({
+            where: { agentId: agent.agentId },
+            data: { branchId: branchB.id },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        },
+        { timeout: 20_000 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const arriving = heartbeat(agent, [...names, fresh]);
+      const [, response] = await Promise.all([holdingTheMove, arriving]);
+      expect(response.status).toBe(200);
+
+      // Whatever order they interleaved in, the PC and every printer it reported are at ONE branch:
+      // no printer row was created at A for a PC that is now at B, and no printer is a duplicate.
+      const agentRow = await fx.prisma.printerAgent.findUniqueOrThrow({
+        where: { id: agent.agentId },
+      });
+      const rows = await fx.prisma.printer.findMany({ where: { agentId: agent.agentId } });
+      expect(rows.map((p) => p.name).sort()).toEqual([...names, fresh].sort());
+      expect(rows.every((p) => p.branchId === agentRow.branchId)).toBe(true);
+      expect(agentRow.branchId).toBe(branchB.id);
+    }, 30_000);
+
+    it("a PC will not claim a job from another branch, even one wrongly queued on its printer", async () => {
+      // Last line of defence: every path that queues a job already checks the branch, but if a job
+      // of branch A ever sat on a printer of branch B, B's PC must still refuse to print it.
+      const { agent } = await pair(branchB.id);
+      const name = unique("claim-guard");
+      expect((await heartbeat(agent, [name])).status).toBe(200);
+      const printerAtB = (await printersNamed(name))[0]!;
+      expect(printerAtB.branchId).toBe(branchB.id);
+
+      const orderAtA = (
+        await fx.makeOrder(1, 1, OrderStatus.QUEUED_FOR_PRINT, undefined, fx.branch.id)
+      ).orderId;
+      const item = await fx.prisma.orderItem.findFirstOrThrow({ where: { orderId: orderAtA } });
+      const job = await fx.prisma.printJob.create({
+        data: {
+          orderId: orderAtA,
+          shopId: fx.shop.id,
+          branchId: fx.branch.id,
+          orderItemId: item.id,
+          printerId: printerAtB.id,
+          attempt: 1,
+          idempotencyToken: `${item.id}:1`,
+          status: PrintJobStatus.QUEUED,
+        },
+      });
+
+      const claim = await http()
+        .post(`/v1/agents/jobs/${job.id}/claim`)
+        .set(bearer(agent.accessToken))
+        .send({});
+      expect(claim.status).toBe(404);
+      expect(claim.body.error_code).toBe("JOB_NOT_FOUND");
+      expect((await fx.prisma.printJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe(
+        PrintJobStatus.QUEUED,
+      );
+    });
+
     it("a hand-registered printer takes the branch the same way a code does", async () => {
       const register = (actor: { token: string }, extra: Record<string, unknown>) =>
         http()
@@ -469,6 +546,41 @@ describe("Agents, pairing and moving a PC (step 3 / B5, e2e)", () => {
         (await fx.prisma.printer.findUniqueOrThrow({ where: { id: made.body.id } })).branchId,
       ).toBe(branchB.id);
     });
+
+    it("a move that loses a race with a PC claiming the printer is refused, not half done", async () => {
+      // A hand-registered printer (no PC) at A, and a PC at A that is about to report it.
+      const made = await http()
+        .post("/v1/shop/printers")
+        .set(owner())
+        .send({ shopId: fx.shop.id, branchId: fx.branch.id, name: unique("claimed-midway") });
+      expect(made.status).toBe(201);
+      const { agent } = await pair(fx.branch.id);
+
+      // The heartbeat's write, frozen half way: it holds the printer row and links it to the PC,
+      // and only commits after the move request has arrived and started waiting for that row.
+      const claiming = fx.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM printers WHERE id = ${made.body.id} FOR UPDATE`;
+          await tx.printer.update({
+            where: { id: made.body.id },
+            data: { agentId: agent.agentId },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        },
+        { timeout: 20_000 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const [, moved] = await Promise.all([claiming, move(made.body.id, branchB.id)]);
+
+      // The move decided on a stale picture (no PC), so it must not move the printer on its own
+      // and strand it away from the PC that now owns it.
+      expect(moved.status).toBe(409);
+      const printer = await fx.prisma.printer.findUniqueOrThrow({ where: { id: made.body.id } });
+      const pc = await fx.prisma.printerAgent.findUniqueOrThrow({ where: { id: agent.agentId } });
+      expect(printer.agentId).toBe(agent.agentId);
+      expect(printer.branchId).toBe(pc.branchId);
+      expect(pc.branchId).toBe(fx.branch.id);
+    }, 30_000);
 
     it("a move racing an accepted order never leaves a job on a printer of another branch", async () => {
       for (let round = 0; round < 6; round += 1) {

@@ -80,12 +80,23 @@ describe("fetchPublicBranch", () => {
     expect(lookup).toEqual({ kind: "unreachable" });
   });
 
-  it("calls a branch the API does not know (or has archived) unknown", async () => {
+  it("calls a branch the API does not know unknown", async () => {
     expect(
       await fetchPublicBranch(SHOP, BRANCH, async () =>
         json(404, { error_code: "BRANCH_NOT_FOUND", message: "No such branch." }),
       ),
     ).toEqual({ kind: "unknown" });
+  });
+
+  it("calls a branch the API says is gone (archived) archived, never unknown", async () => {
+    expect(
+      await fetchPublicBranch(SHOP, BRANCH, async () =>
+        json(410, {
+          error_code: "BRANCH_ARCHIVED",
+          message: "This branch no longer takes orders.",
+        }),
+      ),
+    ).toEqual({ kind: "archived" });
   });
 
   it("is unreachable, never an error, when the call gets no answer, is limited or fails", async () => {
@@ -142,6 +153,10 @@ describe("branchStage", () => {
 
   it("stops a closed branch from taking an order", () => {
     expect(branchStage({ kind: "found", branch: { ...gulberg, isOpen: false } })).toBe("closed");
+  });
+
+  it("stops an archived branch's old QR code from taking an order anywhere", () => {
+    expect(branchStage({ kind: "archived" })).toBe("gone");
   });
 
   it("lets everything else carry on to the wizard", () => {

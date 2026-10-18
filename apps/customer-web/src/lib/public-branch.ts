@@ -11,13 +11,15 @@ export interface PublicBranch {
 }
 
 /** `none`: the link names no branch. `loading`: asking the API. `found`: a branch to order from
- * (open or closed). `unknown`: the API has no such branch, or it is archived. `unreachable`: no
- * usable answer (offline, limited, a failure). */
+ * (open or closed). `unknown`: the API has no such branch. `archived`: the branch existed and was
+ * archived, so its printed QR code no longer takes orders. `unreachable`: no usable answer (offline,
+ * limited, a failure). */
 export type BranchLookup =
   | { kind: "none" }
   | { kind: "loading" }
   | { kind: "found"; branch: PublicBranch }
   | { kind: "unknown" }
+  | { kind: "archived" }
   | { kind: "unreachable" };
 
 // The shape the API checks a branch id against (z.string().uuid()): anything else would be refused
@@ -60,6 +62,11 @@ export async function fetchPublicBranch(
     if (response.status === 404) {
       return { kind: "unknown" };
     }
+    // Gone: this business's own branch, archived. Never treated as "unknown", which would quietly
+    // send the guest's order to a different branch.
+    if (response.status === 410) {
+      return { kind: "archived" };
+    }
     if (!response.ok) {
       return { kind: "unreachable" };
     }
@@ -91,9 +98,11 @@ export function orderBranchId(
   return lookup.kind === "unknown" ? undefined : branchId;
 }
 
-/** `closed` stops the wizard: a closed branch takes no orders, so the guest is told so up front. */
-export function branchStage(lookup: BranchLookup): "loading" | "closed" | "ready" {
+/** `closed` and `gone` stop the wizard: a closed branch takes no orders right now, and an archived
+ * branch never will again, so the guest is told so up front. */
+export function branchStage(lookup: BranchLookup): "loading" | "closed" | "gone" | "ready" {
   if (lookup.kind === "loading") return "loading";
+  if (lookup.kind === "archived") return "gone";
   if (lookup.kind === "found" && !lookup.branch.isOpen) return "closed";
   return "ready";
 }
